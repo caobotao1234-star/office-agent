@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Office Agent
  */
 import * as path from 'node:path';
@@ -43,59 +43,44 @@ const BUNDLED_SKILLS_DIR = path.join(__dirname, 'skills', 'bundled');
 const USER_SKILLS_DIR = path.join(BASE_DIR, 'skills');
 
 function buildSystemPrompt(toolDescriptions: string): string {
-  const lines = [
-    '# \u89D2\u8272\u8BBE\u5B9A',
+  return [
+    '# Office Agent',
     '',
-    '\u4F60\u662F Office Agent\uFF0C\u4E00\u4E2A\u4E13\u4E1A\u7684\u529E\u516C\u52A9\u7406\u667A\u80FD\u4F53\u3002',
+    'You are Office Agent, a professional office assistant.',
     '',
-    '# \u884C\u4E3A\u51C6\u5219',
+    '# CRITICAL RULE: You MUST use tools for actions',
     '',
-    '1. \u4EC5\u63A8\u8350\u5DF2\u6709\u53EF\u7528\u5DE5\u5177\u5B8C\u6210\u7684\u64CD\u4F5C',
-    '2. \u56DE\u7B54\u57FA\u4E8E\u8BB0\u5FC6\u7CFB\u7EDF\u4E2D\u7684\u771F\u5B9E\u6570\u636E',
-    '3. \u56DE\u590D\u7B80\u6D01\u660E\u4E86\uFF0C\u4E0D\u8D85\u8FC7 200 \u4E2A\u6C49\u5B57',
-    '4. \u6267\u884C\u5199\u64CD\u4F5C\u524D\u5FC5\u987B\u83B7\u5F97\u7528\u6237\u786E\u8BA4',
-    '5. \u81EA\u52A8\u8BB0\u4F4F\u5BF9\u8BDD\u4E2D\u7684\u91CD\u8981\u4FE1\u606F',
-    '6. \u9ED8\u8BA4\u4F7F\u7528\u4E2D\u6587\u4E0E\u7528\u6237\u4EA4\u6D41',
+    'When the user asks you to CREATE a task, CREATE a project, SAVE a memory, SET a reminder, or any other action:',
+    '- You MUST call the appropriate tool (TaskManager, SubAgentTool, MemoryTool, etc.)',
+    '- You MUST NOT just describe the action in text',
+    '- If you respond with text saying "created" or "saved" without actually calling a tool, that is WRONG',
+    '- The user can see tool calls in the UI. If no tool call appears, the action did not happen.',
     '',
-    '# \u53EF\u7528\u5DE5\u5177',
+    '# Available Tools',
     '',
     toolDescriptions,
     '',
-    '# \u8BB0\u5FC6\u7CFB\u7EDF',
+    '# Memory System',
     '',
-    '1. \u57FA\u4E8E\u5411\u91CF\u68C0\u7D22\u7684\u957F\u671F\u8BB0\u5FC6',
-    '2. \u81EA\u52A8\u53EC\u56DE\uFF1A\u6BCF\u6B21\u5BF9\u8BDD\u5F00\u59CB\u65F6\u81EA\u52A8\u9009\u53D6\u76F8\u5173\u8BB0\u5FC6',
-    '3. \u4E3B\u52A8\u5B58\u50A8\uFF1A\u4F7F\u7528 MemoryTool \u4FDD\u5B58\u91CD\u8981\u4FE1\u606F',
+    '- Memory index is injected dynamically each turn',
+    '- Use MemoryTool to store important information',
     '',
-    '\u5F53\u5BF9\u8BDD\u4E2D\u51FA\u73B0\u503C\u5F97\u8BB0\u4F4F\u7684\u4FE1\u606F\u65F6\uFF0C\u4F7F\u7528 MemoryTool \u5B58\u6863\u3002',
+    '# Available Commands',
     '',
-    '# \u53EF\u7528\u659C\u6760\u547D\u4EE4\uFF08\u5B8C\u6574\u5217\u8868\uFF09',
+    '/tasks /remind /daily-report /weekly-report /meeting-notes',
+    '/task-breakdown /feishu-sync /project /memory /cron',
+    '/usage /usage detail /help',
     '',
-    '/tasks \u2014 \u67E5\u770B\u4EFB\u52A1\u5217\u8868',
-    '/remind <\u5185\u5BB9> \u2014 \u521B\u5EFA\u63D0\u9192',
-    '/daily-report \u2014 \u751F\u6210\u6BCF\u65E5\u5DE5\u4F5C\u6C47\u62A5',
-    '/weekly-report \u2014 \u751F\u6210\u5468\u62A5',
-    '/meeting-notes \u2014 \u6574\u7406\u4F1A\u8BAE\u7EAA\u8981',
-    '/task-breakdown \u2014 \u62C6\u89E3\u5927\u4EFB\u52A1',
-    '/feishu-sync \u2014 \u540C\u6B65\u98DE\u4E66\u72B6\u6001',
-    '/project \u2014 \u67E5\u770B\u9879\u76EE\u5217\u8868',
-    '/memory <\u5173\u952E\u8BCD> \u2014 \u641C\u7D22\u8BB0\u5FC6',
-    '/cron \u2014 \u67E5\u770B\u5B9A\u65F6\u4EFB\u52A1',
-    '/usage \u2014 \u67E5\u770B token \u7528\u91CF\u7EDF\u8BA1',
-    '/usage detail \u2014 \u67E5\u770B\u8BE6\u7EC6\u7528\u91CF',
-    '/help \u2014 \u663E\u793A\u5E2E\u52A9',
+    'Do not recommend commands not in this list.',
     '',
-    '\u4EE5\u4E0A\u662F\u5168\u90E8\u53EF\u7528\u547D\u4EE4\u3002\u4E0D\u8981\u5411\u7528\u6237\u63A8\u8350\u4E0D\u5728\u6B64\u5217\u8868\u4E2D\u7684\u547D\u4EE4\u3002',
+    '# Response Rules',
     '',
-    '# \u8F93\u51FA\u89C4\u8303',
-    '',
-    '- \u7528\u6237\u53D1\u51FA\u659C\u6760\u547D\u4EE4\u65F6\uFF0C\u76F4\u63A5\u6267\u884C\u5BF9\u5E94\u64CD\u4F5C',
-    '- \u7528\u6237\u6307\u4EE4\u6A21\u7CCA\u65F6\uFF0C\u4E3B\u52A8\u8BE2\u95EE\u6F84\u6E05',
-    '- \u56DE\u590D\u8981\u6C42\u7B80\u6D01',
-  ];
-  return lines.join('\n');
+    '- Default language: Chinese',
+    '- Be concise but thorough when needed',
+    '- When user asks about time, use the injected current time',
+    '- For token usage, tell user to type /usage',
+  ].join('\n');
 }
-
 export interface OfficeAgent {
   queryEngine: QueryEngine;
   toolRegistry: ToolRegistry;
@@ -212,8 +197,11 @@ async function* handleMessage(
   agent: OfficeAgent,
   input: string,
 ): AsyncGenerator<StreamEvent> {
+  console.log('[handleMessage] start:', input.slice(0, 50));
+
   const activityStatus = agent.awaySummaryEngine.checkUserActivity();
   if (activityStatus.isAway) {
+    console.log('[handleMessage] away summary triggered');
     const messages = [...agent.queryEngine.getMessages()];
     const ac = new AbortController();
     try {
@@ -232,12 +220,9 @@ async function* handleMessage(
     return;
   }
 
-  const suggestedSkill = agent.skillSystem.suggestSkill(input);
-  if (suggestedSkill) {
-    yield { type: 'text', content: `\uD83D\uDCA1 \u68C0\u6D4B\u5230\u53EF\u7528\u6280\u80FD\u300C${suggestedSkill.name}\u300D\uFF0C\u8F93\u5165 /${suggestedSkill.name} \u6267\u884C\n\n` };
-  }
-
+  console.log('[handleMessage] calling submitMessage');
   yield* agent.queryEngine.submitMessage(input);
+  console.log('[handleMessage] submitMessage done');
 
   try {
     const suggestions = await generateSuggestions(agent);

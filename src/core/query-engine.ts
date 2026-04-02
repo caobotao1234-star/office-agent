@@ -48,7 +48,8 @@ export class QueryEngine {
     if (!lastId) return false;
     const msgs = this.sessionStore.load(lastId);
     if (msgs.length === 0) return false;
-    this.messages = msgs;
+    // Only keep last 20 messages to prevent context overflow
+    this.messages = msgs.length > 20 ? msgs.slice(-20) : msgs;
     this.sessionId = lastId;
     return true;
   }
@@ -100,6 +101,7 @@ export class QueryEngine {
   }
 
   async *submitMessage(userMessage: string): AsyncGenerator<StreamEvent> {
+    console.log('[QueryEngine.submitMessage] start');
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
 
@@ -107,13 +109,13 @@ export class QueryEngine {
 
     try {
       // Build system prompt with Layer 1 (index) + Layer 2 (relevant memories)
+      console.log('[QueryEngine] building dynamic system prompt...');
       const systemPrompt = await this.buildDynamicSystemPrompt(userMessage, signal);
+      console.log('[QueryEngine] system prompt built, length:', systemPrompt.length);
 
       // Choose execution path
       const hasNativeTools = !!this.config.llm.queryWithTools;
-      if (this.messages.filter(m => m.role === 'user').length <= 1) {
-        console.log(`[QueryEngine] Execution path: ${hasNativeTools ? 'nativeTools' : this.config.llm.queryStream ? 'stream' : 'basic'}`);
-      }
+      console.log(`[QueryEngine] path: ${hasNativeTools ? 'nativeTools' : this.config.llm.queryStream ? 'stream' : 'basic'}, tools: ${this.config.tools.listEnabled().length}`);
       if (hasNativeTools) {
         yield* this.executeWithNativeTools(systemPrompt, signal);
       } else if (this.config.llm.queryStream) {
@@ -136,6 +138,7 @@ export class QueryEngine {
 
       yield { type: 'done' };
     } catch (err) {
+      console.error('[QueryEngine] ERROR:', err);
       yield { type: 'error', error: err instanceof Error ? err.message : String(err) };
     } finally {
       this.abortController = null;
@@ -164,15 +167,13 @@ export class QueryEngine {
     });
 
     // Debug: log first call's tool schema to verify it's not empty
-    if (this.messages.filter(m => m.role === 'user').length <= 1) {
-      console.log(`[QueryEngine] ${toolDefs.length} tools loaded. First tool schema keys:`,
-        Object.keys(toolDefs[0]?.function?.parameters ?? {}));
-    }
+    console.log(`[QueryEngine.nativeTools] ${toolDefs.length} tools, first schema type:`, toolDefs[0]?.function?.parameters?.['type'] ?? toolDefs[0]?.function?.parameters?.['oneOf'] ? 'oneOf' : 'unknown');
 
     // Check if auto-compact is needed before building messages
     const estimatedTokens = this.messages.reduce(
       (sum, m) => sum + Math.ceil(m.content.length / 4), 0,
     );
+    console.log(`[QueryEngine.nativeTools] estimatedTokens: ${estimatedTokens}, compact threshold: ${this.config.contextManager.shouldAutoCompact(estimatedTokens)}`);
     if (this.config.contextManager.shouldAutoCompact(estimatedTokens)) {
       const compactResult = await this.config.contextManager.compact(
         this.messages,
@@ -186,6 +187,7 @@ export class QueryEngine {
       { role: 'system', content: systemPrompt },
       ...this.messages.map(m => this.toLLMMessage(m)),
     ];
+    console.log(`[QueryEngine.nativeTools] llmMessages built: ${llmMessages.length} messages`);
 
     let rounds = 0;
 
@@ -193,7 +195,9 @@ export class QueryEngine {
       if (signal.aborted) { yield { type: 'error', error: 'Request interrupted' }; return; }
       rounds++;
 
+      console.log(`[QueryEngine.nativeTools] round ${rounds}, messages: ${llmMessages.length}, calling LLM...`);
       const result = await this.config.llm.queryWithTools!(llmMessages, toolDefs, signal);
+      console.log(`[QueryEngine.nativeTools] LLM returned: content=${result.content?.length ?? 0} chars, toolCalls=${result.toolCalls?.length ?? 0}`);
 
       // LLM returned tool calls
       if (result.toolCalls && result.toolCalls.length > 0) {
