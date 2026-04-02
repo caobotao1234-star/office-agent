@@ -25,6 +25,8 @@ export interface Tool<Input = unknown, Output = unknown> {
   description: string;
   /** Zod schema for input validation */
   inputSchema: ZodSchema<Input>;
+  /** Optional: pre-built JSON Schema for the API (avoids Zod→JSON conversion issues) */
+  parametersJsonSchema?: Record<string, unknown>;
 
   /** Whether this tool is currently enabled */
   isEnabled(): boolean;

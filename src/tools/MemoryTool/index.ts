@@ -62,6 +62,22 @@ export class MemoryTool implements Tool<MemoryToolInput, unknown> {
   readonly name = 'MemoryTool';
   readonly description = 'Manage long-term memory: store, search, delete entries, and export all data.';
   readonly inputSchema = MemoryToolInput;
+  readonly parametersJsonSchema = {
+    type: 'object',
+    properties: {
+      action: { type: 'string', enum: ['store', 'search', 'delete', 'export'], description: 'The operation to perform' },
+      title: { type: 'string', description: 'Memory title (for store)' },
+      content: { type: 'string', description: 'Memory content (for store)' },
+      type: { type: 'string', enum: ['preference', 'task', 'project_context', 'colleague', 'conversation_summary', 'decision', 'commitment'] },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Tags for categorization' },
+      source: { type: 'string', enum: ['user_input', 'feishu_doc', 'feishu_message', 'auto_extract', 'document_upload'] },
+      projectId: { type: 'string', description: 'Associated project ID' },
+      keyword: { type: 'string', description: 'Search keyword (for search)' },
+      id: { type: 'string', description: 'Memory ID (for delete)' },
+      format: { type: 'string', enum: ['json', 'markdown'], description: 'Export format' },
+    },
+    required: ['action'],
+  };
 
   private memorySystem: MemorySystem;
   private enabled = true;
