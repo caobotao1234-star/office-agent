@@ -65,7 +65,6 @@ export function createServer(port = 3000) {
 
   // --- Chat (SSE streaming) ---
   app.post('/api/chat', async (req, res) => {
-    console.log('[API] POST /api/chat:', req.body?.message?.slice(0, 50));
     const { message } = req.body as { message: string };
     if (!message) { res.status(400).json({ error: 'message required' }); return; }
 

@@ -197,12 +197,10 @@ async function* handleMessage(
   agent: OfficeAgent,
   input: string,
 ): AsyncGenerator<StreamEvent> {
-  console.log('[handleMessage] start:', input.slice(0, 50));
 
   const activityStatus = agent.awaySummaryEngine.checkUserActivity();
   if (activityStatus.isAway) {
-    console.log('[handleMessage] away summary triggered');
-    const messages = [...agent.queryEngine.getMessages()];
+      const messages = [...agent.queryEngine.getMessages()];
     const ac = new AbortController();
     try {
       const summary = await agent.awaySummaryEngine.generateSummary(messages, ac.signal);
@@ -220,9 +218,7 @@ async function* handleMessage(
     return;
   }
 
-  console.log('[handleMessage] calling submitMessage');
   yield* agent.queryEngine.submitMessage(input);
-  console.log('[handleMessage] submitMessage done');
 
   try {
     const suggestions = await generateSuggestions(agent);
