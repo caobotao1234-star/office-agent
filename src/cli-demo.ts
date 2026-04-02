@@ -1,78 +1,81 @@
 /**
- * CLI Demo — 用 mock LLM 演示 Office Agent 完整流程
+ * CLI Demo — Office Agent 交互式命令行
  *
  * 运行: npx tsx src/cli-demo.ts
+ *
+ * 需要 .env 文件配置:
+ *   DASHSCOPE_API_KEY=sk-xxx
+ *   DASHSCOPE_MODEL=qwen-plus  (可选，默认 qwen-plus)
  */
 import * as readline from 'node:readline';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { createOfficeAgent } from './main.js';
-import type { LLMClient } from './core/llm-client.js';
+import { createDashScopeLLM } from './core/dashscope-llm.js';
 import type { StreamEvent } from './types/index.js';
 
 // ============================================================
-// Mock LLM — 模拟 LLM 响应，让整个流程跑通
+// 加载 .env
 // ============================================================
 
-const mockLLM: LLMClient = {
-  async query(system: string, user: string, _signal: AbortSignal): Promise<string> {
-    const input = user.toLowerCase();
-
-    // 模拟工具调用：当用户说"查看任务"时，LLM 返回 tool_use
-    if (input.includes('列出所有当前任务') || input.includes('查看任务') || input.includes('任务列表')) {
-      return JSON.stringify({
-        tool_use: { name: 'TaskManager', input: { action: 'list' } },
-      });
+function loadEnv(): void {
+  const envPath = path.resolve('.env');
+  if (!fs.existsSync(envPath)) return;
+  const content = fs.readFileSync(envPath, 'utf-8');
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const value = trimmed.slice(eqIdx + 1).trim();
+    if (!process.env[key]) {
+      process.env[key] = value;
     }
-
-    // 模拟创建任务
-    if (input.includes('创建任务') || input.includes('新任务')) {
-      const desc = input.replace(/.*(?:创建任务|新任务)[：:\s]*/i, '') || '示例任务';
-      return JSON.stringify({
-        tool_use: {
-          name: 'TaskManager',
-          input: { action: 'create', description: desc, priority: 'medium', source: 'user_input' },
-        },
-      });
-    }
-
-    // 模拟记忆提取（extractAndStoreFromConversation 调用时）
-    if (system.includes('memory extraction')) {
-      return '[]';
-    }
-
-    // 模拟记忆相关性选择
-    if (system.includes('memory relevance')) {
-      return '';
-    }
-
-    // 默认回复
-    return `收到你的消息：「${user.slice(0, 80)}」\n\n我是 Office Agent 的 Mock 模式。目前支持以下演示：\n- 输入 /tasks 查看任务列表\n- 输入 "创建任务：写周报" 创建新任务\n- 输入 /daily-report 触发技能\n- 输入任意文字测试对话流程\n\n要接入真实 LLM，需要实现 LLMClient 接口并传入 createOfficeAgent()。`;
-  },
-};
+  }
+}
 
 // ============================================================
 // Main
 // ============================================================
 
 async function main() {
+  loadEnv();
+
+  const apiKey = process.env['DASHSCOPE_API_KEY'];
+  if (!apiKey) {
+    console.error('❌ 缺少 DASHSCOPE_API_KEY，请在 .env 文件中配置');
+    process.exit(1);
+  }
+
+  const model = process.env['DASHSCOPE_MODEL'] || 'qwen-plus';
+
   console.log('╔══════════════════════════════════════════╗');
-  console.log('║   🤖 Office Agent v0.1.0 — CLI Demo     ║');
-  console.log('║   输入消息与 Agent 交互，输入 quit 退出  ║');
+  console.log('║   🤖 Office Agent v0.1.0                ║');
+  console.log('║   你的 AI 办公助理                       ║');
   console.log('╚══════════════════════════════════════════╝');
+  console.log(`  模型: ${model}`);
+  console.log(`  输入消息与 Agent 交互，输入 quit 退出`);
   console.log();
 
-  const dataDir = path.join(os.tmpdir(), 'office-agent-demo');
+  const dataDir = path.join(os.homedir(), '.office-agent');
+
+  const llm = createDashScopeLLM({
+    apiKey,
+    model,
+    maxTokens: 4096,
+    temperature: 0.7,
+  });
 
   const agent = createOfficeAgent({
-    llm: mockLLM,
+    llm,
     baseDir: dataDir,
+    model,
   });
 
   await agent.start();
-  console.log('✅ Agent 已启动（技能已加载，调度器已启动）');
-  console.log(`📁 数据目录: ${dataDir}`);
-  console.log();
+  console.log('✅ Agent 已启动\n');
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -94,29 +97,35 @@ async function main() {
       }
 
       console.log();
+      process.stdout.write('Agent> ');
 
-      // 处理消息并输出流式事件
-      const gen = agent.handleMessage(trimmed);
-      for await (const event of gen) {
-        switch (event.type) {
-          case 'text':
-            process.stdout.write(event.content);
-            break;
-          case 'tool_use':
-            console.log(`\n🔧 调用工具: ${event.toolName}`);
-            console.log(`   输入: ${JSON.stringify(event.input)}`);
-            break;
-          case 'tool_result': {
-            const result = event.result;
-            console.log(`   结果: ${result.success ? '✅' : '❌'} ${JSON.stringify(result.output).slice(0, 200)}`);
-            break;
+      try {
+        const gen = agent.handleMessage(trimmed);
+        for await (const event of gen) {
+          switch (event.type) {
+            case 'text':
+              process.stdout.write(event.content);
+              break;
+            case 'tool_use':
+              console.log(`\n  🔧 [调用工具: ${event.toolName}]`);
+              break;
+            case 'tool_result': {
+              const r = event.result;
+              const preview = JSON.stringify(r.output).slice(0, 150);
+              console.log(`  📋 [结果: ${r.success ? '✅' : '❌'} ${preview}]`);
+              process.stdout.write('Agent> ');
+              break;
+            }
+            case 'error':
+              console.log(`\n  ❌ 错误: ${event.error}`);
+              break;
+            case 'done':
+              break;
           }
-          case 'error':
-            console.log(`\n❌ 错误: ${event.error}`);
-            break;
-          case 'done':
-            break;
         }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`\n  ❌ ${msg}`);
       }
 
       console.log('\n');
