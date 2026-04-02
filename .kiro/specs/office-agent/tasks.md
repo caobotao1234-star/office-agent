@@ -220,8 +220,8 @@
 - [x] 12. 检查点 — 确保技能系统、子 Agent、提醒和调度测试通过
   - 确保所有测试通过，如有问题请询问用户。
 
-- [ ] 13. 实现 Document_Parser 文档解析器
-  - [ ] 13.1 实现多格式文档解析
+- [x] 13. 实现 Document_Parser 文档解析器
+  - [x] 13.1 实现多格式文档解析
     - 创建 `src/tools/DocumentParser/index.ts`
     - 实现飞书云文档解析：通过 Feishu API 获取文档内容并转换为 InformationEntry
     - 实现 Excel 解析：使用 `xlsx` 库解析表格数据
@@ -236,8 +236,8 @@
     - 测试各格式解析、错误处理、格式化输出
     - _需求: 1.2, 1.3, 1.6, 14.5_
 
-- [ ] 14. 实现 Feishu_Connector 飞书连接器
-  - [ ] 14.1 实现飞书 API 对接
+- [x] 14. 实现 Feishu_Connector 飞书连接器
+  - [x] 14.1 实现飞书 API 对接
     - 创建 `src/tools/FeishuConnector/index.ts`
     - 实现消息发送：`sendMessage()`
     - 实现文档监控：`watchDocuments()` 通过事件订阅监听文档变更
@@ -253,7 +253,7 @@
     - _需求: 2.1, 2.5, 2.6_
 
 - [ ] 15. 实现辅助工具模块
-  - [ ] 15.1 实现 ReminderTool、MemoryTool、CronTool、BackgroundTaskTool
+  - [x] 15.1 实现 ReminderTool、MemoryTool、CronTool、BackgroundTaskTool
     - 创建 `src/tools/ReminderTool/index.ts`：创建/修改/删除提醒的 Tool 接口
     - 创建 `src/tools/MemoryTool/index.ts`：记忆手动增删查改的 Tool 接口
     - 创建 `src/tools/CronTool/index.ts`：定时任务管理的 Tool 接口
@@ -261,7 +261,7 @@
     - 每个工具实现 `Tool` 接口，包含 inputSchema、权限检查、用户确认逻辑
     - _需求: 5.1, 6.3, 3.6, 17.6, 18.1_
 
-  - [ ] 15.2 实现 EmailTool 和 CalendarTool
+  - [x] 15.2 实现 EmailTool 和 CalendarTool
     - 创建 `src/tools/EmailTool/index.ts`：邮件发送 Tool
     - 创建 `src/tools/CalendarTool/index.ts`：日程创建与查询 Tool
     - 写操作需要用户确认后执行
@@ -332,7 +332,7 @@
     - _需求: 20.1, 20.4_
 
 - [ ] 21. 实现数据安全与用户配置
-  - [ ] 21.1 实现敏感信息加密存储
+  - [x] 21.1 实现敏感信息加密存储
     - 创建 `src/core/security.ts`
     - 实现 AES-256-GCM 加密/解密工具函数
     - 对 API 密钥、认证令牌等敏感信息加密存储
@@ -340,7 +340,7 @@
     - 调用 LLM API 时仅发送必要上下文，避免发送完整数据库
     - _需求: 13.1, 13.2, 13.4_
 
-  - [ ] 21.2 实现用户配置管理与数据删除
+  - [x] 21.2 实现用户配置管理与数据删除
     - 创建 `src/core/user-config.ts`
     - 实现 UserConfig 的加载、保存、更新（持久化到 `~/.office-agent/config.json`）
     - 支持配置工作时间段、提醒激进程度、离开摘要阈值、飞书配置、工具启用状态
