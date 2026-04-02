@@ -83,13 +83,17 @@ export class QueryEngine {
       prompt += '\n\n# 记忆索引\n\n' + index;
     }
 
-    // Layer 2: On-demand recall — select up to 5 relevant memories
-    const memories = await this.config.memorySystem.findRelevantMemories(userMessage, signal);
-    if (memories.length > 0) {
-      prompt += '\n\n## 相关记忆（自动召回）\n\n' +
-        memories.map(m =>
-          `### [${m.type}] ${m.title}\n${m.content}`
-        ).join('\n\n');
+    // Layer 2: On-demand recall — only when there are enough memories to justify a side query
+    const allMemoryCount = index ? index.split('\n').filter(l => l.startsWith('-')).length : 0;
+    if (allMemoryCount > 3) {
+      // Only do LLM side query when there are enough memories to select from
+      const memories = await this.config.memorySystem.findRelevantMemories(userMessage, signal);
+      if (memories.length > 0) {
+        prompt += '\n\n## 相关记忆（自动召回）\n\n' +
+          memories.map(m =>
+            `### [${m.type}] ${m.title}\n${m.content}`
+          ).join('\n\n');
+      }
     }
 
     return prompt;
@@ -114,10 +118,14 @@ export class QueryEngine {
         yield* this.executeBasic(systemPrompt, signal);
       }
 
-      // Auto memory extraction (fire-and-forget, but log errors)
-      this.config.memorySystem.extractAndStoreFromConversation(this.messages).catch((err) => {
-        console.error('[MemoryExtraction] 自动记忆提取失败:', err instanceof Error ? err.message : err);
-      });
+      // Auto memory extraction — only every 5 turns to save tokens
+      // (每 5 轮对话提取一次，而不是每次都提取)
+      const userMsgCount = this.messages.filter(m => m.role === 'user').length;
+      if (userMsgCount > 0 && userMsgCount % 5 === 0) {
+        this.config.memorySystem.extractAndStoreFromConversation(this.messages).catch((err) => {
+          console.error('[MemoryExtraction] 自动记忆提取失败:', err instanceof Error ? err.message : err);
+        });
+      }
 
       // 持久化会话
       this.saveSession();
