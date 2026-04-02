@@ -56,11 +56,11 @@
     - 测试任务创建、状态流转、逾期检测、筛选查询
     - _需求: 4.1, 4.5, 4.6, 4.7_
 
-- [ ] 3. 检查点 — 确保基础结构和工具框架测试通过
+- [x] 3. 检查点 — 确保基础结构和工具框架测试通过
   - 确保所有测试通过，如有问题请询问用户。
 
-- [ ] 4. 实现 Memory_System 记忆系统
-  - [ ] 4.1 实现记忆持久化层
+- [-] 4. 实现 Memory_System 记忆系统
+  - [x] 4.1 实现记忆持久化层
     - 创建 `src/core/memory-system.ts`
     - 实现 `MemorySystem` 类的持久化操作：`store()`、`update()`、`delete()`、`deleteAll()`
     - 记忆以 Markdown + YAML frontmatter 格式存储在 `~/.office-agent/memdir/` 目录
