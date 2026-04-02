@@ -40,7 +40,7 @@ export class UserConfigManager {
         intensity: 'standard',
       },
       awaySummary: {
-        thresholdMinutes: 5,
+        thresholdMinutes: 15,
       },
       feishu: {
         enabled: false,
