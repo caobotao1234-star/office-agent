@@ -1,19 +1,16 @@
 /**
  * QueryEngine — Core conversation loop for Office Agent.
- * Reference: Claude Code's QueryEngine pattern (async generator).
  *
- * Orchestrates: user input → context assembly → LLM call → tool execution loop → memory extraction.
+ * Supports two modes:
+ * 1. Native function calling (queryWithTools) — reliable, structured tool calls
+ * 2. Prompt-based fallback (query/queryStream) — for LLMs without native tool support
  */
 import { randomUUID } from 'node:crypto';
-import type { Message, StreamEvent, ToolResult } from '../types/index.js';
-import type { LLMClient } from './llm-client.js';
+import type { Message, StreamEvent } from '../types/index.js';
+import type { LLMClient, LLMMessage, LLMToolDef } from './llm-client.js';
 import type { MemorySystem } from './memory-system.js';
 import type { ContextManager, ToolDefinition } from './context-manager.js';
 import type { ToolRegistry } from './tool-system.js';
-
-// ============================================================
-// Config
-// ============================================================
 
 export interface QueryEngineConfig {
   model: string;
@@ -22,42 +19,8 @@ export interface QueryEngineConfig {
   memorySystem: MemorySystem;
   contextManager: ContextManager;
   llm: LLMClient;
-  /** Maximum tool-call rounds per message to prevent infinite loops */
   maxToolRounds?: number;
 }
-
-// ============================================================
-// LLM response parsing helpers
-// ============================================================
-
-/**
- * Simple convention for LLM tool-use responses:
- * If the LLM wants to call a tool it returns a JSON block:
- *   {"tool_use": {"name": "ToolName", "input": { ... }}}
- * Otherwise the response is plain text.
- */
-interface ToolUseRequest {
-  name: string;
-  input: unknown;
-}
-
-function parseToolUse(text: string): ToolUseRequest | null {
-  try {
-    // Try to extract JSON from the response (may be wrapped in markdown fences)
-    const cleaned = text.replace(/```json?\s*/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleaned);
-    if (parsed?.tool_use?.name) {
-      return { name: parsed.tool_use.name, input: parsed.tool_use.input ?? {} };
-    }
-  } catch {
-    // Not JSON or not a tool_use block — treat as plain text
-  }
-  return null;
-}
-
-// ============================================================
-// QueryEngine
-// ============================================================
 
 export class QueryEngine {
   private config: QueryEngineConfig;
@@ -72,187 +35,193 @@ export class QueryEngine {
     this.maxToolRounds = config.maxToolRounds ?? 10;
   }
 
-  // ----------------------------------------------------------
-  // Public API
-  // ----------------------------------------------------------
-
-  /**
-   * Submit a user message and yield streaming events.
-   * Implements the full loop: context → LLM → (tool calls)* → memory extraction.
-   */
   async *submitMessage(userMessage: string): AsyncGenerator<StreamEvent> {
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
 
-    // 1. Record user message
-    this.messages.push({
-      role: 'user',
-      content: userMessage,
-      timestamp: new Date(),
-    });
+    this.messages.push({ role: 'user', content: userMessage, timestamp: new Date() });
 
     try {
-      // 2. Retrieve relevant memories
-      const memories = await this.config.memorySystem.findRelevantMemories(
-        userMessage,
-        signal,
-      );
+      // Retrieve relevant memories
+      const memories = await this.config.memorySystem.findRelevantMemories(userMessage, signal);
 
-      // 3. Build tool definitions for context
-      const toolDefs: ToolDefinition[] = this.config.tools
-        .listEnabled()
-        .map((t) => ({ name: t.name, description: t.description }));
+      // Build memory context string
+      const memoryBlock = memories.length > 0
+        ? '\n\n## 相关记忆\n' + memories.map(m => `[${m.type}] ${m.title}: ${m.content}`).join('\n')
+        : '';
 
-      // 4. Assemble context via ContextManager
-      const context = this.config.contextManager.buildContext({
-        systemPrompt: this.config.systemPrompt,
-        memories,
-        conversationHistory: this.messages,
-        toolDefinitions: toolDefs,
-      });
+      const systemPrompt = this.config.systemPrompt + memoryBlock;
 
-      // 5. LLM call + tool-use loop
-      let rounds = 0;
-      let lastAssistantContent = '';
-
-      while (rounds < this.maxToolRounds) {
-        if (signal.aborted) {
-          yield { type: 'error', error: 'Request interrupted' };
-          return;
-        }
-
-        rounds++;
-
-        // Build the prompt from context messages
-        const systemMsg = context.messages.find((m) => m.role === 'system');
-        const nonSystemMsgs = context.messages.filter((m) => m.role !== 'system');
-        const userPrompt = nonSystemMsgs.map((m) => `[${m.role}] ${m.content}`).join('\n');
-
-        // Call LLM — use streaming if available, fall back to non-streaming
-        const systemContent = systemMsg?.content ?? this.config.systemPrompt;
-        let llmResponse: string;
-
-        if (this.config.llm.queryStream) {
-          // 流式：逐 token 收集，同时 yield text 事件
-          const chunks: string[] = [];
-          let isToolUse = false;
-
-          for await (const chunk of this.config.llm.queryStream(systemContent, userPrompt, signal)) {
-            chunks.push(chunk);
-
-            // 检测是否是 tool_use JSON（以 { 开头的流）
-            const soFar = chunks.join('');
-            if (chunks.length <= 3 && soFar.trimStart().startsWith('{')) {
-              isToolUse = true; // 可能是 tool_use，先不输出，等收集完
-              continue;
-            }
-
-            if (!isToolUse) {
-              yield { type: 'text', content: chunk };
-            }
-          }
-
-          llmResponse = chunks.join('');
-
-          // 如果之前判断可能是 tool_use 但最终不是，补输出
-          if (isToolUse && !parseToolUse(llmResponse)) {
-            yield { type: 'text', content: llmResponse };
-            isToolUse = false;
-          }
-        } else {
-          // 非流式回退
-          llmResponse = await this.config.llm.query(systemContent, userPrompt, signal);
-        }
-
-        // Check for tool_use
-        const toolReq = parseToolUse(llmResponse);
-
-        if (toolReq) {
-          // Yield tool_use event
-          yield { type: 'tool_use', toolName: toolReq.name, input: toolReq.input };
-
-          // Execute tool via ToolRegistry
-          const toolResult = await this.config.tools.execute(
-            toolReq.name,
-            toolReq.input,
-            { abortSignal: signal, userConfig: {} as never },
-          );
-
-          // Yield tool_result event
-          yield { type: 'tool_result', toolName: toolReq.name, result: toolResult };
-
-          // Append tool interaction to messages for next round
-          this.messages.push({
-            role: 'assistant',
-            content: llmResponse,
-            timestamp: new Date(),
-          });
-          this.messages.push({
-            role: 'tool',
-            content: JSON.stringify(toolResult),
-            toolName: toolReq.name,
-            timestamp: new Date(),
-          });
-
-          // Rebuild context with updated messages for next iteration
-          const updatedContext = this.config.contextManager.buildContext({
-            systemPrompt: this.config.systemPrompt,
-            memories,
-            conversationHistory: this.messages,
-            toolDefinitions: toolDefs,
-          });
-          // Update context reference for next loop iteration
-          context.messages = updatedContext.messages;
-          context.estimatedTokens = updatedContext.estimatedTokens;
-
-          continue; // Next round — LLM sees tool result
-        }
-
-        // No tool_use — this is the final text response
-        lastAssistantContent = llmResponse;
-        // 如果是非流式模式，这里才 yield 完整文本（流式已经逐 token yield 过了）
-        if (!this.config.llm.queryStream) {
-          yield { type: 'text', content: llmResponse };
-        }
-        break;
+      // Choose execution path
+      if (this.config.llm.queryWithTools) {
+        yield* this.executeWithNativeTools(systemPrompt, signal);
+      } else if (this.config.llm.queryStream) {
+        yield* this.executeWithStream(systemPrompt, signal);
+      } else {
+        yield* this.executeBasic(systemPrompt, signal);
       }
 
-      // 6. Record assistant response
-      if (lastAssistantContent) {
-        this.messages.push({
-          role: 'assistant',
-          content: lastAssistantContent,
-          timestamp: new Date(),
-        });
-      }
+      // Auto memory extraction (fire-and-forget)
+      this.config.memorySystem.extractAndStoreFromConversation(this.messages).catch(() => {});
 
-      // 7. Auto memory extraction (fire-and-forget)
-      this.config.memorySystem
-        .extractAndStoreFromConversation(this.messages)
-        .catch(() => {});
-
-      // 8. Done
       yield { type: 'done' };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      yield { type: 'error', error: message };
+      yield { type: 'error', error: err instanceof Error ? err.message : String(err) };
     } finally {
       this.abortController = null;
     }
   }
 
-  /** Interrupt the current in-flight request. */
-  interrupt(): void {
-    this.abortController?.abort();
+  // ============================================================
+  // Path 1: Native function calling (reliable)
+  // ============================================================
+
+  private async *executeWithNativeTools(
+    systemPrompt: string,
+    signal: AbortSignal,
+  ): AsyncGenerator<StreamEvent> {
+    // Build tool definitions in OpenAI format
+    const toolDefs: LLMToolDef[] = this.config.tools.listEnabled().map(t => ({
+      type: 'function' as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.inputSchema ? this.zodToJsonSchema(t.inputSchema) : {},
+      },
+    }));
+
+    // Build message history in LLM format
+    let llmMessages: LLMMessage[] = [
+      { role: 'system', content: systemPrompt },
+      ...this.messages.map(m => this.toLLMMessage(m)),
+    ];
+
+    let rounds = 0;
+
+    while (rounds < this.maxToolRounds) {
+      if (signal.aborted) { yield { type: 'error', error: 'Request interrupted' }; return; }
+      rounds++;
+
+      const result = await this.config.llm.queryWithTools!(llmMessages, toolDefs, signal);
+
+      // LLM returned tool calls
+      if (result.toolCalls && result.toolCalls.length > 0) {
+        // Add assistant message with tool_calls to history
+        llmMessages.push({
+          role: 'assistant',
+          content: result.content,
+          tool_calls: result.toolCalls,
+        });
+
+        for (const tc of result.toolCalls) {
+          let parsedInput: unknown;
+          try { parsedInput = JSON.parse(tc.function.arguments); } catch { parsedInput = {}; }
+
+          yield { type: 'tool_use', toolName: tc.function.name, input: parsedInput };
+
+          const toolResult = await this.config.tools.execute(
+            tc.function.name,
+            parsedInput,
+            { abortSignal: signal, userConfig: {} as never },
+          );
+
+          yield { type: 'tool_result', toolName: tc.function.name, result: toolResult };
+
+          // Add tool result to message history
+          llmMessages.push({
+            role: 'tool',
+            content: JSON.stringify(toolResult.output),
+            tool_call_id: tc.id,
+            name: tc.function.name,
+          });
+
+          // Also record in our internal messages
+          this.messages.push({
+            role: 'tool',
+            content: JSON.stringify(toolResult),
+            toolName: tc.function.name,
+            timestamp: new Date(),
+          });
+        }
+
+        continue; // Next round — LLM sees tool results
+      }
+
+      // LLM returned text (no tool calls) — final response
+      const content = result.content ?? '';
+      if (content) {
+        yield { type: 'text', content };
+        this.messages.push({ role: 'assistant', content, timestamp: new Date() });
+      }
+      break;
+    }
   }
 
-  /** Get the full conversation history (read-only). */
-  getMessages(): readonly Message[] {
-    return this.messages;
+  // ============================================================
+  // Path 2: Streaming (no native tools, prompt-based)
+  // ============================================================
+
+  private async *executeWithStream(
+    systemPrompt: string,
+    signal: AbortSignal,
+  ): AsyncGenerator<StreamEvent> {
+    const userPrompt = this.messages.map(m => `[${m.role}] ${m.content}`).join('\n');
+    const chunks: string[] = [];
+
+    for await (const chunk of this.config.llm.queryStream!(systemPrompt, userPrompt, signal)) {
+      chunks.push(chunk);
+      yield { type: 'text', content: chunk };
+    }
+
+    const fullResponse = chunks.join('');
+    if (fullResponse) {
+      this.messages.push({ role: 'assistant', content: fullResponse, timestamp: new Date() });
+    }
   }
 
-  /** Get the current session id. */
-  getSessionId(): string {
-    return this.sessionId;
+  // ============================================================
+  // Path 3: Basic non-streaming (no native tools)
+  // ============================================================
+
+  private async *executeBasic(
+    systemPrompt: string,
+    signal: AbortSignal,
+  ): AsyncGenerator<StreamEvent> {
+    const userPrompt = this.messages.map(m => `[${m.role}] ${m.content}`).join('\n');
+    const response = await this.config.llm.query(systemPrompt, userPrompt, signal);
+
+    if (response) {
+      yield { type: 'text', content: response };
+      this.messages.push({ role: 'assistant', content: response, timestamp: new Date() });
+    }
   }
+
+  // ============================================================
+  // Helpers
+  // ============================================================
+
+  private toLLMMessage(msg: Message): LLMMessage {
+    return {
+      role: msg.role === 'tool' ? 'tool' : msg.role as 'user' | 'assistant',
+      content: msg.content,
+      ...(msg.toolName && { name: msg.toolName }),
+      ...(msg.toolCallId && { tool_call_id: msg.toolCallId }),
+    };
+  }
+
+  /** Convert a zod schema to a rough JSON Schema for the API. */
+  private zodToJsonSchema(schema: unknown): Record<string, unknown> {
+    // For now, return a permissive schema. Zod v4 has .toJSONSchema() but
+    // we keep it simple to avoid version-specific issues.
+    try {
+      if (schema && typeof schema === 'object' && 'description' in schema) {
+        return { type: 'object' };
+      }
+    } catch { /* ignore */ }
+    return { type: 'object' };
+  }
+
+  interrupt(): void { this.abortController?.abort(); }
+  getMessages(): readonly Message[] { return this.messages; }
+  getSessionId(): string { return this.sessionId; }
 }

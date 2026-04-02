@@ -101,16 +101,35 @@ describe('QueryEngine', () => {
 
   it('handles tool_use → tool_result → text loop', async () => {
     let callCount = 0;
-    const llmFn = () => {
-      callCount++;
-      if (callCount === 1) {
-        return JSON.stringify({ tool_use: { name: 'TestTool', input: { q: 'data' } } });
-      }
-      return 'Final answer after tool call';
+
+    // Mock LLM with native queryWithTools
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools(_msgs, _tools, _signal) {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: null,
+            toolCalls: [{ id: 'tc1', function: { name: 'TestTool', arguments: '{"q":"data"}' } }],
+          };
+        }
+        return { content: 'Final answer after tool call', toolCalls: null };
+      },
     };
 
     const tool = createDummyTool('TestTool', { data: 42 });
-    const engine = buildEngine({ llmFn, dir, tools: [tool] });
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(tool);
+
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+    });
+
     const events = await collectEvents(engine.submitMessage('Use a tool'));
 
     const types = events.map((e) => e.type);
@@ -127,17 +146,27 @@ describe('QueryEngine', () => {
   });
 
   it('respects maxToolRounds to prevent infinite loops', async () => {
-    // LLM always returns tool_use — should stop after maxToolRounds
-    const llmFn = () => JSON.stringify({ tool_use: { name: 'Loop', input: {} } });
-    const tool = createDummyTool('Loop', 'ok');
+    // LLM always returns tool_calls — should stop after maxToolRounds
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools() {
+        return {
+          content: null,
+          toolCalls: [{ id: 'tc', function: { name: 'Loop', arguments: '{}' } }],
+        };
+      },
+    };
 
-    const llm = makeLLM(llmFn);
+    const tool = createDummyTool('Loop', 'ok');
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(tool);
+
     const engine = new QueryEngine({
       model: 'test',
       systemPrompt: 'test',
-      tools: (() => { const r = new ToolRegistry(); r.register(tool); return r; })(),
-      memorySystem: new MemorySystem(dir, llm),
-      contextManager: new ContextManager(128_000, llm),
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
       llm,
       maxToolRounds: 3,
     });

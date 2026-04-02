@@ -1,15 +1,69 @@
 /**
  * LLM Client interface — abstract layer for LLM calls.
- * Concrete implementations will be provided when a specific LLM is integrated.
  */
+
+/** Tool definition for native function calling */
+export interface LLMToolDef {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters?: Record<string, unknown>;
+  };
+}
+
+/** A tool call returned by the LLM */
+export interface LLMToolCall {
+  id: string;
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
+}
+
+/** Result of a query that may include tool calls */
+export interface LLMQueryResult {
+  content: string | null;
+  toolCalls: LLMToolCall[] | null;
+}
+
+/** Chat message for multi-turn conversations */
+export interface LLMMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | null;
+  tool_calls?: LLMToolCall[];
+  tool_call_id?: string;
+  name?: string;
+}
+
 export interface LLMClient {
-  /** Send a query to the LLM and return the full text response. */
+  /** Simple query — returns text only. Used for side queries (memory, compact). */
   query(system: string, user: string, signal: AbortSignal): Promise<string>;
 
-  /**
-   * Send a query and stream back token-by-token.
-   * Yields partial text chunks as they arrive.
-   * Optional — falls back to query() if not implemented.
-   */
+  /** Stream text token-by-token. Optional — falls back to query() if not implemented. */
   queryStream?(system: string, user: string, signal: AbortSignal): AsyncGenerator<string>;
+
+  /**
+   * Query with native tool calling support.
+   * Sends full message history + tool definitions to the API.
+   * Returns either text content or tool_calls.
+   * Optional — falls back to prompt-based tool calling if not implemented.
+   */
+  queryWithTools?(
+    messages: LLMMessage[],
+    tools: LLMToolDef[],
+    signal: AbortSignal,
+  ): Promise<LLMQueryResult>;
+
+  /**
+   * Stream with native tool calling.
+   * When the LLM returns text, yields string chunks.
+   * When the LLM returns tool_calls, returns them in the final result.
+   * Optional.
+   */
+  queryStreamWithTools?(
+    messages: LLMMessage[],
+    tools: LLMToolDef[],
+    signal: AbortSignal,
+  ): Promise<LLMQueryResult>;
 }

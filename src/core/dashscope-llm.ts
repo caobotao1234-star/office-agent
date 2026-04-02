@@ -2,7 +2,7 @@
  * DashScope LLM Client — 阿里云百炼平台（兼容 OpenAI API 格式）
  * 支持普通请求和 SSE 流式输出。
  */
-import type { LLMClient } from './llm-client.js';
+import type { LLMClient, LLMMessage, LLMToolDef, LLMQueryResult, LLMToolCall } from './llm-client.js';
 import type { TokenTracker } from './token-tracker.js';
 
 const DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
@@ -158,6 +158,64 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
       } finally {
         reader.releaseLock();
       }
+    },
+
+    // --- 原生 Function Calling（非流式，因为百炼 tools 不支持 stream）---
+    async queryWithTools(
+      messages: LLMMessage[],
+      tools: LLMToolDef[],
+      signal: AbortSignal,
+    ): Promise<LLMQueryResult> {
+      const response = await fetch(DASHSCOPE_BASE_URL, {
+        method: 'POST',
+        headers: buildHeaders(),
+        body: JSON.stringify({
+          model,
+          messages,
+          tools: tools.length > 0 ? tools : undefined,
+          max_tokens: maxTokens,
+          temperature,
+          // 百炼文档：tools 参数不能和 stream=True 同时使用
+        }),
+        signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'unknown error');
+        throw new Error(`DashScope API error ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json() as {
+        choices?: Array<{
+          message?: {
+            content?: string | null;
+            tool_calls?: Array<{
+              id: string;
+              type: string;
+              function: { name: string; arguments: string };
+            }>;
+          };
+        }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+        error?: { message?: string };
+      };
+
+      if (data.error) throw new Error(`DashScope: ${data.error.message}`);
+
+      if (tokenTracker && data.usage) {
+        tokenTracker.record(model, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0);
+      }
+
+      const msg = data.choices?.[0]?.message;
+      const toolCalls: LLMToolCall[] | null = msg?.tool_calls?.map((tc) => ({
+        id: tc.id,
+        function: { name: tc.function.name, arguments: tc.function.arguments },
+      })) ?? null;
+
+      return {
+        content: msg?.content ?? null,
+        toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : null,
+      };
     },
   };
 }
