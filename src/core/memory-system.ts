@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { MemoryEntry, MemoryQuery, MemoryType, MemorySource, Message } from '../types/index.js';
+import type { LLMClient } from './llm-client.js';
 
 // ============================================================
 // Constants
@@ -115,9 +116,11 @@ function metaToEntry(id: string, meta: Record<string, string>, content: string):
 
 export class MemorySystem {
   private baseDir: string;
+  private llm: LLMClient | undefined;
 
-  constructor(baseDir?: string) {
+  constructor(baseDir?: string, llm?: LLMClient) {
     this.baseDir = baseDir ?? BASE_DIR;
+    this.llm = llm;
   }
 
   // ----------------------------------------------------------
@@ -333,20 +336,145 @@ export class MemorySystem {
   }
 
   // ----------------------------------------------------------
-  // Stubs for 4.2 / 4.3 (to be implemented later)
+  // Context injection layer (task 4.2)
   // ----------------------------------------------------------
 
-  /** Find memories relevant to the current conversation context. (Stub — task 4.2) */
-  async findRelevantMemories(
-    _conversationContext: string,
-    _signal: AbortSignal,
-  ): Promise<MemoryEntry[]> {
-    // TODO: Implement LLM side-query based relevance search (task 4.2)
-    return [];
+  /** Build a compact manifest of all memories (title + tags + type) for LLM selection. */
+  private buildMemoryManifest(entries: MemoryEntry[]): string {
+    return entries
+      .map((e, i) => `[${i}] (${e.type}) ${e.title}  tags: ${e.tags.join(', ')}`)
+      .join('\n');
   }
 
-  /** Extract and store noteworthy information from a conversation. (Stub — task 4.3) */
-  async extractAndStoreFromConversation(_messages: Message[]): Promise<void> {
-    // TODO: Implement auto-extraction from conversation (task 4.3)
+  /** Parse LLM response to extract selected memory indices. Expects comma-separated numbers. */
+  private parseSelectedIndices(response: string, max: number): number[] {
+    const nums = [...response.matchAll(/\d+/g)].map((m) => parseInt(m[0], 10));
+    return [...new Set(nums)].filter((n) => n >= 0 && n < max).slice(0, 5);
+  }
+
+  /**
+   * Find memories relevant to the current conversation context.
+   * Uses an LLM side query to pick the most relevant entries from a manifest.
+   * Falls back to returning the 5 most recently updated entries when no LLM is available.
+   */
+  async findRelevantMemories(
+    conversationContext: string,
+    signal: AbortSignal,
+  ): Promise<MemoryEntry[]> {
+    const all = this.loadAll();
+    if (all.length === 0) return [];
+
+    // Fallback: no LLM — return top 5 by recency
+    if (!this.llm) {
+      return all
+        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+        .slice(0, 5);
+    }
+
+    const manifest = this.buildMemoryManifest(all);
+
+    const systemPrompt =
+      'You are a memory relevance selector. Given a conversation context and a numbered list of memory entries, ' +
+      'select up to 5 entries most relevant to the conversation. ' +
+      'Reply with ONLY the index numbers separated by commas (e.g. "0,3,7"). No explanation.';
+
+    const userPrompt =
+      `## Conversation context\n${conversationContext}\n\n## Memory manifest\n${manifest}`;
+
+    try {
+      const response = await this.llm.query(systemPrompt, userPrompt, signal);
+      const indices = this.parseSelectedIndices(response, all.length);
+
+      if (indices.length === 0) {
+        // LLM returned nothing useful — fall back to recency
+        return all
+          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+          .slice(0, 5);
+      }
+
+      // Update access metadata for selected entries
+      const selected: MemoryEntry[] = [];
+      for (const idx of indices) {
+        const entry = all[idx]!;
+        entry.accessCount += 1;
+        entry.lastAccessedAt = new Date();
+        // Persist updated access metadata (fire-and-forget)
+        this.update(entry.id, {
+          accessCount: entry.accessCount,
+          lastAccessedAt: entry.lastAccessedAt,
+        }).catch(() => {});
+        selected.push(entry);
+      }
+      return selected;
+    } catch {
+      // On any LLM error, degrade gracefully
+      return all
+        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+        .slice(0, 5);
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Auto-extraction from conversation (task 4.3)
+  // ----------------------------------------------------------
+
+  /**
+   * Extract and store noteworthy information from a conversation.
+   * Uses an LLM call to identify memories worth persisting.
+   * No-op when no LLM client is available.
+   */
+  async extractAndStoreFromConversation(messages: Message[]): Promise<void> {
+    if (!this.llm || messages.length === 0) return;
+
+    const transcript = messages
+      .map((m) => `[${m.role}] ${m.content}`)
+      .join('\n');
+
+    const systemPrompt =
+      'You are a memory extraction assistant. Analyze the conversation and extract information worth remembering long-term.\n' +
+      'Extract ONLY items that fall into these categories:\n' +
+      '- preference: User preferences or habits\n' +
+      '- decision: Important decisions made\n' +
+      '- commitment: Promises or commitments made\n' +
+      '- colleague: Information about colleagues\n' +
+      '- project_context: Key project conclusions or context\n\n' +
+      'Reply in JSON array format. Each item: {"title":"...","content":"...","type":"...","tags":["..."]}\n' +
+      'If nothing is worth extracting, reply with an empty array: []';
+
+    const controller = new AbortController();
+
+    try {
+      const response = await this.llm.query(systemPrompt, transcript, controller.signal);
+
+      // Parse JSON array from response (handle markdown code fences)
+      const jsonStr = response.replace(/```json?\s*/g, '').replace(/```/g, '').trim();
+      const items: Array<{
+        title: string;
+        content: string;
+        type: string;
+        tags: string[];
+      }> = JSON.parse(jsonStr);
+
+      if (!Array.isArray(items)) return;
+
+      const validTypes = new Set<string>([
+        'preference', 'decision', 'commitment', 'colleague', 'project_context',
+      ]);
+
+      for (const item of items) {
+        if (!item.title || !item.content) continue;
+        const type = validTypes.has(item.type) ? item.type as MemoryType : 'decision';
+        await this.store({
+          title: item.title,
+          content: item.content,
+          type,
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          source: 'auto_extract',
+          updatedAt: new Date(),
+        });
+      }
+    } catch {
+      // Extraction failure is non-critical — silently ignore
+    }
   }
 }

@@ -59,7 +59,7 @@
 - [x] 3. 检查点 — 确保基础结构和工具框架测试通过
   - 确保所有测试通过，如有问题请询问用户。
 
-- [-] 4. 实现 Memory_System 记忆系统
+- [x] 4. 实现 Memory_System 记忆系统
   - [x] 4.1 实现记忆持久化层
     - 创建 `src/core/memory-system.ts`
     - 实现 `MemorySystem` 类的持久化操作：`store()`、`update()`、`delete()`、`deleteAll()`
@@ -70,14 +70,14 @@
     - 实现 `exportAll()` 方法：支持导出为 JSON 或 Markdown 格式
     - _需求: 3.1, 3.2, 3.5, 3.6, 3.8, 3.9, 12.5, 14.1_
 
-  - [ ] 4.2 实现记忆上下文注入层（Side Query）
+  - [x] 4.2 实现记忆上下文注入层（Side Query）
     - 实现 `findRelevantMemories()` 方法
     - 扫描 memdir/ 目录下所有记忆文件的 frontmatter（标题 + 标签 + 类型）构建记忆清单
     - 使用轻量级 LLM side query，传入当前对话意图 + 记忆清单，选出最多 5 条最相关记忆
     - 读取选中记忆的完整内容，返回用于注入上下文
     - _需求: 3.4, 3.11_
 
-  - [ ] 4.3 实现自动记忆提取
+  - [x] 4.3 实现自动记忆提取
     - 实现 `extractAndStoreFromConversation()` 方法
     - 对话结束后自动从对话内容中提取值得长期记忆的信息
     - 提取类型：用户偏好、重要决策、关键结论、承诺、同事信息
