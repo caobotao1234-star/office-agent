@@ -30,8 +30,8 @@
     - **属性 2: InformationEntry 往返一致性** — 任意有效 InformationEntry 序列化后反序列化应产生等价对象
     - **验证: 需求 14.3, 14.4**
 
-- [ ] 2. 实现 Tool_System 工具系统框架
-  - [ ] 2.1 实现 Tool 基础接口与 ToolRegistry
+- [-] 2. 实现 Tool_System 工具系统框架
+  - [x] 2.1 实现 Tool 基础接口与 ToolRegistry
     - 创建 `src/core/tool-system.ts`
     - 定义 `Tool` 接口：`name`、`description`、`inputSchema`、`isEnabled()`、`isReadOnly()`、`checkPermissions()`、`call()`、`requiresUserConfirmation()`
     - 实现 `ToolRegistry` 类：工具注册、按名称查找、列出已启用工具、加载/卸载工具模块
