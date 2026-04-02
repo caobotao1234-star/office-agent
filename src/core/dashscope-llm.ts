@@ -66,9 +66,9 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
 
       if (data.error) throw new Error(`DashScope: ${data.error.message}`);
 
-      // 记录 token 用量
+      // 记录 token 用量（query 用于 side query：记忆检索、记忆提取、压缩等）
       if (tokenTracker && data.usage) {
-        tokenTracker.record(model, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0);
+        tokenTracker.record(model, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0, 'side_query');
       }
 
       return data.choices?.[0]?.message?.content ?? '';
@@ -120,9 +120,8 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
 
             const jsonStr = trimmed.slice(5).trim();
             if (jsonStr === '[DONE]') {
-              // 记录 token 用量
               if (tokenTracker && lastUsage) {
-                tokenTracker.record(model, lastUsage.prompt_tokens ?? 0, lastUsage.completion_tokens ?? 0);
+                tokenTracker.record(model, lastUsage.prompt_tokens ?? 0, lastUsage.completion_tokens ?? 0, 'chat');
               }
               return;
             }
@@ -153,7 +152,7 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
 
         // 流结束但没收到 [DONE]，也记录 usage
         if (tokenTracker && lastUsage) {
-          tokenTracker.record(model, lastUsage.prompt_tokens ?? 0, lastUsage.completion_tokens ?? 0);
+          tokenTracker.record(model, lastUsage.prompt_tokens ?? 0, lastUsage.completion_tokens ?? 0, 'chat');
         }
       } finally {
         reader.releaseLock();
@@ -202,15 +201,17 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
 
       if (data.error) throw new Error(`DashScope: ${data.error.message}`);
 
-      if (tokenTracker && data.usage) {
-        tokenTracker.record(model, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0);
-      }
-
       const msg = data.choices?.[0]?.message;
       const toolCalls: LLMToolCall[] | null = msg?.tool_calls?.map((tc) => ({
         id: tc.id,
         function: { name: tc.function.name, arguments: tc.function.arguments },
       })) ?? null;
+
+      if (tokenTracker && data.usage) {
+        // 有 tool_calls 的是工具调用轮次，否则是普通对话
+        const source = (toolCalls && toolCalls.length > 0) ? 'tool_call' as const : 'chat' as const;
+        tokenTracker.record(model, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0, source);
+      }
 
       return {
         content: msg?.content ?? null,

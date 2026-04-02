@@ -48,6 +48,12 @@ export async function chat(modelOverride?: string): Promise<void> {
         return;
       }
 
+      if (trimmed === '/usage detail' || trimmed === '/token detail') {
+        console.log(getTokenTracker().formatDetailReport());
+        prompt();
+        return;
+      }
+
       console.log();
       process.stdout.write('\x1b[33mAgent>\x1b[0m ');
 
@@ -106,6 +112,7 @@ function printHelp(): void {
   /memory <关键词>    搜索记忆
   /cron               查看定时任务
   /usage              查看 token 用量统计
+  /usage detail       查看详细用量（按模型×环节）
   /help               显示此帮助
   quit                退出
 `);

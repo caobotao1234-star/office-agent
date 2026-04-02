@@ -1,33 +1,26 @@
 /**
- * Token Usage Tracker — 按模型、按天统计 token 用量
+ * Token Usage Tracker — 按模型、按天、按来源统计 token 用量
  * 持久化到 ~/.office-agent/token-usage.json
+ *
+ * 来源分类:
+ *   chat        — 主对话（用户交互）
+ *   tool_call   — function calling（工具调用轮次）
+ *   side_query  — 记忆检索、记忆提取、上下文压缩等后台 LLM 调用
+ *   skill       — 技能执行（fork 模式）
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
+export type TokenSource = 'chat' | 'tool_call' | 'side_query' | 'skill';
+
 export interface TokenUsageRecord {
   model: string;
+  source: TokenSource;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
-  timestamp: string; // ISO date string
-}
-
-export interface DailyUsage {
-  date: string; // YYYY-MM-DD
-  models: Record<string, { prompt: number; completion: number; total: number; calls: number }>;
-}
-
-export interface UsageSummary {
-  today: DailyUsage;
-  allTime: {
-    models: Record<string, { prompt: number; completion: number; total: number; calls: number }>;
-    totalCalls: number;
-    totalTokens: number;
-    firstUsed: string;
-  };
-  recentDays: DailyUsage[]; // 最近 7 天
+  timestamp: string;
 }
 
 const DEFAULT_PATH = path.join(os.homedir(), '.office-agent', 'token-usage.json');
@@ -42,9 +35,10 @@ export class TokenTracker {
   }
 
   /** 记录一次 API 调用的 token 用量 */
-  record(model: string, promptTokens: number, completionTokens: number): void {
+  record(model: string, promptTokens: number, completionTokens: number, source: TokenSource = 'chat'): void {
     this.records.push({
       model,
+      source,
       promptTokens,
       completionTokens,
       totalTokens: promptTokens + completionTokens,
@@ -53,123 +47,166 @@ export class TokenTracker {
     this.save();
   }
 
-  /** 获取完整的用量摘要 */
-  getSummary(): UsageSummary {
+  // ============================================================
+  // 简洁报告（/usage）
+  // ============================================================
+
+  formatReport(): string {
+    const lines: string[] = ['📊 Token 用量统计'];
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    // 按天分组
-    const byDay = new Map<string, TokenUsageRecord[]>();
-    for (const r of this.records) {
-      const day = r.timestamp.slice(0, 10);
-      const arr = byDay.get(day) ?? [];
-      arr.push(r);
-      byDay.set(day, arr);
+    if (this.records.length === 0) {
+      lines.push('\n  暂无使用记录');
+      return lines.join('\n');
     }
 
-    // 今日用量
-    const today = this.buildDailyUsage(todayStr, byDay.get(todayStr) ?? []);
-
-    // 全量统计
-    const allTimeModels: Record<string, { prompt: number; completion: number; total: number; calls: number }> = {};
-    let totalCalls = 0;
-    let totalTokens = 0;
-
-    for (const r of this.records) {
-      if (!allTimeModels[r.model]) {
-        allTimeModels[r.model] = { prompt: 0, completion: 0, total: 0, calls: 0 };
-      }
-      allTimeModels[r.model].prompt += r.promptTokens;
-      allTimeModels[r.model].completion += r.completionTokens;
-      allTimeModels[r.model].total += r.totalTokens;
-      allTimeModels[r.model].calls += 1;
-      totalCalls++;
-      totalTokens += r.totalTokens;
-    }
-
-    // 最近 7 天
-    const recentDays: DailyUsage[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dayStr = d.toISOString().slice(0, 10);
-      recentDays.push(this.buildDailyUsage(dayStr, byDay.get(dayStr) ?? []));
-    }
-
-    return {
-      today,
-      allTime: {
-        models: allTimeModels,
-        totalCalls,
-        totalTokens,
-        firstUsed: this.records.length > 0 ? this.records[0].timestamp.slice(0, 10) : todayStr,
-      },
-      recentDays,
-    };
-  }
-
-  /** 格式化输出用量报告（中文） */
-  formatReport(): string {
-    const s = this.getSummary();
-    const lines: string[] = [];
-
-    lines.push('📊 Token 用量统计\n');
-
-    // 今日
-    lines.push(`═══ 今日 (${s.today.date}) ═══`);
-    if (Object.keys(s.today.models).length === 0) {
-      lines.push('  暂无使用记录');
+    // --- 今日 ---
+    const todayRecords = this.records.filter(r => r.timestamp.slice(0, 10) === todayStr);
+    lines.push(`\n═══ 今日 (${todayStr}) ═══`);
+    if (todayRecords.length === 0) {
+      lines.push('  暂无');
     } else {
-      for (const [model, u] of Object.entries(s.today.models)) {
-        lines.push(`  模型: ${model}`);
-        lines.push(`    调用次数:   ${u.calls}`);
-        lines.push(`    输入 token:  ${u.prompt.toLocaleString()}`);
-        lines.push(`    输出 token:  ${u.completion.toLocaleString()}`);
-        lines.push(`    合计 token:  ${u.total.toLocaleString()}`);
-      }
+      this.appendModelSummary(lines, todayRecords);
     }
 
-    // 历史总量
-    lines.push(`\n═══ 历史总量 (自 ${s.allTime.firstUsed}) ═══`);
-    lines.push(`  总调用次数: ${s.allTime.totalCalls.toLocaleString()}`);
-    lines.push(`  总 token:   ${s.allTime.totalTokens.toLocaleString()}`);
-    for (const [model, u] of Object.entries(s.allTime.models)) {
-      lines.push(`\n  模型: ${model}`);
-      lines.push(`    调用次数:   ${u.calls.toLocaleString()}`);
-      lines.push(`    输入 token:  ${u.prompt.toLocaleString()}`);
-      lines.push(`    输出 token:  ${u.completion.toLocaleString()}`);
-      lines.push(`    合计 token:  ${u.total.toLocaleString()}`);
-    }
+    // --- 历史总量（按模型） ---
+    const firstDate = this.records[0]!.timestamp.slice(0, 10);
+    lines.push(`\n═══ 历史总量 (自 ${firstDate}) ═══`);
+    this.appendModelSummary(lines, this.records);
 
-    // 最近 7 天趋势
+    // --- 最近 7 天趋势 ---
     lines.push('\n═══ 最近 7 天 ═══');
-    for (const day of s.recentDays) {
-      const totalForDay = Object.values(day.models).reduce((sum, m) => sum + m.total, 0);
-      const callsForDay = Object.values(day.models).reduce((sum, m) => sum + m.calls, 0);
-      const bar = '█'.repeat(Math.min(30, Math.ceil(totalForDay / 1000)));
-      lines.push(`  ${day.date}  ${callsForDay.toString().padStart(4)} 次  ${totalForDay.toLocaleString().padStart(8)} tokens  ${bar}`);
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const dayStr = d.toISOString().slice(0, 10);
+      const dayRecords = this.records.filter(r => r.timestamp.slice(0, 10) === dayStr);
+      const input = dayRecords.reduce((s, r) => s + r.promptTokens, 0);
+      const output = dayRecords.reduce((s, r) => s + r.completionTokens, 0);
+      const calls = dayRecords.length;
+      if (calls === 0 && i > 0) continue; // 跳过无数据的非今天日期
+      const bar = '█'.repeat(Math.min(20, Math.ceil((input + output) / 2000)));
+      lines.push(`  ${dayStr}  ${pad(calls, 3)}次  入${pad(input, 7)}  出${pad(output, 7)}  ${bar}`);
     }
 
     return lines.join('\n');
   }
 
-  private buildDailyUsage(date: string, records: TokenUsageRecord[]): DailyUsage {
-    const models: DailyUsage['models'] = {};
-    for (const r of records) {
-      if (!models[r.model]) {
-        models[r.model] = { prompt: 0, completion: 0, total: 0, calls: 0 };
-      }
-      models[r.model].prompt += r.promptTokens;
-      models[r.model].completion += r.completionTokens;
-      models[r.model].total += r.totalTokens;
-      models[r.model].calls += 1;
+  // ============================================================
+  // 详细报告（/usage detail）
+  // ============================================================
+
+  formatDetailReport(): string {
+    const lines: string[] = ['📊 Token 用量详细报告'];
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    if (this.records.length === 0) {
+      lines.push('\n  暂无使用记录');
+      return lines.join('\n');
     }
-    return { date, models };
+
+    // --- 按模型分组 ---
+    const models = this.groupByModel(this.records);
+    lines.push(`\n═══ 按模型统计 ═══`);
+    for (const [model, recs] of models) {
+      const input = recs.reduce((s, r) => s + r.promptTokens, 0);
+      const output = recs.reduce((s, r) => s + r.completionTokens, 0);
+      lines.push(`\n  📦 ${model}  (${recs.length} 次调用)`);
+      lines.push(`     输入: ${input.toLocaleString()} tokens`);
+      lines.push(`     输出: ${output.toLocaleString()} tokens`);
+      lines.push(`     合计: ${(input + output).toLocaleString()} tokens`);
+    }
+
+    // --- 按来源分组 ---
+    const sources = this.groupBySource(this.records);
+    lines.push(`\n═══ 按环节统计 ═══`);
+    const sourceLabels: Record<TokenSource, string> = {
+      chat: '💬 对话交互',
+      tool_call: '🔧 工具调用',
+      side_query: '🧠 后台查询（记忆/压缩）',
+      skill: '⚡ 技能执行',
+    };
+    for (const [source, recs] of sources) {
+      const input = recs.reduce((s, r) => s + r.promptTokens, 0);
+      const output = recs.reduce((s, r) => s + r.completionTokens, 0);
+      lines.push(`  ${sourceLabels[source as TokenSource] ?? source}  ${recs.length}次  入${pad(input, 7)}  出${pad(output, 7)}  计${pad(input + output, 8)}`);
+    }
+
+    // --- 今日按来源 × 模型 ---
+    const todayRecords = this.records.filter(r => r.timestamp.slice(0, 10) === todayStr);
+    if (todayRecords.length > 0) {
+      lines.push(`\n═══ 今日明细 (${todayStr}) ═══`);
+      const todaySources = this.groupBySource(todayRecords);
+      for (const [source, recs] of todaySources) {
+        const byModel = this.groupByModel(recs);
+        for (const [model, modelRecs] of byModel) {
+          const input = modelRecs.reduce((s, r) => s + r.promptTokens, 0);
+          const output = modelRecs.reduce((s, r) => s + r.completionTokens, 0);
+          lines.push(`  ${sourceLabels[source as TokenSource] ?? source} × ${model}  ${modelRecs.length}次  入${pad(input, 6)}  出${pad(output, 6)}`);
+        }
+      }
+    }
+
+    // --- 最近 10 次调用 ---
+    lines.push('\n═══ 最近 10 次调用 ═══');
+    const recent = this.records.slice(-10).reverse();
+    for (const r of recent) {
+      const time = r.timestamp.slice(11, 19);
+      const src = sourceLabels[r.source]?.slice(0, 2) ?? r.source;
+      lines.push(`  ${time}  ${src} ${r.model}  入${pad(r.promptTokens, 5)} 出${pad(r.completionTokens, 5)}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  // ============================================================
+  // Helpers
+  // ============================================================
+
+  private appendModelSummary(lines: string[], records: TokenUsageRecord[]): void {
+    const models = this.groupByModel(records);
+    const totalInput = records.reduce((s, r) => s + r.promptTokens, 0);
+    const totalOutput = records.reduce((s, r) => s + r.completionTokens, 0);
+
+    lines.push(`  调用 ${records.length} 次 | 输入 ${totalInput.toLocaleString()} | 输出 ${totalOutput.toLocaleString()} | 合计 ${(totalInput + totalOutput).toLocaleString()}`);
+
+    if (models.size > 1) {
+      for (const [model, recs] of models) {
+        const input = recs.reduce((s, r) => s + r.promptTokens, 0);
+        const output = recs.reduce((s, r) => s + r.completionTokens, 0);
+        lines.push(`    ${model}: ${recs.length}次  入${input.toLocaleString()}  出${output.toLocaleString()}`);
+      }
+    }
+  }
+
+  private groupByModel(records: TokenUsageRecord[]): Map<string, TokenUsageRecord[]> {
+    const map = new Map<string, TokenUsageRecord[]>();
+    for (const r of records) {
+      const arr = map.get(r.model) ?? [];
+      arr.push(r);
+      map.set(r.model, arr);
+    }
+    return map;
+  }
+
+  private groupBySource(records: TokenUsageRecord[]): Map<string, TokenUsageRecord[]> {
+    const map = new Map<string, TokenUsageRecord[]>();
+    for (const r of records) {
+      const arr = map.get(r.source) ?? [];
+      arr.push(r);
+      map.set(r.source, arr);
+    }
+    return map;
   }
 
   private load(): void {
     if (!fs.existsSync(this.filePath)) return;
     try {
-      this.records = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
+      const raw = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
+      // 兼容旧格式（没有 source 字段的记录）
+      this.records = (raw as TokenUsageRecord[]).map(r => ({
+        ...r,
+        source: r.source ?? 'chat',
+      }));
     } catch {
       this.records = [];
     }
@@ -180,4 +217,8 @@ export class TokenTracker {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(this.filePath, JSON.stringify(this.records), 'utf-8');
   }
+}
+
+function pad(n: number, width: number): string {
+  return n.toLocaleString().padStart(width);
 }
