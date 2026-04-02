@@ -15,11 +15,12 @@ import { z } from 'zod/v4';
 export function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
   try {
     const result = z.toJSONSchema(schema, {
-      unrepresentable: 'any',  // date 等不可表示的类型变成 {}
+      unrepresentable: 'any',
     }) as Record<string, unknown>;
+    // Strip $schema field — OpenAI/DashScope API doesn't expect it
+    delete result['$schema'];
     return result;
   } catch {
-    // 最后兜底
     return { type: 'object' };
   }
 }

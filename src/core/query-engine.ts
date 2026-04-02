@@ -110,7 +110,11 @@ export class QueryEngine {
       const systemPrompt = await this.buildDynamicSystemPrompt(userMessage, signal);
 
       // Choose execution path
-      if (this.config.llm.queryWithTools) {
+      const hasNativeTools = !!this.config.llm.queryWithTools;
+      if (this.messages.filter(m => m.role === 'user').length <= 1) {
+        console.log(`[QueryEngine] Execution path: ${hasNativeTools ? 'nativeTools' : this.config.llm.queryStream ? 'stream' : 'basic'}`);
+      }
+      if (hasNativeTools) {
         yield* this.executeWithNativeTools(systemPrompt, signal);
       } else if (this.config.llm.queryStream) {
         yield* this.executeWithStream(systemPrompt, signal);
@@ -147,14 +151,23 @@ export class QueryEngine {
     signal: AbortSignal,
   ): AsyncGenerator<StreamEvent> {
     // Build tool definitions in OpenAI format
-    const toolDefs: LLMToolDef[] = this.config.tools.listEnabled().map(t => ({
-      type: 'function' as const,
-      function: {
-        name: t.name,
-        description: t.description,
-        parameters: zodToJsonSchema(t.inputSchema),
-      },
-    }));
+    const toolDefs: LLMToolDef[] = this.config.tools.listEnabled().map(t => {
+      const params = zodToJsonSchema(t.inputSchema);
+      return {
+        type: 'function' as const,
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: params,
+        },
+      };
+    });
+
+    // Debug: log first call's tool schema to verify it's not empty
+    if (this.messages.filter(m => m.role === 'user').length <= 1) {
+      console.log(`[QueryEngine] ${toolDefs.length} tools loaded. First tool schema keys:`,
+        Object.keys(toolDefs[0]?.function?.parameters ?? {}));
+    }
 
     // Check if auto-compact is needed before building messages
     const estimatedTokens = this.messages.reduce(
