@@ -6,6 +6,9 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
+    "start": "tsx src/cli/index.ts",
+    "chat": "tsx src/cli/index.ts chat",
+    "ask": "tsx src/cli/index.ts ask",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
