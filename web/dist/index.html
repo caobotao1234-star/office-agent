@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Office Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .chat-bubble { animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .md h1,.md h2,.md h3 { font-weight: 600; margin: 0.5em 0 0.25em; }
+    .md ul { list-style: disc; padding-left: 1.5em; }
+    .md ol { list-style: decimal; padding-left: 1.5em; }
+    .md code { background: #f1f5f9; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+    .md pre { background: #1e293b; color: #e2e8f0; padding: 1em; border-radius: 8px; overflow-x: auto; }
+    .md pre code { background: none; color: inherit; }
+    .tab-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .tb { font-size: 0.7rem; padding: 2px 6px; border-radius: 9999px; display: inline-block; }
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden">
+
+  <!-- Sidebar -->
+  <aside class="w-64 bg-gray-900 text-gray-300 flex flex-col h-full shrink-0 overflow-y-auto">
+    <div class="p-4 border-b border-gray-700">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">OA</div>
+        <span class="font-semibold text-white text-lg">Office Agent</span>
+      </div>
+    </div>
+    <nav class="flex-1 p-2 space-y-1 overflow-y-auto">
+      <button onclick="go('chat')" class="nb w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-left" data-p="chat">
+        <i data-lucide="message-square" class="w-4 h-4"></i> 对话</button>
+      <button onclick="go('tasks')" class="nb w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-left" data-p="tasks">
+        <i data-lucide="check-square" class="w-4 h-4"></i> 任务</button>
+      <button onclick="go('calendar')" class="nb w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-left" data-p="calendar">
+        <i data-lucide="calendar" class="w-4 h-4"></i> 日程</button>
+      <button onclick="go('usage')" class="nb w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-left" data-p="usage">
+        <i data-lucide="bar-chart-3" class="w-4 h-4"></i> Token 用量</button>
+      <button onclick="go('skills')" class="nb w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-left" data-p="skills">
+        <i data-lucide="zap" class="w-4 h-4"></i> 技能</button>
+      <button onclick="go('settings')" class="nb w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-left" data-p="settings">
+        <i data-lucide="settings" class="w-4 h-4"></i> 设置</button>
+      <div class="pt-3 pb-1 px-3 text-xs text-gray-500 uppercase tracking-wider flex items-center justify-between">
+        项目 <button onclick="newProj()" class="hover:text-white"><i data-lucide="plus" class="w-3 h-3"></i></button>
+      </div>
+      <div id="plist" class="space-y-1"></div>
+    </nav>
+    <div class="p-3 border-t border-gray-700 text-xs text-gray-500">v0.1.0</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col overflow-hidden">
+
+    <!-- Chat -->
+    <div id="pg-chat" class="pg flex-1 flex flex-col">
+      <header class="h-14 border-b bg-white flex items-center px-6 shrink-0"><h1 class="font-semibold text-gray-800">💬 对话</h1></header>
+      <div id="msgs" class="flex-1 overflow-y-auto p-6 space-y-4"></div>
+      <div class="border-t bg-white p-4">
+        <form id="cf" class="flex gap-3">
+          <input id="ci" type="text" placeholder="输入消息... (支持 /tasks /daily-report 等命令)" class="flex-1 border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" autocomplete="off">
+          <button type="submit" class="bg-blue-500 text-white px-6 py-3 rounded-xl hover:bg-blue-600 font-medium">发送</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Tasks -->
+    <div id="pg-tasks" class="pg flex-1 flex flex-col hidden">
+      <header class="h-14 border-b bg-white flex items-center justify-between px-6 shrink-0">
+        <h1 class="font-semibold text-gray-800">✅ 任务管理</h1>
+        <button onclick="newTask()" class="bg-blue-500 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-blue-600">+ 新任务</button>
+      </header>
+      <div id="tc" class="flex-1 overflow-y-auto p-6"></div>
+    </div>
+
+    <!-- Calendar -->
+    <div id="pg-calendar" class="pg flex-1 flex flex-col hidden">
+      <header class="h-14 border-b bg-white flex items-center px-6 shrink-0"><h1 class="font-semibold text-gray-800">📅 日程</h1></header>
+      <div class="flex-1 overflow-y-auto p-6"><p class="text-gray-500">日程功能开发中，当前可通过对话创建日程。</p></div>
+    </div>
+
+    <!-- Usage -->
+    <div id="pg-usage" class="pg flex-1 flex flex-col hidden">
+      <header class="h-14 border-b bg-white flex items-center px-6 shrink-0"><h1 class="font-semibold text-gray-800">📊 Token 用量</h1></header>
+      <div id="uc" class="flex-1 overflow-y-auto p-6"></div>
+    </div>
+
+    <!-- Skills -->
+    <div id="pg-skills" class="pg flex-1 flex flex-col hidden">
+      <header class="h-14 border-b bg-white flex items-center px-6 shrink-0"><h1 class="font-semibold text-gray-800">⚡ 技能管理</h1></header>
+      <div id="sc" class="flex-1 overflow-y-auto p-6"></div>
+    </div>
+
+    <!-- Settings -->
+    <div id="pg-settings" class="pg flex-1 flex flex-col hidden">
+      <header class="h-14 border-b bg-white flex items-center px-6 shrink-0"><h1 class="font-semibold text-gray-800">⚙️ 设置</h1></header>
+      <div id="stc" class="flex-1 overflow-y-auto p-6"></div>
+    </div>
+
+    <!-- Project -->
+    <div id="pg-project" class="pg flex-1 flex flex-col hidden">
+      <header class="h-14 border-b bg-white flex items-center justify-between px-6 shrink-0">
+        <h1 id="ptitle" class="font-semibold text-gray-800"></h1>
+        <button onclick="archProj()" class="text-red-500 hover:text-red-700 text-sm px-3 py-1 border border-red-300 rounded-lg">归档项目</button>
+      </header>
+      <div class="border-b bg-white px-6 shrink-0">
+        <div class="flex gap-4">
+          <button onclick="ptab('overview')" class="pt py-3 px-1 text-sm font-medium text-gray-500 hover:text-gray-700" data-t="overview">总览</button>
+          <button onclick="ptab('tasks')" class="pt py-3 px-1 text-sm font-medium text-gray-500 hover:text-gray-700" data-t="tasks">任务</button>
+          <button onclick="ptab('memories')" class="pt py-3 px-1 text-sm font-medium text-gray-500 hover:text-gray-700" data-t="memories">信息/文档</button>
+          <button onclick="ptab('reports')" class="pt py-3 px-1 text-sm font-medium text-gray-500 hover:text-gray-700" data-t="reports">周报/月报</button>
+        </div>
+      </div>
+      <div id="pc" class="flex-1 overflow-y-auto p-6"></div>
+    </div>
+  </main>
+
+  <script>
+    const A='';let cp=null;
+
+    function go(p){
+      document.querySelectorAll('.pg').forEach(e=>e.classList.add('hidden'));
+      document.querySelectorAll('.nb').forEach(b=>b.classList.remove('bg-gray-800','text-white'));
+      const el=document.getElementById('pg-'+p);if(el)el.classList.remove('hidden');
+      const btn=document.querySelector(`.nb[data-p="${p}"]`);if(btn)btn.classList.add('bg-gray-800','text-white');
+      if(p==='tasks')ldTasks();if(p==='usage')ldUsage();if(p==='skills')ldSkills();if(p==='settings')ldSettings();
+    }
+
+    // Chat
+    const cf=document.getElementById('cf'),ci=document.getElementById('ci'),msgs=document.getElementById('msgs');
+    cf.addEventListener('submit',async e=>{
+      e.preventDefault();const m=ci.value.trim();if(!m)return;ci.value='';
+      addMsg('user',m);const bub=addMsg('assistant','');
+      try{
+        const r=await fetch(A+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:m})});
+        const rd=r.body.getReader();const dc=new TextDecoder();let buf='',full='';
+        while(true){const{done,value}=await rd.read();if(done)break;buf+=dc.decode(value,{stream:true});
+          const ls=buf.split('\n');buf=ls.pop()||'';
+          for(const l of ls){if(!l.startsWith('data: '))continue;const d=l.slice(6).trim();if(d==='[DONE]')continue;
+            try{const ev=JSON.parse(d);
+              if(ev.type==='text'){full+=ev.content;bub.innerHTML=md(full);}
+              else if(ev.type==='tool_use'){full+=`\n<span class="tb bg-blue-100 text-blue-700">🔧 ${ev.toolName}</span>\n`;bub.innerHTML=md(full);}
+              else if(ev.type==='tool_result'){full+=`<span class="tb bg-gray-100 text-gray-600">${ev.result?.success?'✅':'❌'} 结果</span>\n`;bub.innerHTML=md(full);}
+              else if(ev.type==='error'){full+=`\n❌ ${ev.error}`;bub.innerHTML=md(full);}
+            }catch{}}
+        }
+        bub.innerHTML=md(full);
+        // Auto refresh projects & tasks after chat
+        ldProjects();
+      }catch(err){bub.textContent='❌ '+err.message;}
+      msgs.scrollTop=msgs.scrollHeight;
+    });
+
+    function addMsg(role,c){
+      const d=document.createElement('div');d.className='chat-bubble flex gap-3 '+(role==='user'?'justify-end':'');
+      const b=document.createElement('div');
+      b.className=role==='user'?'bg-blue-500 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-2xl':'bg-white border rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-3xl shadow-sm md';
+      if(role==='user')b.textContent=c;else b.innerHTML=md(c);
+      if(role!=='user'){const av=document.createElement('div');av.className='w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-1';av.textContent='OA';d.appendChild(av);}
+      d.appendChild(b);msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return b;
+    }
+
+    function md(t){if(!t)return'';return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/```(\w*)\n([\s\S]*?)```/g,'<pre><code>$2</code></pre>').replace(/`([^`]+)`/g,'<code>$1</code>')
+      .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>')
+      .replace(/^### (.+)$/gm,'<h3>$1</h3>').replace(/^## (.+)$/gm,'<h2>$1</h2>').replace(/^# (.+)$/gm,'<h1>$1</h1>')
+      .replace(/^- (.+)$/gm,'<li>$1</li>').replace(/\n/g,'<br>')
+      .replace(/&lt;span/g,'<span').replace(/&lt;\/span&gt;/g,'</span>');}
+
+    // Tasks
+    async function ldTasks(){
+      const el=document.getElementById('tc');el.innerHTML='<p class="text-gray-400">加载中...</p>';
+      try{const r=await fetch(A+'/api/tasks');const ts=await r.json();
+        if(!ts.length){el.innerHTML='<div class="text-center py-12 text-gray-400"><p class="text-4xl mb-2">📋</p><p>暂无任务</p><p class="text-sm mt-1">通过对话或点击"新任务"创建</p></div>';return;}
+        const si={pending:'⏳',in_progress:'🔄',completed:'✅',overdue:'⚠️',cancelled:'🚫'};
+        el.innerHTML='<div class="space-y-2">'+ts.map(t=>`<div class="bg-white border rounded-xl p-4 flex items-center gap-4 hover:shadow-sm">
+          <span class="text-xl">${si[t.status]||'•'}</span>
+          <div class="flex-1"><div class="font-medium text-gray-800">${t.description}</div>
+          <div class="text-xs text-gray-400 mt-1">${t.projectId?'<span class="bg-gray-100 px-2 py-0.5 rounded">'+t.projectId+'</span> ':''}${t.dueDate?'截止: '+new Date(t.dueDate).toLocaleDateString('zh-CN'):''}</div></div>
+          <span class="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">${t.priority}</span></div>`).join('')+'</div>';
+      }catch(e){el.innerHTML='<p class="text-red-500">加载失败</p>';}
+    }
+
+    function newTask(){const d=prompt('任务描述:');if(!d)return;
+      fetch(A+'/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:d,priority:'medium',source:'user_input'})}).then(()=>ldTasks());}
+
+    // Projects
+    async function ldProjects(){
+      try{const r=await fetch(A+'/api/projects');const ps=await r.json();
+        document.getElementById('plist').innerHTML=ps.filter(p=>p.status==='active').map(p=>`
+          <button onclick="openProj('${p.projectId}','${p.projectName}')" class="nb w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-left text-sm" data-p="project-${p.projectId}">
+            <i data-lucide="folder" class="w-4 h-4"></i> ${p.projectName}</button>`).join('');
+        lucide.createIcons();
+      }catch{}}
+
+    async function newProj(){const n=prompt('项目名称:');if(!n)return;
+      await fetch(A+'/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})});ldProjects();}
+
+    function openProj(id,name){cp={id,name};document.getElementById('ptitle').textContent='📁 '+name;go('project');ptab('overview');}
+
+    async function archProj(){if(!cp||!confirm('确定归档「'+cp.name+'」？'))return;
+      try{const r=await fetch(A+'/api/projects');const ps=await r.json();const p=ps.find(x=>x.projectId===cp.id);
+        if(p)await fetch(A+'/api/projects/'+p.id,{method:'DELETE'});}catch{}
+      cp=null;go('chat');ldProjects();}
+
+    async function ptab(tab){
+      document.querySelectorAll('.pt').forEach(t=>t.classList.remove('tab-active'));
+      document.querySelector(`.pt[data-t="${tab}"]`)?.classList.add('tab-active');
+      const el=document.getElementById('pc');
+      if(tab==='overview'){
+        const r=await fetch(A+'/api/tasks');const all=await r.json();const ts=all.filter(t=>t.projectId===cp?.id);
+        const tot=ts.length,done=ts.filter(t=>t.status==='completed').length,ip=ts.filter(t=>t.status==='in_progress').length,od=ts.filter(t=>t.status==='overdue').length;
+        el.innerHTML=`<div class="grid grid-cols-4 gap-4 mb-6">
+          <div class="bg-white border rounded-xl p-4 text-center"><div class="text-2xl font-bold">${tot}</div><div class="text-xs text-gray-500">总任务</div></div>
+          <div class="bg-white border rounded-xl p-4 text-center"><div class="text-2xl font-bold text-green-600">${done}</div><div class="text-xs text-gray-500">已完成</div></div>
+          <div class="bg-white border rounded-xl p-4 text-center"><div class="text-2xl font-bold text-blue-600">${ip}</div><div class="text-xs text-gray-500">进行中</div></div>
+          <div class="bg-white border rounded-xl p-4 text-center"><div class="text-2xl font-bold text-red-600">${od}</div><div class="text-xs text-gray-500">已逾期</div></div></div>
+          <h3 class="font-semibold text-gray-700 mb-3">项目任务</h3>
+          ${ts.length?ts.map(t=>`<div class="bg-white border rounded-lg p-3 mb-2"><span class="font-medium">${t.description}</span> <span class="text-xs text-gray-400">[${t.status}]</span></div>`).join(''):'<p class="text-gray-400">暂无任务。在对话中告诉 Agent 创建任务时指定项目名即可自动关联。</p>'}`;
+      }else if(tab==='memories'){
+        const r=await fetch(A+'/api/memories?projectId='+cp?.id);const ms=await r.json();
+        el.innerHTML=`<div class="mb-4"><button onclick="addPMem()" class="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600">+ 添加信息</button></div>
+          ${ms.length?ms.map(m=>`<div class="bg-white border rounded-xl p-4 mb-3">
+            <div class="flex justify-between"><div><span class="font-medium">${m.title}</span> <span class="text-xs bg-gray-100 px-2 py-0.5 rounded">${m.type}</span></div>
+            <button onclick="delMem('${m.id}')" class="text-red-400 hover:text-red-600 text-xs">删除</button></div>
+            <p class="text-sm text-gray-600 mt-2">${m.content}</p>
+            <div class="text-xs text-gray-400 mt-2">${m.tags?.join(', ')||''} · ${new Date(m.createdAt).toLocaleString('zh-CN')}</div></div>`).join('')
+            :'<p class="text-gray-400">暂无信息。点击上方按钮添加，或在对话中告诉 Agent 信息属于哪个项目。</p>'}`;
+      }else if(tab==='tasks'){
+        const r=await fetch(A+'/api/tasks');const all=await r.json();const ts=all.filter(t=>t.projectId===cp?.id);
+        el.innerHTML=ts.length?ts.map(t=>`<div class="bg-white border rounded-lg p-3 mb-2 flex justify-between"><span>${t.description}</span><span class="text-xs text-gray-400">${t.status} · ${t.priority}</span></div>`).join(''):'<p class="text-gray-400">暂无任务</p>';
+      }else if(tab==='reports'){
+        el.innerHTML='<p class="text-gray-400">周报/月报功能开发中。当前可通过 /weekly-report 命令在对话中生成。</p>';
+      }
+    }
+
+    async function addPMem(){const t=prompt('标题:');if(!t)return;const c=prompt('内容:');if(!c)return;
+      await fetch(A+'/api/memories',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({title:t,content:c,type:'project_context',tags:[cp?.name],source:'user_input',projectId:cp?.id})});ptab('memories');}
+
+    async function delMem(id){if(!confirm('确定删除？'))return;await fetch(A+'/api/memories/'+id,{method:'DELETE'});ptab('memories');}
+
+    // Usage
+    async function ldUsage(){const el=document.getElementById('uc');
+      try{const r=await fetch(A+'/api/usage');const d=await r.json();
+        el.innerHTML=`<pre class="bg-gray-900 text-green-400 p-6 rounded-xl text-sm font-mono whitespace-pre-wrap">${d.report}</pre>
+          <details class="mt-4"><summary class="cursor-pointer text-blue-500 font-medium">查看详细报告</summary>
+          <pre class="bg-gray-900 text-green-400 p-6 rounded-xl text-sm font-mono whitespace-pre-wrap mt-2">${d.detail}</pre></details>`;
+      }catch{el.innerHTML='<p class="text-red-500">加载失败</p>';}}
+
+    // Skills
+    async function ldSkills(){const el=document.getElementById('sc');
+      try{const r=await fetch(A+'/api/skills');const ss=await r.json();
+        el.innerHTML=ss.length?'<div class="grid grid-cols-1 md:grid-cols-2 gap-4">'+ss.map(s=>`
+          <div class="bg-white border rounded-xl p-5">
+            <div class="flex items-center gap-2 mb-2"><span class="text-lg">⚡</span><span class="font-semibold">/${s.name}</span>
+            <span class="text-xs px-2 py-0.5 rounded-full ${s.executionMode==='fork'?'bg-purple-100 text-purple-700':'bg-green-100 text-green-700'}">${s.executionMode}</span></div>
+            <p class="text-sm text-gray-600">${s.description}</p></div>`).join('')+'</div>'
+          :'<p class="text-gray-400">暂无技能。将 SKILL.md 文件放入 ~/.office-agent/skills/ 目录即可加载。</p>';
+      }catch{el.innerHTML='<p class="text-red-500">加载失败</p>';}}
+
+    // Settings (editable)
+    async function ldSettings(){const el=document.getElementById('stc');
+      try{const r=await fetch(A+'/api/config');const c=await r.json();
+        el.innerHTML=`<div class="max-w-2xl space-y-6">
+          <div class="bg-white border rounded-xl p-6">
+            <h3 class="font-semibold text-gray-800 mb-4">🔑 API 配置</h3>
+            <div class="space-y-3">
+              <div><label class="text-sm text-gray-500">API Key（存储在 .env 文件中）</label>
+                <input id="s-apikey" type="password" placeholder="sk-..." class="w-full border rounded-lg px-3 py-2 mt-1 text-sm" value="••••••••"></div>
+              <div><label class="text-sm text-gray-500">模型</label>
+                <select id="s-model" class="w-full border rounded-lg px-3 py-2 mt-1 text-sm">
+                  <option value="qwen-plus" ${c.timezone?'':'selected'}>qwen-plus（推荐，性价比高）</option>
+                  <option value="qwen-max">qwen-max（更强）</option>
+                  <option value="qwen-turbo">qwen-turbo（更快更便宜）</option>
+                </select></div>
+              <p class="text-xs text-gray-400">API Key 修改需编辑项目根目录的 .env 文件。模型切换需重启服务。</p>
+            </div>
+          </div>
+          <div class="bg-white border rounded-xl p-6">
+            <h3 class="font-semibold text-gray-800 mb-4">⏰ 工作时间</h3>
+            <div class="grid grid-cols-2 gap-4">
+              <div><label class="text-sm text-gray-500">开始</label><input id="s-wstart" value="${c.workingHours?.start||'09:00'}" type="time" class="w-full border rounded-lg px-3 py-2 mt-1"></div>
+              <div><label class="text-sm text-gray-500">结束</label><input id="s-wend" value="${c.workingHours?.end||'18:00'}" type="time" class="w-full border rounded-lg px-3 py-2 mt-1"></div>
+            </div>
+          </div>
+          <div class="bg-white border rounded-xl p-6">
+            <h3 class="font-semibold text-gray-800 mb-4">🔔 提醒设置</h3>
+            <div class="space-y-3">
+              <div class="flex justify-between items-center"><span class="text-sm text-gray-600">每日简报时间</span>
+                <input id="s-daily" value="${c.reminder?.dailyBriefingTime||'09:00'}" type="time" class="border rounded-lg px-3 py-1.5 text-sm"></div>
+              <div class="flex justify-between items-center"><span class="text-sm text-gray-600">提醒强度</span>
+                <select id="s-intensity" class="border rounded-lg px-3 py-1.5 text-sm">
+                  <option value="low" ${c.reminder?.intensity==='low'?'selected':''}>低频</option>
+                  <option value="standard" ${c.reminder?.intensity==='standard'?'selected':''}>标准</option>
+                  <option value="high" ${c.reminder?.intensity==='high'?'selected':''}>高频</option>
+                </select></div>
+              <div class="flex justify-between items-center"><span class="text-sm text-gray-600">离开摘要阈值（分钟）</span>
+                <input id="s-away" value="${c.awaySummary?.thresholdMinutes||15}" type="number" min="1" max="60" class="border rounded-lg px-3 py-1.5 text-sm w-20"></div>
+            </div>
+          </div>
+          <button onclick="saveSettings()" class="bg-blue-500 text-white px-6 py-2.5 rounded-xl hover:bg-blue-600 font-medium">保存设置</button>
+        </div>`;
+      }catch{el.innerHTML='<p class="text-red-500">加载失败</p>';}}
+
+    async function saveSettings(){
+      const body={
+        workingHours:{start:document.getElementById('s-wstart').value,end:document.getElementById('s-wend').value},
+        reminder:{dailyBriefingTime:document.getElementById('s-daily').value,intensity:document.getElementById('s-intensity').value},
+        awaySummary:{thresholdMinutes:parseInt(document.getElementById('s-away').value)||15},
+      };
+      await fetch(A+'/api/config',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      alert('设置已保存');
+    }
+
+    // Init
+    go('chat');ldProjects();lucide.createIcons();
+  </script>
+</body>
+</html>
