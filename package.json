@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "tsx src/cli/index.ts",
     "web": "tsx src/server/api.ts",
+    "api": "tsx src/server/openai-compat.ts",
     "chat": "tsx src/cli/index.ts chat",
     "ask": "tsx src/cli/index.ts ask",
     "test": "vitest run",
