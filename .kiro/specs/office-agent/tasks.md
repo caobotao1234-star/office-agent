@@ -201,8 +201,8 @@
     - 测试截止日期提醒触发逻辑、智能提醒检测、提醒取消
     - _需求: 5.1, 6.1, 6.4, 7.1_
 
-- [ ] 11. 实现 Cron_Scheduler 定时调度器
-  - [ ] 11.1 实现 CronScheduler 核心
+- [x] 11. 实现 Cron_Scheduler 定时调度器
+  - [x] 11.1 实现 CronScheduler 核心
     - 创建 `src/services/cron-scheduler.ts`
     - 实现 `CronScheduler` 类：`create()`、`update()`、`delete()`、`list()`
     - 支持标准 cron 表达式，使用用户本地时区
@@ -217,7 +217,7 @@
     - 测试任务创建、cron 表达式解析、持久化恢复、补执行逻辑
     - _需求: 17.2, 17.3, 17.5, 17.7_
 
-- [ ] 12. 检查点 — 确保技能系统、子 Agent、提醒和调度测试通过
+- [x] 12. 检查点 — 确保技能系统、子 Agent、提醒和调度测试通过
   - 确保所有测试通过，如有问题请询问用户。
 
 - [ ] 13. 实现 Document_Parser 文档解析器
