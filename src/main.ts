@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Office Agent
  */
 import * as path from 'node:path';
@@ -42,51 +42,56 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUNDLED_SKILLS_DIR = path.join(__dirname, 'skills', 'bundled');
 const USER_SKILLS_DIR = path.join(BASE_DIR, 'skills');
 
-function buildSystemPrompt(toolDescriptions: string, memoryIndex: string): string {
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-  const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-
-  const memorySection = memoryIndex
-    ? '\n\n# 记忆索引\n\n' + memoryIndex
-    : '';
-
+function buildSystemPrompt(toolDescriptions: string): string {
   const lines = [
-    '# 角色定义',
+    '# \u89D2\u8272\u8BBE\u5B9A',
     '',
-    '你是 Office Agent，一个专业的办公智能助理。',
+    '\u4F60\u662F Office Agent\uFF0C\u4E00\u4E2A\u4E13\u4E1A\u7684\u529E\u516C\u52A9\u7406\u667A\u80FD\u4F53\u3002',
     '',
-    '# 当前时间',
+    '# \u884C\u4E3A\u51C6\u5219',
     '',
-    dateStr + ' ' + timeStr,
+    '1. \u4EC5\u63A8\u8350\u5DF2\u6709\u53EF\u7528\u5DE5\u5177\u5B8C\u6210\u7684\u64CD\u4F5C',
+    '2. \u56DE\u7B54\u57FA\u4E8E\u8BB0\u5FC6\u7CFB\u7EDF\u4E2D\u7684\u771F\u5B9E\u6570\u636E',
+    '3. \u56DE\u590D\u7B80\u6D01\u660E\u4E86\uFF0C\u4E0D\u8D85\u8FC7 200 \u4E2A\u6C49\u5B57',
+    '4. \u6267\u884C\u5199\u64CD\u4F5C\u524D\u5FC5\u987B\u83B7\u5F97\u7528\u6237\u786E\u8BA4',
+    '5. \u81EA\u52A8\u8BB0\u4F4F\u5BF9\u8BDD\u4E2D\u7684\u91CD\u8981\u4FE1\u606F',
+    '6. \u9ED8\u8BA4\u4F7F\u7528\u4E2D\u6587\u4E0E\u7528\u6237\u4EA4\u6D41',
     '',
-    '# 行为准则',
-    '',
-    '1. 主动发现并提醒可能遗忘的事项',
-    '2. 回答基于记忆系统中的真实数据',
-    '3. 回复简洁清晰，控制在 200 字以内',
-    '4. 执行写操作前必须获得用户确认',
-    '5. 自动记住对话中的重要信息',
-    '6. 默认使用中文与用户交流',
-    '',
-    '# 可用工具',
+    '# \u53EF\u7528\u5DE5\u5177',
     '',
     toolDescriptions,
     '',
-    '# 记忆系统',
+    '# \u8BB0\u5FC6\u7CFB\u7EDF',
     '',
-    '1. 记忆索引（下方已列出）',
-    '2. 自动召回：每次对话开始时自动选取相关记忆',
-    '3. 主动搜索：使用 MemoryTool 搜索记忆',
+    '1. \u57FA\u4E8E\u5411\u91CF\u68C0\u7D22\u7684\u957F\u671F\u8BB0\u5FC6',
+    '2. \u81EA\u52A8\u53EC\u56DE\uFF1A\u6BCF\u6B21\u5BF9\u8BDD\u5F00\u59CB\u65F6\u81EA\u52A8\u9009\u53D6\u76F8\u5173\u8BB0\u5FC6',
+    '3. \u4E3B\u52A8\u5B58\u50A8\uFF1A\u4F7F\u7528 MemoryTool \u4FDD\u5B58\u91CD\u8981\u4FE1\u606F',
     '',
-    '当对话中出现值得记住的信息时，使用 MemoryTool 保存。',
-    memorySection,
+    '\u5F53\u5BF9\u8BDD\u4E2D\u51FA\u73B0\u503C\u5F97\u8BB0\u4F4F\u7684\u4FE1\u606F\u65F6\uFF0C\u4F7F\u7528 MemoryTool \u5B58\u6863\u3002',
     '',
-    '# 交互规范',
+    '# \u53EF\u7528\u659C\u6760\u547D\u4EE4\uFF08\u5B8C\u6574\u5217\u8868\uFF09',
     '',
-    '- 用户输入斜杠命令时，直接执行对应功能',
-    '- 用户指令含义模糊时，主动询问澄清',
-    '- 回复要简短精炼',
+    '/tasks \u2014 \u67E5\u770B\u4EFB\u52A1\u5217\u8868',
+    '/remind <\u5185\u5BB9> \u2014 \u521B\u5EFA\u63D0\u9192',
+    '/daily-report \u2014 \u751F\u6210\u6BCF\u65E5\u5DE5\u4F5C\u6C47\u62A5',
+    '/weekly-report \u2014 \u751F\u6210\u5468\u62A5',
+    '/meeting-notes \u2014 \u6574\u7406\u4F1A\u8BAE\u7EAA\u8981',
+    '/task-breakdown \u2014 \u62C6\u89E3\u5927\u4EFB\u52A1',
+    '/feishu-sync \u2014 \u540C\u6B65\u98DE\u4E66\u72B6\u6001',
+    '/project \u2014 \u67E5\u770B\u9879\u76EE\u5217\u8868',
+    '/memory <\u5173\u952E\u8BCD> \u2014 \u641C\u7D22\u8BB0\u5FC6',
+    '/cron \u2014 \u67E5\u770B\u5B9A\u65F6\u4EFB\u52A1',
+    '/usage \u2014 \u67E5\u770B token \u7528\u91CF\u7EDF\u8BA1',
+    '/usage detail \u2014 \u67E5\u770B\u8BE6\u7EC6\u7528\u91CF',
+    '/help \u2014 \u663E\u793A\u5E2E\u52A9',
+    '',
+    '\u4EE5\u4E0A\u662F\u5168\u90E8\u53EF\u7528\u547D\u4EE4\u3002\u4E0D\u8981\u5411\u7528\u6237\u63A8\u8350\u4E0D\u5728\u6B64\u5217\u8868\u4E2D\u7684\u547D\u4EE4\u3002',
+    '',
+    '# \u8F93\u51FA\u89C4\u8303',
+    '',
+    '- \u7528\u6237\u53D1\u51FA\u659C\u6760\u547D\u4EE4\u65F6\uFF0C\u76F4\u63A5\u6267\u884C\u5BF9\u5E94\u64CD\u4F5C',
+    '- \u7528\u6237\u6307\u4EE4\u6A21\u7CCA\u65F6\uFF0C\u4E3B\u52A8\u8BE2\u95EE\u6F84\u6E05',
+    '- \u56DE\u590D\u8981\u6C42\u7B80\u6D01',
   ];
   return lines.join('\n');
 }
@@ -163,8 +168,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     .listAll()
     .map((t) => `- **${t.name}**: ${t.description}`)
     .join('\n');
-  const memoryIndex = memorySystem.loadIndex();
-  const systemPrompt = buildSystemPrompt(toolDescriptions, memoryIndex);
+  const systemPrompt = buildSystemPrompt(toolDescriptions);
 
   const sessionStore = new SessionStore(dataDir);
   const queryEngine = new QueryEngine({
@@ -230,7 +234,7 @@ async function* handleMessage(
 
   const suggestedSkill = agent.skillSystem.suggestSkill(input);
   if (suggestedSkill) {
-    yield { type: 'text', content: `💡 检测到可用技能「${suggestedSkill.name}」，输入 /${suggestedSkill.name} 执行\n\n` };
+    yield { type: 'text', content: `\uD83D\uDCA1 \u68C0\u6D4B\u5230\u53EF\u7528\u6280\u80FD\u300C${suggestedSkill.name}\u300D\uFF0C\u8F93\u5165 /${suggestedSkill.name} \u6267\u884C\n\n` };
   }
 
   yield* agent.queryEngine.submitMessage(input);
@@ -254,14 +258,14 @@ async function* handleSlashCommand(
 ): AsyncGenerator<StreamEvent> {
   const parsed = parseSlashCommand(input);
   if (!parsed) {
-    yield { type: 'text', content: '无法解析该命令，请检查格式。' };
+    yield { type: 'text', content: '\u65E0\u6CD5\u89E3\u6790\u547D\u4EE4\uFF0C\u8BF7\u68C0\u67E5\u683C\u5F0F\u3002' };
     yield { type: 'done' };
     return;
   }
 
   const mapping = resolveCommand(parsed.command);
   if (!mapping) {
-    yield { type: 'text', content: `未知命令: /${parsed.command}。可用命令: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /project, /memory, /cron` };
+    yield { type: 'text', content: `\u672A\u77E5\u547D\u4EE4: /${parsed.command}\u3002\u53EF\u7528\u547D\u4EE4: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /project, /memory, /cron` };
     yield { type: 'done' };
     return;
   }
@@ -285,24 +289,24 @@ async function* handleSkillTrigger(
 ): AsyncGenerator<StreamEvent> {
   const skill = agent.skillSystem.findSkill(skillName);
   if (!skill) {
-    yield { type: 'text', content: `未找到技能: ${skillName}` };
+    yield { type: 'text', content: `\u672A\u627E\u5230\u6280\u80FD: ${skillName}` };
     yield { type: 'done' };
     return;
   }
 
-  yield { type: 'text', content: ` 正在执行技能「${skill.name}」...\n` };
+  yield { type: 'text', content: `\u2699 \u6B63\u5728\u6267\u884C\u6280\u80FD\u300C${skill.name}\u300D...\n` };
 
   const result: SkillResult = await agent.skillSystem.executeSkill(skill, args);
 
   if (!result.success) {
-    yield { type: 'text', content: `❌ 技能执行失败: ${result.output}` };
+    yield { type: 'text', content: `\u274C \u6280\u80FD\u6267\u884C\u5931\u8D25: ${result.output}` };
     yield { type: 'done' };
     return;
   }
 
   if (result.mode === 'inline') {
     yield* agent.queryEngine.submitMessage(
-      `[技能 ${skill.name} 输出]\n${result.output}\n\n请根据以上技能输出为用户生成最终结果。`,
+      `[\u6280\u80FD ${skill.name} \u8F93\u51FA]\n${result.output}\n\n\u8BF7\u6839\u636E\u4EE5\u4E0A\u6280\u80FD\u8F93\u51FA\u4E3A\u7528\u6237\u751F\u6210\u6700\u7EC8\u7ED3\u679C\u3002`,
     );
   } else {
     yield { type: 'text', content: result.output };
@@ -363,11 +367,11 @@ async function generateSuggestions(agent: OfficeAgent): Promise<Suggestion[]> {
 
 function buildNaturalLanguageFromCommand(command: string, args: string): string {
   const commandPrompts: Record<string, string> = {
-    tasks: args ? `查询任务: ${args}` : '列出当前所有任务',
-    remind: args ? `创建提醒: ${args}` : '列出所有待处理的提醒',
-    project: args ? `查看项目「${args}」状态` : '列出所有活跃的项目子代理',
-    memory: args ? `搜索记忆: ${args}` : '列出最近的记忆条目',
-    cron: args ? `管理定时任务: ${args}` : '列出所有定时任务',
+    tasks: args ? `\u67E5\u8BE2\u4EFB\u52A1: ${args}` : '\u5217\u51FA\u5F53\u524D\u6240\u6709\u5F85\u529E\u4EFB\u52A1',
+    remind: args ? `\u521B\u5EFA\u63D0\u9192: ${args}` : '\u5217\u51FA\u6240\u6709\u5F85\u5904\u7406\u7684\u63D0\u9192\u4E8B\u9879',
+    project: args ? `\u67E5\u770B\u9879\u76EE\u300C${args}\u300D\u72B6\u6001` : '\u5217\u51FA\u6240\u6709\u6D3B\u8DC3\u7684\u9879\u76EE\u53CA\u8FDB\u5C55',
+    memory: args ? `\u641C\u7D22\u8BB0\u5FC6: ${args}` : '\u5217\u51FA\u8BB0\u5FC6\u7684\u5173\u952E\u6761\u76EE',
+    cron: args ? `\u7BA1\u7406\u5B9A\u65F6\u4EFB\u52A1: ${args}` : '\u5217\u51FA\u6240\u6709\u5B9A\u65F6\u4EFB\u52A1',
   };
-  return commandPrompts[command] ?? `执行命令 /${command} ${args}`.trim();
+  return commandPrompts[command] ?? `\u6267\u884C\u547D\u4EE4 /${command} ${args}`.trim();
 }
