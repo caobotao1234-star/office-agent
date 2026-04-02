@@ -172,7 +172,7 @@ export function createServer(port = 3000) {
   });
 
   // SPA fallback
-  app.get('*', (_req, res) => {
+  app.get('/{*path}', (_req, res) => {
     const indexPath = path.join(STATIC_DIR, 'index.html');
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);
