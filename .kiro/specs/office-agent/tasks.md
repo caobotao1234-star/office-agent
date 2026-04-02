@@ -157,8 +157,8 @@
     - 测试技能文件解析、技能查找、参数替换、执行模式选择
     - _需求: 10.1, 10.5, 10.8_
 
-- [ ] 9. 实现 Sub_Agent 动态子 Agent 管理
-  - [ ] 9.1 实现 SubAgentManager
+- [x] 9. 实现 Sub_Agent 动态子 Agent 管理
+  - [x] 9.1 实现 SubAgentManager
     - 创建 `src/core/sub-agent-manager.ts`
     - 实现 `SubAgentManager` 类：`create()`、`delegate()`、`archive()`、`list()`、`getByProject()`
     - 每个 Sub_Agent 拥有独立的 memdir 子目录（`~/.office-agent/agents/{project-id}/memdir/`）
@@ -167,7 +167,7 @@
     - 创建 Sub_Agent 时需要用户确认
     - _需求: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
 
-  - [ ] 9.2 实现 SubAgentTool
+  - [x] 9.2 实现 SubAgentTool
     - 创建 `src/tools/SubAgentTool/index.ts`
     - 作为 Tool_System 中的工具，供 Main_Agent 通过 LLM 调用来管理子 Agent
     - 支持操作：创建子 Agent、委派任务、查看列表、归档注销
