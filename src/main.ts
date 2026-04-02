@@ -22,6 +22,7 @@ import { SkillSystem } from './core/skill-system.js';
 import type { SkillResult } from './core/skill-system.js';
 import { SubAgentManager } from './core/sub-agent-manager.js';
 import { UserConfigManager } from './core/user-config.js';
+import { SessionStore } from './core/session-store.js';
 import { isSlashCommand, parseSlashCommand, resolveCommand } from './core/slash-command.js';
 
 // Services
@@ -208,7 +209,8 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     .join('\n');
   const systemPrompt = buildSystemPrompt(toolDescriptions);
 
-  // --- 6. QueryEngine ---
+  // --- 6. SessionStore + QueryEngine ---
+  const sessionStore = new SessionStore(dataDir);
   const queryEngine = new QueryEngine({
     model: model ?? 'claude-sonnet-4-20250514',
     systemPrompt,
@@ -216,6 +218,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     memorySystem,
     contextManager,
     llm,
+    sessionStore,
   });
 
   // --- 7. Assemble OfficeAgent ---
@@ -262,6 +265,13 @@ async function startAgent(agent: OfficeAgent): Promise<void> {
 
   // 5. 记录启动时间为最后活动时间，防止刚启动就触发离开摘要
   agent.awaySummaryEngine.recordActivity();
+
+  // 6. 恢复上次会话历史
+  const restored = agent.queryEngine.restoreLastSession();
+  if (restored) {
+    const msgCount = agent.queryEngine.getMessages().length;
+    console.log(`  📂 已恢复上次会话 (${msgCount} 条消息)`);
+  }
 }
 
 function stopAgent(agent: OfficeAgent): void {

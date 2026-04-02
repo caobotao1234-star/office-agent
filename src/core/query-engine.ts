@@ -12,6 +12,8 @@ import type { MemorySystem } from './memory-system.js';
 import type { ContextManager, ToolDefinition } from './context-manager.js';
 import type { ToolRegistry } from './tool-system.js';
 
+import type { SessionStore } from './session-store.js';
+
 export interface QueryEngineConfig {
   model: string;
   systemPrompt: string;
@@ -20,6 +22,7 @@ export interface QueryEngineConfig {
   contextManager: ContextManager;
   llm: LLMClient;
   maxToolRounds?: number;
+  sessionStore?: SessionStore;
 }
 
 export class QueryEngine {
@@ -28,11 +31,32 @@ export class QueryEngine {
   private sessionId: string;
   private abortController: AbortController | null = null;
   private maxToolRounds: number;
+  private sessionStore: SessionStore | undefined;
 
   constructor(config: QueryEngineConfig) {
     this.config = config;
     this.sessionId = randomUUID();
     this.maxToolRounds = config.maxToolRounds ?? 10;
+    this.sessionStore = config.sessionStore;
+  }
+
+  /** 从磁盘恢复上一次会话 */
+  restoreLastSession(): boolean {
+    if (!this.sessionStore) return false;
+    const lastId = this.sessionStore.getLastSessionId();
+    if (!lastId) return false;
+    const msgs = this.sessionStore.load(lastId);
+    if (msgs.length === 0) return false;
+    this.messages = msgs;
+    this.sessionId = lastId;
+    return true;
+  }
+
+  /** 保存当前会话到磁盘 */
+  private saveSession(): void {
+    if (this.sessionStore && this.messages.length > 0) {
+      this.sessionStore.save(this.sessionId, this.messages);
+    }
   }
 
   async *submitMessage(userMessage: string): AsyncGenerator<StreamEvent> {
@@ -63,6 +87,9 @@ export class QueryEngine {
 
       // Auto memory extraction (fire-and-forget)
       this.config.memorySystem.extractAndStoreFromConversation(this.messages).catch(() => {});
+
+      // 持久化会话
+      this.saveSession();
 
       yield { type: 'done' };
     } catch (err) {
