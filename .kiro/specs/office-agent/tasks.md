@@ -30,7 +30,7 @@
     - **属性 2: InformationEntry 往返一致性** — 任意有效 InformationEntry 序列化后反序列化应产生等价对象
     - **验证: 需求 14.3, 14.4**
 
-- [-] 2. 实现 Tool_System 工具系统框架
+- [x] 2. 实现 Tool_System 工具系统框架
   - [x] 2.1 实现 Tool 基础接口与 ToolRegistry
     - 创建 `src/core/tool-system.ts`
     - 定义 `Tool` 接口：`name`、`description`、`inputSchema`、`isEnabled()`、`isReadOnly()`、`checkPermissions()`、`call()`、`requiresUserConfirmation()`
@@ -42,7 +42,7 @@
     - 测试工具注册、查找、启用/禁用、权限检查逻辑
     - _需求: 9.1, 9.3, 9.4_
 
-  - [ ] 2.3 实现 TaskManager 工具
+  - [x] 2.3 实现 TaskManager 工具
     - 创建 `src/tools/TaskManager/index.ts`
     - 实现任务 CRUD：创建 TaskItem（含描述、截止日期、优先级、项目、来源）
     - 实现状态追踪：pending → in_progress → completed / overdue / cancelled
