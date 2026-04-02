@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+
+# 参考源码，不纳入版本管理
+claude-code-ref/
