@@ -3,7 +3,7 @@
  */
 import * as readline from 'node:readline';
 import type { StreamEvent } from '../../types/index.js';
-import { getAgent } from '../agent-factory.js';
+import { getAgent, getTokenTracker } from '../agent-factory.js';
 
 export async function chat(modelOverride?: string): Promise<void> {
   const agent = getAgent(modelOverride);
@@ -38,6 +38,12 @@ export async function chat(modelOverride?: string): Promise<void> {
 
       if (trimmed === '/help' || trimmed === '帮助') {
         printHelp();
+        prompt();
+        return;
+      }
+
+      if (trimmed === '/usage' || trimmed === '/token' || trimmed === '/tokens') {
+        console.log(getTokenTracker().formatReport());
         prompt();
         return;
       }
@@ -99,6 +105,7 @@ function printHelp(): void {
   /project            查看项目列表
   /memory <关键词>    搜索记忆
   /cron               查看定时任务
+  /usage              查看 token 用量统计
   /help               显示此帮助
   quit                退出
 `);

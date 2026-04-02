@@ -3,6 +3,7 @@
  * 支持普通请求和 SSE 流式输出。
  */
 import type { LLMClient } from './llm-client.js';
+import type { TokenTracker } from './token-tracker.js';
 
 const DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
 
@@ -11,6 +12,7 @@ export interface DashScopeLLMOptions {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  tokenTracker?: TokenTracker;
 }
 
 export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
@@ -19,6 +21,7 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
     model = 'qwen-plus',
     maxTokens = 4096,
     temperature = 0.7,
+    tokenTracker,
   } = options;
 
   function buildMessages(system: string, user: string) {
@@ -57,10 +60,17 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
 
       const data = await response.json() as {
         choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
         error?: { message?: string };
       };
 
       if (data.error) throw new Error(`DashScope: ${data.error.message}`);
+
+      // 记录 token 用量
+      if (tokenTracker && data.usage) {
+        tokenTracker.record(model, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0);
+      }
+
       return data.choices?.[0]?.message?.content ?? '';
     },
 
@@ -91,6 +101,7 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let lastUsage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
 
       try {
         while (true) {
@@ -108,7 +119,13 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
             if (!trimmed || !trimmed.startsWith('data:')) continue;
 
             const jsonStr = trimmed.slice(5).trim();
-            if (jsonStr === '[DONE]') return;
+            if (jsonStr === '[DONE]') {
+              // 记录 token 用量
+              if (tokenTracker && lastUsage) {
+                tokenTracker.record(model, lastUsage.prompt_tokens ?? 0, lastUsage.completion_tokens ?? 0);
+              }
+              return;
+            }
 
             try {
               const chunk = JSON.parse(jsonStr) as {
@@ -116,7 +133,13 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
                   delta?: { content?: string };
                   finish_reason?: string | null;
                 }>;
+                usage?: { prompt_tokens?: number; completion_tokens?: number };
               };
+
+              // 捕获 usage（通常在最后一个 chunk）
+              if (chunk.usage) {
+                lastUsage = chunk.usage;
+              }
 
               const content = chunk.choices?.[0]?.delta?.content;
               if (content) {
@@ -126,6 +149,11 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
               // 解析失败的行跳过
             }
           }
+        }
+
+        // 流结束但没收到 [DONE]，也记录 usage
+        if (tokenTracker && lastUsage) {
+          tokenTracker.record(model, lastUsage.prompt_tokens ?? 0, lastUsage.completion_tokens ?? 0);
         }
       } finally {
         reader.releaseLock();

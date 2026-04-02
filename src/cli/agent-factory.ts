@@ -5,8 +5,19 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createOfficeAgent, type OfficeAgent } from '../main.js';
 import { createDashScopeLLM } from '../core/dashscope-llm.js';
+import { TokenTracker } from '../core/token-tracker.js';
 
 const DATA_DIR = path.join(os.homedir(), '.office-agent');
+
+/** Shared token tracker instance */
+let _tokenTracker: TokenTracker | null = null;
+
+export function getTokenTracker(): TokenTracker {
+  if (!_tokenTracker) {
+    _tokenTracker = new TokenTracker(path.join(DATA_DIR, 'token-usage.json'));
+  }
+  return _tokenTracker;
+}
 
 export function getAgent(modelOverride?: string): OfficeAgent {
   const apiKey = process.env['DASHSCOPE_API_KEY'];
@@ -18,12 +29,14 @@ export function getAgent(modelOverride?: string): OfficeAgent {
   }
 
   const model = modelOverride ?? process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus';
+  const tokenTracker = getTokenTracker();
 
   const llm = createDashScopeLLM({
     apiKey,
     model,
     maxTokens: 4096,
     temperature: 0.7,
+    tokenTracker,
   });
 
   return createOfficeAgent({ llm, baseDir: DATA_DIR, model });

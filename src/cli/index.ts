@@ -18,6 +18,7 @@ import { chat } from './commands/chat.js';
 import { ask } from './commands/ask.js';
 import { tasks } from './commands/tasks.js';
 import { config } from './commands/config.js';
+import { usage } from './commands/usage.js';
 import { loadEnv } from './env.js';
 
 const VERSION = '0.1.0';
@@ -31,6 +32,7 @@ const HELP = `
   oa ask <问题>            单次提问，输出后退出
   oa tasks                 查看当前任务列表
   oa config                查看当前配置
+  oa usage                 查看 token 用量统计
 
 选项:
   -h, --help               显示帮助
@@ -89,6 +91,11 @@ async function main() {
 
     case 'config':
       await config();
+      break;
+
+    case 'usage':
+    case 'tokens':
+      usage();
       break;
 
     default:
