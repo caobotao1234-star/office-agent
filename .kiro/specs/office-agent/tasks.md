@@ -107,8 +107,8 @@
     - 测试 token 预算分配、压缩触发条件、压缩结果
     - _需求: 15.1, 15.4_
 
-- [ ] 6. 实现 QueryEngine 主循环引擎
-  - [ ] 6.1 实现 QueryEngine 核心循环
+- [-] 6. 实现 QueryEngine 主循环引擎
+  - [x] 6.1 实现 QueryEngine 核心循环
     - 创建 `src/core/query-engine.ts`
     - 实现 `QueryEngine` 类，采用 `async function*` 异步生成器模式
     - 实现 `submitMessage()` 方法：接收用户输入 → 组装上下文（调用 ContextManager + MemorySystem）→ 调用 LLM API → 处理流式响应
@@ -118,7 +118,7 @@
     - 实现 `getMessages()` 和 `getSessionId()` 方法
     - _需求: 11.1, 11.3, 11.6_
 
-  - [ ] 6.2 实现斜杠命令解析器
+  - [x] 6.2 实现斜杠命令解析器
     - 创建 `src/core/slash-command.ts`
     - 解析 `/tasks`、`/remind`、`/project`、`/daily-report` 等斜杠命令
     - 将斜杠命令转换为对应的工具调用或技能触发
@@ -130,7 +130,7 @@
     - 测试斜杠命令解析
     - _需求: 11.1, 11.5_
 
-- [ ] 7. 检查点 — 确保核心引擎和记忆系统测试通过
+- [x] 7. 检查点 — 确保核心引擎和记忆系统测试通过
   - 确保所有测试通过，如有问题请询问用户。
 
 - [ ] 8. 实现 Skill_System 技能系统
