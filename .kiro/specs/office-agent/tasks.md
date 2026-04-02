@@ -133,8 +133,8 @@
 - [x] 7. 检查点 — 确保核心引擎和记忆系统测试通过
   - 确保所有测试通过，如有问题请询问用户。
 
-- [ ] 8. 实现 Skill_System 技能系统
-  - [ ] 8.1 实现技能加载器与执行引擎
+- [x] 8. 实现 Skill_System 技能系统
+  - [x] 8.1 实现技能加载器与执行引擎
     - 创建 `src/core/skill-system.ts`
     - 实现 `SkillSystem` 类：`loadSkills()`、`findSkill()`、`executeSkill()`、`suggestSkill()`
     - 实现 SKILL.md 文件解析：解析 Markdown + YAML frontmatter 格式，提取 name、description、when_to_use、allowed_tools、execution_mode
@@ -144,7 +144,7 @@
     - 支持 `$ARGUMENTS` 变量替换实现参数化调用
     - _需求: 10.1, 10.3, 10.5, 10.6, 10.7, 10.8_
 
-  - [ ] 8.2 创建内置技能文件
+  - [x] 8.2 创建内置技能文件
     - 创建 `src/skills/bundled/daily-report.md`：每日工作汇报生成（inline 模式）
     - 创建 `src/skills/bundled/meeting-notes.md`：会议纪要整理（inline 模式）
     - 创建 `src/skills/bundled/task-breakdown.md`：大任务拆解（fork 模式）
