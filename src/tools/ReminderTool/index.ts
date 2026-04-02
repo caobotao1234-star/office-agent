@@ -1,5 +1,5 @@
 /**
- * ReminderTool â€” Tool interface wrapper for ReminderEngine.
+ * ReminderTool â€?Tool interface wrapper for ReminderEngine.
  *
  * Operations: create, cancel, list
  * Delegates to ReminderEngine for actual logic.
@@ -47,6 +47,16 @@ export class ReminderTool implements Tool<ReminderToolInput, unknown> {
   readonly name = 'ReminderTool';
   readonly description = 'Manage reminders: create, cancel, and list pending reminders.';
   readonly inputSchema = ReminderToolInput;
+  readonly parametersJsonSchema = {
+    type: 'object',
+    properties: {
+      action: { type: 'string', enum: ['create', 'cancel', 'list'], description: 'The operation to perform' },
+      message: { type: 'string', description: 'Reminder message (for create)' },
+      scheduledAt: { type: 'string', description: 'When to remind, ISO date string (for create)' },
+      taskId: { type: 'string', description: 'Task ID to cancel reminders for (for cancel)' },
+    },
+    required: ['action'],
+  };
 
   private engine: ReminderEngine;
   private enabled = true;

@@ -66,6 +66,15 @@ export class DocumentParserTool implements Tool<DocumentParserInput, Information
   readonly name = 'DocumentParser';
   readonly description = 'Parse documents in various formats (Feishu doc, Excel, Word, webpage, text) into structured InformationEntry objects.';
   readonly inputSchema = DocumentParserInput;
+  readonly parametersJsonSchema = {
+    type: 'object',
+    properties: {
+      type: { type: 'string', enum: ['feishu_doc', 'excel', 'word', 'webpage', 'text'] },
+      docId: { type: 'string' }, url: { type: 'string' },
+      content: { type: 'string' }, filename: { type: 'string' },
+    },
+    required: ['type'],
+  };
 
   private enabled = true;
 

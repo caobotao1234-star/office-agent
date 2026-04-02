@@ -38,6 +38,17 @@ export class EmailTool implements Tool<EmailToolInput, unknown> {
   readonly name = 'EmailTool';
   readonly description = 'Send emails. Requires user confirmation before sending.';
   readonly inputSchema = EmailToolInput;
+  readonly parametersJsonSchema = {
+    type: 'object',
+    properties: {
+      action: { type: 'string', enum: ['send'] },
+      to: { type: 'array', items: { type: 'string' } },
+      cc: { type: 'array', items: { type: 'string' } },
+      subject: { type: 'string' }, body: { type: 'string' },
+      isHtml: { type: 'boolean' },
+    },
+    required: ['action'],
+  };
 
   private enabled = true;
 

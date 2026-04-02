@@ -39,6 +39,14 @@ export class BackgroundTaskTool implements Tool<BackgroundTaskToolInput, unknown
   readonly name = 'BackgroundTaskTool';
   readonly description = 'Manage background tasks: list running tasks and cancel them.';
   readonly inputSchema = BackgroundTaskToolInput;
+  readonly parametersJsonSchema = {
+    type: 'object',
+    properties: {
+      action: { type: 'string', enum: ['list', 'cancel'] },
+      taskId: { type: 'string' },
+    },
+    required: ['action'],
+  };
 
   private manager: BackgroundTaskManager;
   private enabled = true;
