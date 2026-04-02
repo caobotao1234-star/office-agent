@@ -128,11 +128,41 @@ export class QueryEngine {
         const nonSystemMsgs = context.messages.filter((m) => m.role !== 'system');
         const userPrompt = nonSystemMsgs.map((m) => `[${m.role}] ${m.content}`).join('\n');
 
-        const llmResponse = await this.config.llm.query(
-          systemMsg?.content ?? this.config.systemPrompt,
-          userPrompt,
-          signal,
-        );
+        // Call LLM — use streaming if available, fall back to non-streaming
+        const systemContent = systemMsg?.content ?? this.config.systemPrompt;
+        let llmResponse: string;
+
+        if (this.config.llm.queryStream) {
+          // 流式：逐 token 收集，同时 yield text 事件
+          const chunks: string[] = [];
+          let isToolUse = false;
+
+          for await (const chunk of this.config.llm.queryStream(systemContent, userPrompt, signal)) {
+            chunks.push(chunk);
+
+            // 检测是否是 tool_use JSON（以 { 开头的流）
+            const soFar = chunks.join('');
+            if (chunks.length <= 3 && soFar.trimStart().startsWith('{')) {
+              isToolUse = true; // 可能是 tool_use，先不输出，等收集完
+              continue;
+            }
+
+            if (!isToolUse) {
+              yield { type: 'text', content: chunk };
+            }
+          }
+
+          llmResponse = chunks.join('');
+
+          // 如果之前判断可能是 tool_use 但最终不是，补输出
+          if (isToolUse && !parseToolUse(llmResponse)) {
+            yield { type: 'text', content: llmResponse };
+            isToolUse = false;
+          }
+        } else {
+          // 非流式回退
+          llmResponse = await this.config.llm.query(systemContent, userPrompt, signal);
+        }
 
         // Check for tool_use
         const toolReq = parseToolUse(llmResponse);
@@ -180,7 +210,10 @@ export class QueryEngine {
 
         // No tool_use — this is the final text response
         lastAssistantContent = llmResponse;
-        yield { type: 'text', content: llmResponse };
+        // 如果是非流式模式，这里才 yield 完整文本（流式已经逐 token yield 过了）
+        if (!this.config.llm.queryStream) {
+          yield { type: 'text', content: llmResponse };
+        }
         break;
       }
 
