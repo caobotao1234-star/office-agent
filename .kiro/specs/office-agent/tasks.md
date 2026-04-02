@@ -6,7 +6,7 @@
 
 ## 任务
 
-- [-] 1. 搭建项目基础结构与核心类型定义
+- [x] 1. 搭建项目基础结构与核心类型定义
   - [x] 1.1 初始化 TypeScript + Node.js 项目
     - 创建 `package.json`、`tsconfig.json`，配置 ESM 模块、严格模式
     - 安装核心依赖：`zod`（schema 验证）、`uuid`（ID 生成）、`cron-parser`（cron 表达式解析）
@@ -14,7 +14,7 @@
     - 创建目录结构：`src/`、`src/core/`、`src/tools/`、`src/skills/`、`src/services/`
     - _需求: 全局_
 
-  - [ ] 1.2 定义核心数据模型与类型
+  - [x] 1.2 定义核心数据模型与类型
     - 创建 `src/types/index.ts`，定义所有核心接口和类型
     - 包含：`TaskItem`、`TaskStatus`、`TaskPriority`、`TaskSource`
     - 包含：`InformationEntry`、`InformationType`、`InformationSource`、`ExtractedEntity`
