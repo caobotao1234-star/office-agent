@@ -47,17 +47,6 @@ export class CalendarTool implements Tool<CalendarToolInput, unknown> {
   readonly name = 'CalendarTool';
   readonly description = 'Manage calendar events: create new events and query existing ones.';
   readonly inputSchema = CalendarToolInput;
-  readonly parametersJsonSchema = {
-    type: 'object',
-    properties: {
-      action: { type: 'string', enum: ['create', 'query'] },
-      summary: { type: 'string' }, startTime: { type: 'string' },
-      endTime: { type: 'string' }, attendees: { type: 'array', items: { type: 'string' } },
-      description: { type: 'string' }, location: { type: 'string' },
-      keyword: { type: 'string' },
-    },
-    required: ['action'],
-  };
 
   private enabled = true;
 

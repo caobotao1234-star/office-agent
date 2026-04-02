@@ -69,19 +69,6 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
   readonly name = 'FeishuConnector';
   readonly description = 'Connect to Feishu (Lark): send messages, watch documents/messages, create calendar events, get documents.';
   readonly inputSchema = FeishuConnectorInput;
-  readonly parametersJsonSchema = {
-    type: 'object',
-    properties: {
-      action: { type: 'string', enum: ['send_message', 'watch_documents', 'watch_messages', 'create_calendar_event', 'get_document'] },
-      chatId: { type: 'string' }, content: { type: 'string' },
-      spaceIds: { type: 'array', items: { type: 'string' } },
-      config: { type: 'object' }, summary: { type: 'string' },
-      startTime: { type: 'string' }, endTime: { type: 'string' },
-      attendees: { type: 'array', items: { type: 'string' } },
-      description: { type: 'string' }, docId: { type: 'string' },
-    },
-    required: ['action'],
-  };
 
   private enabled = true;
   private subscriptionActive = false;

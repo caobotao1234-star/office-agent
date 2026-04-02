@@ -55,18 +55,6 @@ export class SubAgentTool implements Tool<SubAgentInput, unknown> {
   readonly description =
     'Manage project-level Sub_Agents: create, delegate tasks, list, and archive.';
   readonly inputSchema = SubAgentInput;
-  readonly parametersJsonSchema = {
-    type: 'object',
-    properties: {
-      action: { type: 'string', enum: ['create', 'delegate', 'list', 'archive'], description: 'The operation to perform' },
-      projectName: { type: 'string', description: 'Project name (for create)' },
-      initialContext: { type: 'string', description: 'Initial context (for create)' },
-      agentId: { type: 'string', description: 'Agent ID (for delegate/archive)' },
-      message: { type: 'string', description: 'Message to delegate' },
-      status: { type: 'string', enum: ['active', 'archived'], description: 'Filter by status (for list)' },
-    },
-    required: ['action'],
-  };
 
   private manager: SubAgentManager;
   private enabled = true;

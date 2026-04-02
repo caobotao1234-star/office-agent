@@ -6,7 +6,7 @@
  * 2. Prompt-based fallback (query/queryStream) — for LLMs without native tool support
  */
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod/v4';
+import { zodToJsonSchema } from './schema-utils.js';
 import type { Message, StreamEvent } from '../types/index.js';
 import type { LLMClient, LLMMessage, LLMToolDef } from './llm-client.js';
 import type { MemorySystem } from './memory-system.js';
@@ -152,7 +152,7 @@ export class QueryEngine {
       function: {
         name: t.name,
         description: t.description,
-        parameters: t.parametersJsonSchema ?? this.zodToJsonSchema(t.inputSchema),
+        parameters: zodToJsonSchema(t.inputSchema),
       },
     }));
 
@@ -292,15 +292,6 @@ export class QueryEngine {
       ...(msg.toolName && { name: msg.toolName }),
       ...(msg.toolCallId && { tool_call_id: msg.toolCallId }),
     };
-  }
-
-  /** Convert a zod schema to JSON Schema for the API. */
-  private zodToJsonSchema(schema: unknown): Record<string, unknown> {
-    try {
-      return z.toJSONSchema(schema as z.ZodType) as Record<string, unknown>;
-    } catch {
-      return { type: 'object' };
-    }
   }
 
   interrupt(): void { this.abortController?.abort(); }

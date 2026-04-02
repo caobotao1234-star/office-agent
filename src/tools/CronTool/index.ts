@@ -51,18 +51,6 @@ export class CronTool implements Tool<CronToolInput, unknown> {
   readonly name = 'CronTool';
   readonly description = 'Manage scheduled cron tasks: create, delete, and list.';
   readonly inputSchema = CronToolInput;
-  readonly parametersJsonSchema = {
-    type: 'object',
-    properties: {
-      action: { type: 'string', enum: ['create', 'delete', 'list'] },
-      type: { type: 'string', enum: ['one_time', 'recurring'] },
-      cronExpression: { type: 'string' }, scheduledAt: { type: 'string' },
-      prompt: { type: 'string' }, description: { type: 'string' },
-      timezone: { type: 'string' }, durable: { type: 'boolean' },
-      id: { type: 'string' },
-    },
-    required: ['action'],
-  };
 
   private scheduler: CronScheduler;
   private enabled = true;

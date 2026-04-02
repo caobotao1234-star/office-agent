@@ -312,20 +312,6 @@ export class TaskManagerTool implements Tool<TaskManagerInput, unknown> {
   name = 'TaskManager';
   description = 'Manage tasks: create, update, delete, query, decompose, and detect overdue tasks.';
   inputSchema = TaskManagerInput;
-  parametersJsonSchema = {
-    type: 'object',
-    properties: {
-      action: { type: 'string', enum: ['create', 'update', 'delete', 'get', 'list', 'decompose', 'check_overdue'], description: 'The operation to perform' },
-      description: { type: 'string', description: 'Task description (for create)' },
-      id: { type: 'string', description: 'Task ID (for update/delete/get)' },
-      priority: { type: 'string', enum: ['urgent', 'high', 'medium', 'low'], description: 'Task priority' },
-      projectId: { type: 'string', description: 'Project ID to associate with' },
-      dueDate: { type: 'string', description: 'Due date in ISO format' },
-      source: { type: 'string', enum: ['user_input', 'feishu_message', 'feishu_doc', 'auto_detect'] },
-      status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'overdue', 'cancelled'] },
-    },
-    required: ['action'],
-  };
 
   private enabled = true;
 
