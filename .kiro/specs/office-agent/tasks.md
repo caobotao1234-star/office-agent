@@ -89,14 +89,14 @@
     - 测试 frontmatter 解析和生成
     - _需求: 3.1, 3.5, 3.6, 3.8_
 
-- [ ] 5. 实现 Context_Manager 上下文管理器
-  - [ ] 5.1 实现 Token 预算分配与上下文组装
+- [x] 5. 实现 Context_Manager 上下文管理器
+  - [x] 5.1 实现 Token 预算分配与上下文组装
     - 创建 `src/core/context-manager.ts`
     - 实现 `allocateBudget()` 方法：为系统提示、记忆注入、对话历史、工具结果分配 token 预算
     - 实现 `buildContext()` 方法：组装系统提示 + 记忆 + 对话历史 + 工具定义为完整上下文
     - _需求: 15.4_
 
-  - [ ] 5.2 实现自动压缩机制
+  - [x] 5.2 实现自动压缩机制
     - 实现 `shouldAutoCompact()` 方法：token 使用量达到上下文窗口 90% 时触发
     - 实现 `compact()` 方法：将历史对话压缩为结构化摘要，保留关键信息（任务状态变更、重要决策、用户指令）
     - 压缩过程中将值得长期保留的信息提取到 Memory_System 持久化层
