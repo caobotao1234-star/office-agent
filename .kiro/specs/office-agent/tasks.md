@@ -272,8 +272,8 @@
     - 测试各工具的输入验证、权限检查、错误处理
     - _需求: 9.5, 9.6_
 
-- [ ] 16. 实现 Background_Task 后台任务管理器
-  - [ ] 16.1 实现 BackgroundTaskManager
+- [x] 16. 实现 Background_Task 后台任务管理器
+  - [x] 16.1 实现 BackgroundTaskManager
     - 创建 `src/services/background-task-manager.ts`
     - 实现 `spawn()`：派发耗时任务为后台异步执行，不阻塞主对话
     - 实现 `cancel()`：支持取消正在执行的后台任务
@@ -286,11 +286,11 @@
     - 测试任务派发、取消、状态查询、完成回调
     - _需求: 18.1, 18.5, 18.6_
 
-- [ ] 17. 检查点 — 确保所有工具模块和后台任务测试通过
+- [x] 17. 检查点 — 确保所有工具模块和后台任务测试通过
   - 确保所有测试通过，如有问题请询问用户。
 
-- [ ] 18. 实现 Away_Summary_Engine 离开摘要引擎
-  - [ ] 18.1 实现离开检测与摘要生成
+- [x] 18. 实现 Away_Summary_Engine 离开摘要引擎
+  - [x] 18.1 实现离开检测与摘要生成
     - 创建 `src/services/away-summary-engine.ts`
     - 实现 `checkUserActivity()`：检测用户是否离开（无交互超过阈值时间）
     - 实现 `generateSummary()`：使用轻量级 LLM 调用生成摘要
@@ -304,8 +304,8 @@
     - 测试离开检测、摘要生成条件、无事件时不生成
     - _需求: 16.1, 16.3, 16.5_
 
-- [ ] 19. 实现 Voice Service 语音输入服务
-  - [ ] 19.1 实现语音录制与转文本
+- [x] 19. 实现 Voice Service 语音输入服务
+  - [x] 19.1 实现语音录制与转文本
     - 创建 `src/services/voice-service.ts`
     - 实现 `startRecording()` / `stopRecording()`：录音控制
     - 实现 `transcribe()`：语音转文本（调用 STT API）
@@ -318,8 +318,8 @@
     - 测试录音状态管理、转写结果处理、置信度判断
     - _需求: 19.1, 19.5_
 
-- [ ] 20. 实现 PromptSuggestion 主动建议引擎
-  - [ ] 20.1 实现建议生成与管理
+- [x] 20. 实现 PromptSuggestion 主动建议引擎
+  - [x] 20.1 实现建议生成与管理
     - 创建 `src/services/prompt-suggestion.ts`
     - 实现 `generateSuggestions()`：基于当前任务、即将到期任务、用户活动模式生成 1-3 条建议
     - 实现 `dismissSuggestion()`：记录用户忽略的建议，避免重复建议
