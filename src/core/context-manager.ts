@@ -1,6 +1,6 @@
 /**
- * Context Manager — Token budget allocation, context assembly, and auto-compaction.
- * Reference: Claude Code's compact service and tokenBudget module.
+ * Context Manager — Auto-compaction and context window management.
+ * Reference: Claude Code's compact service.
  *
  * Uses a simple chars/4 heuristic for token estimation.
  */
@@ -12,48 +12,10 @@ import type { MemorySystem } from './memory-system.js';
 // Types
 // ============================================================
 
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema?: unknown;
-}
-
-export interface TokenBudgetAllocation {
-  systemPrompt: number;
-  memoryInjection: number;
-  conversationHistory: number;
-  toolResults: number;
-  total: number;
-}
-
 export interface CompactResult {
   compressedMessages: Message[];
   extractedMemories: MemoryEntry[];
   summary: string;
-}
-
-export interface ContextPayload {
-  messages: Message[];
-  estimatedTokens: number;
-}
-
-// ============================================================
-// Helpers
-// ============================================================
-
-/** Rough token estimate: chars / 4 */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
-function messageTokens(msg: Message): number {
-  return estimateTokens(msg.content) + estimateTokens(msg.role) + 4; // small overhead per message
-}
-
-function truncateToTokenBudget(text: string, budget: number): string {
-  const charBudget = budget * 4;
-  if (text.length <= charBudget) return text;
-  return text.slice(0, charBudget);
 }
 
 // ============================================================
@@ -64,98 +26,12 @@ export class ContextManager {
   private contextWindowSize: number;
   private llm: LLMClient | undefined;
 
-  /** Budget ratios — how the context window is split */
-  private static readonly BUDGET_RATIOS = {
-    systemPrompt: 0.15,
-    memoryInjection: 0.10,
-    conversationHistory: 0.60,
-    toolResults: 0.15,
-  } as const;
-
   /** Auto-compact triggers at 90% usage */
   private static readonly COMPACT_THRESHOLD = 0.9;
 
   constructor(contextWindowSize = 128_000, llm?: LLMClient) {
     this.contextWindowSize = contextWindowSize;
     this.llm = llm;
-  }
-
-  // ----------------------------------------------------------
-  // Token budget allocation (Task 5.1)
-  // ----------------------------------------------------------
-
-  allocateBudget(): TokenBudgetAllocation {
-    const total = this.contextWindowSize;
-    const r = ContextManager.BUDGET_RATIOS;
-    return {
-      systemPrompt: Math.floor(total * r.systemPrompt),
-      memoryInjection: Math.floor(total * r.memoryInjection),
-      conversationHistory: Math.floor(total * r.conversationHistory),
-      toolResults: Math.floor(total * r.toolResults),
-      total,
-    };
-  }
-
-  // ----------------------------------------------------------
-  // Context assembly (Task 5.1)
-  // ----------------------------------------------------------
-
-  buildContext(params: {
-    systemPrompt: string;
-    memories: MemoryEntry[];
-    conversationHistory: Message[];
-    toolDefinitions: ToolDefinition[];
-  }): ContextPayload {
-    const budget = this.allocateBudget();
-
-    // 1. System prompt (truncated to budget)
-    const systemContent = truncateToTokenBudget(params.systemPrompt, budget.systemPrompt);
-
-    // 2. Memory injection block
-    const memoryBlock = params.memories
-      .map((m) => `[Memory: ${m.title}] ${m.content}`)
-      .join('\n');
-    const trimmedMemory = truncateToTokenBudget(memoryBlock, budget.memoryInjection);
-
-    // 3. Tool definitions appended to system prompt
-    const toolBlock = params.toolDefinitions
-      .map((t) => `- ${t.name}: ${t.description}`)
-      .join('\n');
-    const trimmedTools = truncateToTokenBudget(toolBlock, budget.toolResults);
-
-    // Build system message combining prompt + memory + tools
-    const fullSystem = [
-      systemContent,
-      trimmedMemory ? `\n## Relevant Memories\n${trimmedMemory}` : '',
-      trimmedTools ? `\n## Available Tools\n${trimmedTools}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    const systemMessage: Message = {
-      role: 'system',
-      content: fullSystem,
-      timestamp: new Date(),
-    };
-
-    // 4. Conversation history — keep as many recent messages as budget allows
-    const historyBudget = budget.conversationHistory;
-    const historyMessages: Message[] = [];
-    let usedTokens = 0;
-
-    // Walk backwards to keep the most recent messages
-    for (let i = params.conversationHistory.length - 1; i >= 0; i--) {
-      const msg = params.conversationHistory[i]!;
-      const cost = messageTokens(msg);
-      if (usedTokens + cost > historyBudget) break;
-      usedTokens += cost;
-      historyMessages.unshift(msg);
-    }
-
-    const messages = [systemMessage, ...historyMessages];
-    const estimatedTokens = messages.reduce((sum, m) => sum + messageTokens(m), 0);
-
-    return { messages, estimatedTokens };
   }
 
   // ----------------------------------------------------------

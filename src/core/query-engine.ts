@@ -10,7 +10,7 @@ import { zodToJsonSchema as zodConvert } from 'zod-to-json-schema';
 import type { Message, StreamEvent } from '../types/index.js';
 import type { LLMClient, LLMMessage, LLMToolDef } from './llm-client.js';
 import type { MemorySystem } from './memory-system.js';
-import type { ContextManager, ToolDefinition } from './context-manager.js';
+import type { ContextManager } from './context-manager.js';
 import type { ToolRegistry } from './tool-system.js';
 
 import type { SessionStore } from './session-store.js';
@@ -170,11 +170,18 @@ export class QueryEngine {
 
       // LLM returned tool calls
       if (result.toolCalls && result.toolCalls.length > 0) {
-        // Add assistant message with tool_calls to history
+        // Add assistant message with tool_calls to LLM history
         llmMessages.push({
           role: 'assistant',
           content: result.content,
           tool_calls: result.toolCalls,
+        });
+
+        // Record assistant message with tool_calls
+        this.messages.push({
+          role: 'assistant',
+          content: result.content ?? '',
+          timestamp: new Date(),
         });
 
         for (const tc of result.toolCalls) {

@@ -1,8 +1,9 @@
-/**
+﻿/**
  * Office Agent
  */
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 import type { LLMClient } from './core/llm-client.js';
 import type { StreamEvent, Message, Suggestion, UserConfig } from './types/index.js';
@@ -37,7 +38,8 @@ import { EmailTool } from './tools/EmailTool/index.js';
 import { CalendarTool } from './tools/CalendarTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
-const BUNDLED_SKILLS_DIR = path.join('src', 'skills', 'bundled');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const BUNDLED_SKILLS_DIR = path.join(__dirname, 'skills', 'bundled');
 const USER_SKILLS_DIR = path.join(BASE_DIR, 'skills');
 
 function buildSystemPrompt(toolDescriptions: string, memoryIndex: string): string {
@@ -228,7 +230,7 @@ async function* handleMessage(
 
   const suggestedSkill = agent.skillSystem.suggestSkill(input);
   if (suggestedSkill) {
-    yield { type: 'text', content: `Skill "${suggestedSkill.name}" available. Use /${suggestedSkill.name}\n\n` };
+    yield { type: 'text', content: `💡 检测到可用技能「${suggestedSkill.name}」，输入 /${suggestedSkill.name} 执行\n\n` };
   }
 
   yield* agent.queryEngine.submitMessage(input);
@@ -252,14 +254,14 @@ async function* handleSlashCommand(
 ): AsyncGenerator<StreamEvent> {
   const parsed = parseSlashCommand(input);
   if (!parsed) {
-    yield { type: 'text', content: 'Invalid command format.' };
+    yield { type: 'text', content: '无法解析该命令，请检查格式。' };
     yield { type: 'done' };
     return;
   }
 
   const mapping = resolveCommand(parsed.command);
   if (!mapping) {
-    yield { type: 'text', content: `Unknown command: /${parsed.command}. Available: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /project, /memory, /cron` };
+    yield { type: 'text', content: `未知命令: /${parsed.command}。可用命令: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /project, /memory, /cron` };
     yield { type: 'done' };
     return;
   }
@@ -283,24 +285,24 @@ async function* handleSkillTrigger(
 ): AsyncGenerator<StreamEvent> {
   const skill = agent.skillSystem.findSkill(skillName);
   if (!skill) {
-    yield { type: 'text', content: `Skill not found: ${skillName}` };
+    yield { type: 'text', content: `未找到技能: ${skillName}` };
     yield { type: 'done' };
     return;
   }
 
-  yield { type: 'text', content: `Running skill "${skill.name}"...\n` };
+  yield { type: 'text', content: ` 正在执行技能「${skill.name}」...\n` };
 
   const result: SkillResult = await agent.skillSystem.executeSkill(skill, args);
 
   if (!result.success) {
-    yield { type: 'text', content: `Skill failed: ${result.output}` };
+    yield { type: 'text', content: `❌ 技能执行失败: ${result.output}` };
     yield { type: 'done' };
     return;
   }
 
   if (result.mode === 'inline') {
     yield* agent.queryEngine.submitMessage(
-      `[Skill ${skill.name} output]\n${result.output}\n\nPlease generate the final result.`,
+      `[技能 ${skill.name} 输出]\n${result.output}\n\n请根据以上技能输出为用户生成最终结果。`,
     );
   } else {
     yield { type: 'text', content: result.output };
@@ -361,11 +363,11 @@ async function generateSuggestions(agent: OfficeAgent): Promise<Suggestion[]> {
 
 function buildNaturalLanguageFromCommand(command: string, args: string): string {
   const commandPrompts: Record<string, string> = {
-    tasks: args ? `Query tasks: ${args}` : 'List all current tasks',
-    remind: args ? `Create reminder: ${args}` : 'List all pending reminders',
-    project: args ? `Check project "${args}" status` : 'List all active project sub-agents',
-    memory: args ? `Search memory: ${args}` : 'List recent memory entries',
-    cron: args ? `Manage cron tasks: ${args}` : 'List all cron tasks',
+    tasks: args ? `查询任务: ${args}` : '列出当前所有任务',
+    remind: args ? `创建提醒: ${args}` : '列出所有待处理的提醒',
+    project: args ? `查看项目「${args}」状态` : '列出所有活跃的项目子代理',
+    memory: args ? `搜索记忆: ${args}` : '列出最近的记忆条目',
+    cron: args ? `管理定时任务: ${args}` : '列出所有定时任务',
   };
-  return commandPrompts[command] ?? `Execute command /${command} ${args}`.trim();
+  return commandPrompts[command] ?? `执行命令 /${command} ${args}`.trim();
 }
