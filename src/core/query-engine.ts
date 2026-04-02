@@ -75,7 +75,7 @@ export class QueryEngine {
     const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     let prompt = this.config.systemPrompt;
-    prompt += `\n\n# 当前时间\n\n${dateStr} ${timeStr}`;
+    prompt += `\n\n# 当前时间（实时，每次对话更新）\n\n${dateStr} ${timeStr}\n\n注意：这是此刻的真实时间。对话历史中出现的任何时间都是过去的，回答"现在几点"时必须使用上面这个时间。`;
 
     // Layer 1: Reload latest MEMORY.md index
     const index = this.config.memorySystem.loadIndex();
