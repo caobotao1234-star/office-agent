@@ -351,8 +351,8 @@
     - 测试加密/解密往返一致性、配置加载保存、数据删除
     - _需求: 13.4, 13.5, 12.1_
 
-- [ ] 22. 集成与串联 — 将所有组件连接到 QueryEngine 主循环
-  - [ ] 22.1 实现 Main_Agent 入口与组件装配
+- [-] 22. 集成与串联 — 将所有组件连接到 QueryEngine 主循环
+  - [x] 22.1 实现 Main_Agent 入口与组件装配
     - 创建 `src/main.ts` 作为系统入口
     - 初始化所有组件：QueryEngine、ToolRegistry（注册所有工具）、MemorySystem、ContextManager、SkillSystem、SubAgentManager、ReminderEngine、CronScheduler、BackgroundTaskManager、AwaySummaryEngine、VoiceService、PromptSuggestionEngine
     - 构建系统提示（system prompt）：包含 Agent 角色定义、可用工具描述、行为准则
@@ -363,7 +363,7 @@
     - 集成提醒引擎：启动 ReminderEngine 定期检查
     - _需求: 11.1, 11.2, 11.3, 11.4, 1.1, 9.3_
 
-  - [ ] 22.2 实现信息采集流程串联
+  - [x] 22.2 实现信息采集流程串联
     - 用户文本输入 → Main_Agent 解析提取关键信息 → 存入 Memory_System
     - 用户上传文件 → DocumentParser 解析 → 存入 Memory_System
     - 飞书消息/文档变更 → FeishuConnector 通知 → Main_Agent 提取信息 → 存入 Memory_System
@@ -371,7 +371,7 @@
     - 用户指令含义模糊时主动询问澄清
     - _需求: 1.1, 2.2, 2.4, 4.2, 11.2_
 
-  - [ ] 22.3 实现技能触发与子 Agent 委派串联
+  - [x] 22.3 实现技能触发与子 Agent 委派串联
     - 斜杠命令或自然语言触发技能 → SkillSystem 加载并执行
     - Main_Agent 判断场景适合某技能时主动建议或自动调用
     - 讨论已有 Sub_Agent 的项目时自动委派给对应 Sub_Agent
@@ -384,7 +384,7 @@
     - 测试提醒触发流程
     - _需求: 11.1, 10.3, 5.1_
 
-- [ ] 23. 最终检查点 — 确保所有测试通过
+- [x] 23. 最终检查点 — 确保所有测试通过
   - 确保所有测试通过，如有问题请询问用户。
 
 ## 备注
