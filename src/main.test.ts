@@ -132,7 +132,7 @@ describe('handleMessage — slash commands', () => {
     const textEvents = events.filter((e) => e.type === 'text');
     expect(textEvents.length).toBeGreaterThan(0);
     const text = textEvents.map((e) => (e as { content: string }).content).join('');
-    expect(text).toContain('未知命令');
+    expect(text).toContain('Unknown command');
   });
 
   it('should handle /tasks command by routing to QueryEngine', async () => {
@@ -195,7 +195,7 @@ describe('handleMessage — skill trigger', () => {
     const events = await collectEvents(agent.handleMessage('/daily-report'));
     const textEvents = events.filter((e) => e.type === 'text');
     const text = textEvents.map((e) => (e as { content: string }).content).join('');
-    expect(text).toContain('未找到技能');
+    expect(text).toContain('Skill not found');
   });
 });
 

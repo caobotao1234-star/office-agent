@@ -60,6 +60,35 @@ export class QueryEngine {
     }
   }
 
+  /**
+   * Build the full system prompt with three-layer memory injection:
+   * Layer 1: MEMORY.md index (always present)
+   * Layer 2: Relevant memories selected by LLM side query (on-demand)
+   */
+  private async buildDynamicSystemPrompt(
+    userMessage: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    let prompt = this.config.systemPrompt;
+
+    // Layer 1: Reload latest MEMORY.md index
+    const index = this.config.memorySystem.loadIndex();
+    if (index) {
+      prompt += '\n\n# 记忆索引（最新）\n\n' + index;
+    }
+
+    // Layer 2: On-demand recall — select up to 5 relevant memories
+    const memories = await this.config.memorySystem.findRelevantMemories(userMessage, signal);
+    if (memories.length > 0) {
+      prompt += '\n\n## 相关记忆（自动召回）\n\n' +
+        memories.map(m =>
+          `### [${m.type}] ${m.title}\n${m.content}`
+        ).join('\n\n');
+    }
+
+    return prompt;
+  }
+
   async *submitMessage(userMessage: string): AsyncGenerator<StreamEvent> {
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
@@ -67,15 +96,8 @@ export class QueryEngine {
     this.messages.push({ role: 'user', content: userMessage, timestamp: new Date() });
 
     try {
-      // Retrieve relevant memories
-      const memories = await this.config.memorySystem.findRelevantMemories(userMessage, signal);
-
-      // Build memory context string
-      const memoryBlock = memories.length > 0
-        ? '\n\n## 相关记忆\n' + memories.map(m => `[${m.type}] ${m.title}: ${m.content}`).join('\n')
-        : '';
-
-      const systemPrompt = this.config.systemPrompt + memoryBlock;
+      // Build system prompt with Layer 1 (index) + Layer 2 (relevant memories)
+      const systemPrompt = await this.buildDynamicSystemPrompt(userMessage, signal);
 
       // Choose execution path
       if (this.config.llm.queryWithTools) {

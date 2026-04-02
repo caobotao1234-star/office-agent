@@ -1,6 +1,10 @@
 /**
- * Memory System - Persistent memory storage with Markdown + YAML frontmatter
+ * Memory System - Three-layer memory architecture
  * Reference: Claude Code's memdir module
+ *
+ * Layer 1: MEMORY.md index — always loaded into system prompt
+ * Layer 2: Topic files — on-demand recall via LLM side query
+ * Layer 3: Grep search — LLM uses MemoryTool to search memdir
  *
  * Memories are stored as individual Markdown files under ~/.office-agent/memdir/
  * organised by type into subdirectories:
@@ -140,6 +144,40 @@ export class MemorySystem {
   }
 
   // ----------------------------------------------------------
+  // Layer 1: MEMORY.md index
+  // ----------------------------------------------------------
+
+  /** Path to the MEMORY.md index file. */
+  private get indexPath(): string {
+    return path.join(this.baseDir, 'MEMORY.md');
+  }
+
+  /** Rebuild MEMORY.md index from all memory files on disk. */
+  private updateIndex(): void {
+    const entries = this.loadAll();
+    entries.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    const lines = entries.map((e) => {
+      const subdir = TYPE_DIR_MAP[e.type];
+      const fileName = `${subdir}/${e.id}.md`;
+      const desc = e.content.split('\n')[0]!.slice(0, 80);
+      return `- [${e.title}](${fileName}) — ${desc}`;
+    });
+    this.ensureDir(this.baseDir);
+    fs.writeFileSync(this.indexPath, lines.join('\n'), 'utf-8');
+  }
+
+  /**
+   * Load MEMORY.md index content (capped at 200 lines).
+   * Returns empty string if no index exists yet.
+   */
+  loadIndex(): string {
+    if (!fs.existsSync(this.indexPath)) return '';
+    const raw = fs.readFileSync(this.indexPath, 'utf-8');
+    const lines = raw.split('\n');
+    return lines.slice(0, 200).join('\n');
+  }
+
+  // ----------------------------------------------------------
   // Persistence operations
   // ----------------------------------------------------------
 
@@ -161,6 +199,7 @@ export class MemorySystem {
     this.ensureDir(dir);
     const filePath = this.filePathForEntry(entry.type, entry.id);
     fs.writeFileSync(filePath, serializeFrontmatter(entry), 'utf-8');
+    this.updateIndex();
     return entry;
   }
 
@@ -189,6 +228,7 @@ export class MemorySystem {
 
     const filePath = this.filePathForEntry(merged.type, id);
     fs.writeFileSync(filePath, serializeFrontmatter(merged), 'utf-8');
+    this.updateIndex();
     return merged;
   }
 
@@ -198,6 +238,7 @@ export class MemorySystem {
     if (!entry) return; // idempotent
     const filePath = this.filePathForEntry(entry.type, id);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    this.updateIndex();
   }
 
   /** Delete all memory entries. */
@@ -239,7 +280,7 @@ export class MemorySystem {
       const dir = path.join(this.baseDir, subdir);
       if (!fs.existsSync(dir)) continue;
       for (const file of fs.readdirSync(dir)) {
-        if (!file.endsWith('.md')) continue;
+        if (!file.endsWith('.md') || file === 'MEMORY.md') continue;
         const entry = this.readEntryFile(path.join(dir, file));
         if (entry) entries.push(entry);
       }
@@ -255,29 +296,20 @@ export class MemorySystem {
   async search(query: MemoryQuery): Promise<MemoryEntry[]> {
     let results = this.loadAll();
 
-    // Filter by projectId
     if (query.projectId) {
       results = results.filter((e) => e.projectId === query.projectId);
     }
-
-    // Filter by type
     if (query.type) {
       results = results.filter((e) => e.type === query.type);
     }
-
-    // Filter by tags (entry must contain ALL queried tags)
     if (query.tags && query.tags.length > 0) {
       const queryTags = new Set(query.tags);
       results = results.filter((e) => [...queryTags].every((t) => e.tags.includes(t)));
     }
-
-    // Filter by time range (based on createdAt)
     if (query.timeRange) {
       const { start, end } = query.timeRange;
       results = results.filter((e) => e.createdAt >= start && e.createdAt <= end);
     }
-
-    // Filter by keyword (search in title + content, case-insensitive)
     if (query.keyword) {
       const kw = query.keyword.toLowerCase();
       results = results.filter(
@@ -286,7 +318,6 @@ export class MemorySystem {
       );
     }
 
-    // Sort
     switch (query.sortBy) {
       case 'recency':
         results.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
@@ -296,12 +327,10 @@ export class MemorySystem {
         break;
       case 'relevance':
       default:
-        // Default: most recently updated first
         results.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
         break;
     }
 
-    // Limit
     if (query.limit && query.limit > 0) {
       results = results.slice(0, query.limit);
     }
@@ -330,13 +359,12 @@ export class MemorySystem {
       );
     }
 
-    // Markdown export: concatenate all memory files
     const sections = entries.map((e) => serializeFrontmatter(e));
     return sections.join('\n\n---\n\n');
   }
 
   // ----------------------------------------------------------
-  // Context injection layer (task 4.2)
+  // Layer 2: On-demand recall via LLM side query
   // ----------------------------------------------------------
 
   /** Build a compact manifest of all memories (title + tags + type) for LLM selection. */
@@ -355,6 +383,7 @@ export class MemorySystem {
   /**
    * Find memories relevant to the current conversation context.
    * Uses an LLM side query to pick the most relevant entries from a manifest.
+   * Returns full content of selected entries for injection into context.
    * Falls back to returning the 5 most recently updated entries when no LLM is available.
    */
   async findRelevantMemories(
@@ -386,7 +415,6 @@ export class MemorySystem {
       const indices = this.parseSelectedIndices(response, all.length);
 
       if (indices.length === 0) {
-        // LLM returned nothing useful — fall back to recency
         return all
           .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
           .slice(0, 5);
@@ -415,12 +443,13 @@ export class MemorySystem {
   }
 
   // ----------------------------------------------------------
-  // Auto-extraction from conversation (task 4.3)
+  // Auto-extraction from conversation
   // ----------------------------------------------------------
 
   /**
    * Extract and store noteworthy information from a conversation.
    * Uses an LLM call to identify memories worth persisting.
+   * Index is automatically updated after each store.
    * No-op when no LLM client is available.
    */
   async extractAndStoreFromConversation(messages: Message[]): Promise<void> {
