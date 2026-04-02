@@ -6,6 +6,7 @@
  * 2. Prompt-based fallback (query/queryStream) — for LLMs without native tool support
  */
 import { randomUUID } from 'node:crypto';
+import { zodToJsonSchema as zodConvert } from 'zod-to-json-schema';
 import type { Message, StreamEvent } from '../types/index.js';
 import type { LLMClient, LLMMessage, LLMToolDef } from './llm-client.js';
 import type { MemorySystem } from './memory-system.js';
@@ -85,8 +86,10 @@ export class QueryEngine {
         yield* this.executeBasic(systemPrompt, signal);
       }
 
-      // Auto memory extraction (fire-and-forget)
-      this.config.memorySystem.extractAndStoreFromConversation(this.messages).catch(() => {});
+      // Auto memory extraction (fire-and-forget, but log errors)
+      this.config.memorySystem.extractAndStoreFromConversation(this.messages).catch((err) => {
+        console.error('[MemoryExtraction] 自动记忆提取失败:', err instanceof Error ? err.message : err);
+      });
 
       // 持久化会话
       this.saveSession();
@@ -116,6 +119,18 @@ export class QueryEngine {
         parameters: t.inputSchema ? this.zodToJsonSchema(t.inputSchema) : {},
       },
     }));
+
+    // Check if auto-compact is needed before building messages
+    const estimatedTokens = this.messages.reduce(
+      (sum, m) => sum + Math.ceil(m.content.length / 4), 0,
+    );
+    if (this.config.contextManager.shouldAutoCompact(estimatedTokens)) {
+      const compactResult = await this.config.contextManager.compact(
+        this.messages,
+        this.config.memorySystem,
+      );
+      this.messages = [...compactResult.compressedMessages];
+    }
 
     // Build message history in LLM format
     let llmMessages: LLMMessage[] = [
@@ -236,16 +251,13 @@ export class QueryEngine {
     };
   }
 
-  /** Convert a zod schema to a rough JSON Schema for the API. */
+  /** Convert a zod schema to JSON Schema for the API. */
   private zodToJsonSchema(schema: unknown): Record<string, unknown> {
-    // For now, return a permissive schema. Zod v4 has .toJSONSchema() but
-    // we keep it simple to avoid version-specific issues.
     try {
-      if (schema && typeof schema === 'object' && 'description' in schema) {
-        return { type: 'object' };
-      }
-    } catch { /* ignore */ }
-    return { type: 'object' };
+      return zodConvert(schema as Parameters<typeof zodConvert>[0], { target: 'openApi3' }) as Record<string, unknown>;
+    } catch {
+      return { type: 'object' };
+    }
   }
 
   interrupt(): void { this.abortController?.abort(); }

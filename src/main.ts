@@ -309,7 +309,15 @@ async function* handleMessage(
     return;
   }
 
-  // --- 普通文本 → QueryEngine ---
+  // --- 普通文本处理 ---
+
+  // 检查是否有匹配的技能可以自动建议
+  const suggestedSkill = agent.skillSystem.suggestSkill(input);
+  if (suggestedSkill) {
+    yield { type: 'text', content: `💡 检测到可用技能「${suggestedSkill.name}」，是否使用？输入 /${suggestedSkill.name} 执行\n\n` };
+  }
+
+  // 交给 QueryEngine 处理
   yield* agent.queryEngine.submitMessage(input);
 
   // --- 主动建议生成（每轮对话结束后） ---
