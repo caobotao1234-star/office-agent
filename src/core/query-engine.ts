@@ -69,12 +69,18 @@ export class QueryEngine {
     userMessage: string,
     signal: AbortSignal,
   ): Promise<string> {
+    // 实时时间注入 — 每次对话都取最新时间
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
     let prompt = this.config.systemPrompt;
+    prompt += `\n\n# 当前时间\n\n${dateStr} ${timeStr}`;
 
     // Layer 1: Reload latest MEMORY.md index
     const index = this.config.memorySystem.loadIndex();
     if (index) {
-      prompt += '\n\n# 记忆索引（最新）\n\n' + index;
+      prompt += '\n\n# 记忆索引\n\n' + index;
     }
 
     // Layer 2: On-demand recall — select up to 5 relevant memories
