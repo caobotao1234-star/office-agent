@@ -40,6 +40,10 @@ const DeleteMemoryInput = z.object({
   id: z.string().min(1),
 });
 
+const DeleteAllMemoryInput = z.object({
+  action: z.literal('deleteAll'),
+});
+
 const ExportMemoryInput = z.object({
   action: z.literal('export'),
   format: z.enum(['json', 'markdown']).default('json'),
@@ -49,6 +53,7 @@ const MemoryToolInput = z.discriminatedUnion('action', [
   StoreMemoryInput,
   SearchMemoryInput,
   DeleteMemoryInput,
+  DeleteAllMemoryInput,
   ExportMemoryInput,
 ]);
 
@@ -119,6 +124,10 @@ export class MemoryTool implements Tool<MemoryToolInput, unknown> {
         case 'delete': {
           await this.memorySystem.delete(input.id);
           return { success: true, output: { deleted: true, id: input.id } };
+        }
+        case 'deleteAll': {
+          await this.memorySystem.deleteAll();
+          return { success: true, output: { deletedAll: true } };
         }
         case 'export': {
           const data = await this.memorySystem.exportAll(input.format);

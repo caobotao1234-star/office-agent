@@ -93,6 +93,26 @@ export async function chat(modelOverride?: string): Promise<void> {
         prompt(); return;
       }
 
+      if (trimmed === '/reset') {
+        const confirm = await new Promise<string>(resolve => {
+          rl.question('  ⚠️  确定清空所有数据（任务+记忆+会话+项目）？输入 yes 确认: ', resolve);
+        });
+        if (confirm.trim() === 'yes') {
+          await agent.memorySystem.deleteAll();
+          await agent.toolRegistry.execute('TaskManager', { action: 'delete_all' },
+            { abortSignal: new AbortController().signal, userConfig: agent.getConfig() });
+          const fs = await import('node:fs');
+          const os = await import('node:os');
+          const path = await import('node:path');
+          const sessDir = path.join(os.homedir(), '.office-agent', 'sessions');
+          if (fs.existsSync(sessDir)) fs.rmSync(sessDir, { recursive: true, force: true });
+          console.log('  ✅ 全部清空。重启 npm start 生效。');
+        } else {
+          console.log('  已取消。');
+        }
+        prompt(); return;
+      }
+
       console.log();
       process.stdout.write('\x1b[33mAgent>\x1b[0m ');
 
@@ -164,6 +184,7 @@ function printHelp(): void {
   /db tasks           直接查数据库中的任务（不经过 LLM）
   /db projects        直接查数据库中的项目
   /db memories        直接查数据库中的记忆
+  /reset              清空所有数据（任务+记忆+会话+项目）
   /help               显示此帮助
   quit                退出
 `);

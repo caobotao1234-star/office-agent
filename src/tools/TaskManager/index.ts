@@ -71,6 +71,10 @@ const DecomposeTaskInput = z.object({
   })),
 });
 
+const DeleteAllTasksInput = z.object({
+  action: z.literal('delete_all'),
+});
+
 const CheckOverdueInput = z.object({
   action: z.literal('check_overdue'),
 });
@@ -79,6 +83,7 @@ const TaskManagerInput = z.discriminatedUnion('action', [
   CreateTaskInput,
   UpdateTaskInput,
   DeleteTaskInput,
+  DeleteAllTasksInput,
   GetTaskInput,
   ListTasksInput,
   DecomposeTaskInput,
@@ -381,6 +386,13 @@ export class TaskManagerTool implements Tool<TaskManagerInput, unknown> {
           const created = decomposeTasks(input, tasks);
           saveTasks(tasks);
           output = created;
+          break;
+        }
+        case 'delete_all': {
+          const count = tasks.length;
+          tasks.length = 0;
+          saveTasks(tasks);
+          output = { deletedAll: true, count };
           break;
         }
         case 'check_overdue': {
