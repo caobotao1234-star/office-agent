@@ -237,10 +237,35 @@ export class QueryEngine {
       }
 
       // LLM returned text (no tool calls) — final response
-      const content = result.content ?? '';
-      if (content) {
-        yield { type: 'text', content };
+      // Use streaming for the final text response (better UX)
+      if (this.config.llm.queryStream && rounds === 1 && !result.content) {
+        // First round, no content and no tools — stream directly
+        yield* this.executeWithStream(systemPrompt, signal);
+        return;
+      }
+
+      if (this.config.llm.queryStream && result.content) {
+        // Re-request with streaming for the final text
+        // Build a simple prompt from the last few messages
+        const lastMsgs = llmMessages.slice(-6);
+        const streamPrompt = lastMsgs.filter(m => m.role === 'system').map(m => m.content).join('\n') || systemPrompt;
+        const streamUser = lastMsgs.filter(m => m.role !== 'system').map(m => `[${m.role}] ${(m.content ?? '').slice(0, 500)}`).join('\n');
+
+        // We already have the non-streamed content, just output it char by char for streaming effect
+        const content = result.content;
+        const chunkSize = 4;
+        for (let i = 0; i < content.length; i += chunkSize) {
+          yield { type: 'text', content: content.slice(i, i + chunkSize) };
+          // Small delay for streaming effect
+          await new Promise(r => setTimeout(r, 15));
+        }
         this.messages.push({ role: 'assistant', content, timestamp: new Date() });
+      } else {
+        const content = result.content ?? '';
+        if (content) {
+          yield { type: 'text', content };
+          this.messages.push({ role: 'assistant', content, timestamp: new Date() });
+        }
       }
       break;
     }
