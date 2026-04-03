@@ -98,22 +98,28 @@ export async function chat(modelOverride?: string): Promise<void> {
           rl.question('  ⚠️  确定清空所有数据？数据会移到回收站，可用 /undo 恢复。输入 yes 确认: ', resolve);
         });
         if (confirm.trim() === 'yes') {
-          await agent.memorySystem.deleteAll();
-          await agent.toolRegistry.execute('TaskManager', { action: 'delete_all' },
-            { abortSignal: new AbortController().signal, userConfig: agent.getConfig() });
-          // 清理项目（归档所有活跃项目）
-          for (const p of agent.subAgentManager.list()) {
-            if (p.status === 'active') await agent.subAgentManager.archive(p.id);
-          }
-          // 直接删除 registry 文件
           const fs = await import('node:fs');
           const os = await import('node:os');
           const path = await import('node:path');
-          const agentsDir = path.join(os.homedir(), '.office-agent', 'agents');
-          if (fs.existsSync(agentsDir)) fs.rmSync(agentsDir, { recursive: true, force: true });
-          const sessDir = path.join(os.homedir(), '.office-agent', 'sessions');
-          if (fs.existsSync(sessDir)) fs.rmSync(sessDir, { recursive: true, force: true });
-          console.log('  ✅ 全部清空（记忆已移到回收站 ~/.office-agent/trash/）。重启 npm start 生效。');
+          const baseDir = path.join(os.homedir(), '.office-agent');
+
+          // 先把记忆移到回收站（可 /undo 恢复）
+          await agent.memorySystem.deleteAll();
+
+          // 删除所有其他数据文件
+          const toDelete = ['tasks.json', 'token-usage.json', 'last-session.txt', 'config.json', 'cron-tasks.json'];
+          for (const f of toDelete) {
+            const p = path.join(baseDir, f);
+            if (fs.existsSync(p)) fs.unlinkSync(p);
+          }
+          // 删除目录（agents、sessions）
+          for (const d of ['agents', 'sessions']) {
+            const p = path.join(baseDir, d);
+            if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
+          }
+          // trash/ 保留（供 /undo 恢复）
+          console.log('  ✅ 全部清空（记忆在回收站 ~/.office-agent/trash/，可 /undo 恢复）');
+          console.log('  重启 npm start 生效。');
         } else {
           console.log('  已取消。');
         }
