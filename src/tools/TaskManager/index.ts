@@ -32,7 +32,7 @@ const CreateTaskInput = z.object({
 
 const UpdateTaskInput = z.object({
   action: z.literal('update'),
-  id: z.string(),
+  id: z.string().optional(),
   description: z.string().optional(),
   priority: z.enum(['urgent', 'high', 'medium', 'low']).optional(),
   projectId: z.string().optional(),
@@ -43,7 +43,8 @@ const UpdateTaskInput = z.object({
 
 const DeleteTaskInput = z.object({
   action: z.literal('delete'),
-  id: z.string(),
+  id: z.string().optional(),
+  description: z.string().optional(),
 });
 
 const GetTaskInput = z.object({
@@ -189,8 +190,13 @@ export function updateTask(
   input: z.infer<typeof UpdateTaskInput>,
   tasks: TaskItem[],
 ): TaskItem {
-  const task = tasks.find((t) => t.id === input.id);
-  if (!task) throw new Error(`Task "${input.id}" not found`);
+  // Find by id or by description
+  const task = input.id
+    ? tasks.find((t) => t.id === input.id)
+    : input.description
+      ? tasks.find((t) => t.description.includes(input.description!))
+      : undefined;
+  if (!task) throw new Error(`Task not found (id: ${input.id}, desc: ${input.description})`);
 
   const now = new Date();
 
@@ -204,7 +210,6 @@ export function updateTask(
     }
   }
 
-  if (input.description !== undefined) task.description = input.description;
   if (input.priority !== undefined) task.priority = input.priority;
   if (input.projectId !== undefined) task.projectId = input.projectId;
   if (input.dueDate !== undefined) task.dueDate = input.dueDate;
@@ -214,9 +219,11 @@ export function updateTask(
   return task;
 }
 
-export function deleteTask(id: string, tasks: TaskItem[]): TaskItem[] {
-  const idx = tasks.findIndex((t) => t.id === id);
-  if (idx === -1) throw new Error(`Task "${id}" not found`);
+export function deleteTask(idOrDesc: string, tasks: TaskItem[]): TaskItem[] {
+  // Find by id first, then by description
+  let idx = tasks.findIndex((t) => t.id === idOrDesc);
+  if (idx === -1) idx = tasks.findIndex((t) => t.description.includes(idOrDesc));
+  if (idx === -1) throw new Error(`Task "${idOrDesc}" not found`);
 
   const task = tasks[idx];
 
@@ -224,7 +231,7 @@ export function deleteTask(id: string, tasks: TaskItem[]): TaskItem[] {
   if (task.parentTaskId) {
     const parent = tasks.find((t) => t.id === task.parentTaskId);
     if (parent) {
-      parent.subtaskIds = parent.subtaskIds.filter((sid) => sid !== id);
+      parent.subtaskIds = parent.subtaskIds.filter((sid) => sid !== task.id);
       parent.updatedAt = new Date();
     }
   }
@@ -355,7 +362,7 @@ export class TaskManagerTool implements Tool<TaskManagerInput, unknown> {
           break;
         }
         case 'delete': {
-          deleteTask(input.id, tasks);
+          deleteTask(input.id ?? input.description ?? '', tasks);
           saveTasks(tasks);
           output = { deleted: input.id };
           break;

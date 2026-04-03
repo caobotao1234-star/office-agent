@@ -87,6 +87,9 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- Be concise but thorough when needed',
     '- When user asks about time, use the injected current time',
     '- For token usage, tell user to type /usage',
+    '- Do NOT append numbered suggestions/recommendations at the end of every response',
+    '- Only suggest next steps when the user explicitly asks "what should I do next"',
+    '- When deleting or updating tasks, you can use the task description if you do not know the ID',
   ].join('\n');
 }
 export interface OfficeAgent {
@@ -228,17 +231,7 @@ async function* handleMessage(
 
   yield* agent.queryEngine.submitMessage(input);
 
-  try {
-    const suggestions = await generateSuggestions(agent);
-    if (suggestions.length > 0) {
-      const suggestionText = suggestions
-        .map((s: Suggestion, i: number) => `${i + 1}. ${s.text}`)
-        .join('\n');
-      yield { type: 'text', content: '\n\n' + suggestionText };
-    }
-  } catch {
-    // non-critical
-  }
+  // Suggestions disabled — LLM was already appending its own, causing duplication
 }
 
 async function* handleSlashCommand(
