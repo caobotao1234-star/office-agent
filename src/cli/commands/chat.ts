@@ -95,7 +95,7 @@ export async function chat(modelOverride?: string): Promise<void> {
 
       if (trimmed === '/reset') {
         const confirm = await new Promise<string>(resolve => {
-          rl.question('  ⚠️  确定清空所有数据（任务+记忆+会话+项目）？输入 yes 确认: ', resolve);
+          rl.question('  ⚠️  确定清空所有数据？数据会移到回收站，可用 /undo 恢复。输入 yes 确认: ', resolve);
         });
         if (confirm.trim() === 'yes') {
           await agent.memorySystem.deleteAll();
@@ -106,9 +106,19 @@ export async function chat(modelOverride?: string): Promise<void> {
           const path = await import('node:path');
           const sessDir = path.join(os.homedir(), '.office-agent', 'sessions');
           if (fs.existsSync(sessDir)) fs.rmSync(sessDir, { recursive: true, force: true });
-          console.log('  ✅ 全部清空。重启 npm start 生效。');
+          console.log('  ✅ 全部清空（记忆已移到回收站 ~/.office-agent/trash/）。重启 npm start 生效。');
         } else {
           console.log('  已取消。');
+        }
+        prompt(); return;
+      }
+
+      if (trimmed === '/undo') {
+        const count = await agent.memorySystem.restoreFromTrash();
+        if (count > 0) {
+          console.log(`  ✅ 已从回收站恢复 ${count} 个记忆文件`);
+        } else {
+          console.log('  回收站为空，无可恢复的数据');
         }
         prompt(); return;
       }
@@ -184,7 +194,8 @@ function printHelp(): void {
   /db tasks           直接查数据库中的任务（不经过 LLM）
   /db projects        直接查数据库中的项目
   /db memories        直接查数据库中的记忆
-  /reset              清空所有数据（任务+记忆+会话+项目）
+  /reset              清空所有数据（移到回收站）
+  /undo               从回收站恢复记忆
   /help               显示此帮助
   quit                退出
 `);

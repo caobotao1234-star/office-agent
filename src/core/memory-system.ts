@@ -232,19 +232,78 @@ export class MemorySystem {
     return merged;
   }
 
-  /** Delete a single memory entry by id. */
+  // ----------------------------------------------------------
+  // Recycle bin
+  // ----------------------------------------------------------
+
+  private get trashDir(): string {
+    return path.join(this.baseDir, '..', 'trash', 'memdir-' + new Date().toISOString().slice(0, 10));
+  }
+
+  /** Move a file to trash instead of deleting it */
+  private moveToTrash(filePath: string): void {
+    if (!fs.existsSync(filePath)) return;
+    const trashPath = path.join(this.trashDir, path.basename(filePath));
+    this.ensureDir(this.trashDir);
+    fs.renameSync(filePath, trashPath);
+  }
+
+  // ----------------------------------------------------------
+  // Delete operations (with recycle bin)
+  // ----------------------------------------------------------
+
+  /** Delete a single memory entry by id (moves to trash). */
   async delete(id: string): Promise<void> {
     const entry = await this.findById(id);
-    if (!entry) return; // idempotent
+    if (!entry) return;
     const filePath = this.filePathForEntry(entry.type, id);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    this.moveToTrash(filePath);
     this.updateIndex();
   }
 
-  /** Delete all memory entries. */
+  /** Delete all memory entries (moves entire memdir to trash). */
   async deleteAll(): Promise<void> {
     if (!fs.existsSync(this.baseDir)) return;
-    fs.rmSync(this.baseDir, { recursive: true, force: true });
+    // Move all subdirs to trash
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const trashPath = path.join(this.baseDir, '..', 'trash', 'memdir-all-' + timestamp);
+    this.ensureDir(path.dirname(trashPath));
+    fs.renameSync(this.baseDir, trashPath);
+    // Recreate empty memdir
+    this.ensureDir(this.baseDir);
+  }
+
+  /** Restore all from the most recent trash (undo deleteAll). */
+  async restoreFromTrash(): Promise<number> {
+    const trashBase = path.join(this.baseDir, '..', 'trash');
+    if (!fs.existsSync(trashBase)) return 0;
+    const dirs = fs.readdirSync(trashBase)
+      .filter(d => d.startsWith('memdir-'))
+      .sort()
+      .reverse();
+    if (dirs.length === 0) return 0;
+
+    const latestTrash = path.join(trashBase, dirs[0]!);
+    // Copy files back
+    let count = 0;
+    const copyRecursive = (src: string, dest: string) => {
+      this.ensureDir(dest);
+      for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+        const srcPath = path.join(src, entry.name);
+        const destPath = path.join(dest, entry.name);
+        if (entry.isDirectory()) {
+          copyRecursive(srcPath, destPath);
+        } else {
+          fs.copyFileSync(srcPath, destPath);
+          count++;
+        }
+      }
+    };
+    copyRecursive(latestTrash, this.baseDir);
+    // Remove from trash after restore
+    fs.rmSync(latestTrash, { recursive: true, force: true });
+    this.updateIndex();
+    return count;
   }
 
   // ----------------------------------------------------------

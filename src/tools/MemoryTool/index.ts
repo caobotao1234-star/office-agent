@@ -92,7 +92,7 @@ export class MemoryTool implements Tool<MemoryToolInput, unknown> {
   }
 
   requiresUserConfirmation(input: MemoryToolInput): boolean {
-    return input.action === 'delete';
+    return input.action === 'delete' || input.action === 'deleteAll';
   }
 
   async call(input: MemoryToolInput, _context: ToolContext): Promise<ToolResult<unknown>> {
