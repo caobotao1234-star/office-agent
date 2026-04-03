@@ -23,7 +23,7 @@ export interface SlashCommandResult {
 }
 
 /** Known commands and their mapping to tool/skill names */
-export const COMMAND_MAP: Record<string, { type: 'tool' | 'skill'; target: string }> = {
+export const COMMAND_MAP: Record<string, { type: 'tool' | 'skill' | 'builtin'; target: string }> = {
   tasks: { type: 'tool', target: 'TaskManager' },
   remind: { type: 'tool', target: 'ReminderTool' },
   project: { type: 'tool', target: 'SubAgentTool' },
@@ -34,6 +34,14 @@ export const COMMAND_MAP: Record<string, { type: 'tool' | 'skill'; target: strin
   'meeting-notes': { type: 'skill', target: 'meeting-notes' },
   'task-breakdown': { type: 'skill', target: 'task-breakdown' },
   'feishu-sync': { type: 'skill', target: 'feishu-sync' },
+  // Builtin commands — handled directly by the agent, not routed to LLM
+  usage: { type: 'builtin', target: 'usage' },
+  token: { type: 'builtin', target: 'usage' },
+  tokens: { type: 'builtin', target: 'usage' },
+  help: { type: 'builtin', target: 'help' },
+  db: { type: 'builtin', target: 'db' },
+  reset: { type: 'builtin', target: 'reset' },
+  undo: { type: 'builtin', target: 'undo' },
 };
 
 // ============================================================
@@ -70,7 +78,7 @@ export function parseSlashCommand(input: string): SlashCommandResult | null {
  * Resolve a parsed command to its tool/skill mapping.
  * Returns undefined for unknown commands.
  */
-export function resolveCommand(command: string): { type: 'tool' | 'skill'; target: string } | undefined {
+export function resolveCommand(command: string): { type: 'tool' | 'skill' | 'builtin'; target: string } | undefined {
   return COMMAND_MAP[command];
 }
 

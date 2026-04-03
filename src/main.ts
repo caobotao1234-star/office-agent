@@ -19,6 +19,8 @@ import { UserConfigManager } from './core/user-config.js';
 import { SessionStore } from './core/session-store.js';
 import { isSlashCommand, parseSlashCommand, resolveCommand } from './core/slash-command.js';
 
+import { TokenTracker } from './core/token-tracker.js';
+
 import { ReminderEngine } from './services/reminder-engine.js';
 import { CronScheduler } from './services/cron-scheduler.js';
 import { BackgroundTaskManager } from './services/background-task-manager.js';
@@ -246,15 +248,20 @@ async function* handleSlashCommand(
 ): AsyncGenerator<StreamEvent> {
   const parsed = parseSlashCommand(input);
   if (!parsed) {
-    yield { type: 'text', content: '\u65E0\u6CD5\u89E3\u6790\u547D\u4EE4\uFF0C\u8BF7\u68C0\u67E5\u683C\u5F0F\u3002' };
+    yield { type: 'text', content: '无法解析命令，请检查格式。' };
     yield { type: 'done' };
     return;
   }
 
   const mapping = resolveCommand(parsed.command);
   if (!mapping) {
-    yield { type: 'text', content: `\u672A\u77E5\u547D\u4EE4: /${parsed.command}\u3002\u53EF\u7528\u547D\u4EE4: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /project, /memory, /cron` };
+    yield { type: 'text', content: `未知命令: /${parsed.command}。可用命令: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /project, /memory, /cron, /usage, /help, /db, /reset, /undo` };
     yield { type: 'done' };
+    return;
+  }
+
+  if (mapping.type === 'builtin') {
+    yield* handleBuiltinCommand(agent, mapping.target, parsed.rawArgs);
     return;
   }
 
@@ -267,6 +274,138 @@ async function* handleSlashCommand(
     const naturalLanguage = buildNaturalLanguageFromCommand(parsed.command, parsed.rawArgs);
     yield* agent.queryEngine.submitMessage(naturalLanguage);
     return;
+  }
+}
+
+async function* handleBuiltinCommand(
+  agent: OfficeAgent,
+  target: string,
+  args: string,
+): AsyncGenerator<StreamEvent> {
+  const dataDir = path.join(os.homedir(), '.office-agent');
+
+  switch (target) {
+    case 'usage': {
+      const tracker = new TokenTracker(path.join(dataDir, 'token-usage.json'));
+      const report = args === 'detail' ? tracker.formatDetailReport() : tracker.formatReport();
+      yield { type: 'text', content: report };
+      yield { type: 'done' };
+      return;
+    }
+
+    case 'help': {
+      yield {
+        type: 'text',
+        content: [
+          '可用命令:',
+          '  /tasks              查看任务列表',
+          '  /remind <内容>      创建提醒',
+          '  /daily-report       生成每日工作汇报',
+          '  /weekly-report      生成周报',
+          '  /meeting-notes      整理会议纪要',
+          '  /task-breakdown     拆解大任务',
+          '  /feishu-sync        同步飞书状态',
+          '  /project            查看项目列表',
+          '  /memory <关键词>    搜索记忆',
+          '  /cron               查看定时任务',
+          '  /usage              查看 token 用量',
+          '  /usage detail       查看详细用量',
+          '  /db tasks           直接查数据库任务',
+          '  /db projects        直接查数据库项目',
+          '  /db memories        直接查数据库记忆',
+          '  /reset [子命令]     清空数据',
+          '  /undo               从回收站恢复记忆',
+          '  /help               显示此帮助',
+        ].join('\n'),
+      };
+      yield { type: 'done' };
+      return;
+    }
+
+    case 'db': {
+      const sub = args.trim();
+      if (sub === 'tasks') {
+        const result = await agent.toolRegistry.execute('TaskManager', { action: 'list' },
+          { abortSignal: new AbortController().signal, userConfig: agent.getConfig() });
+        const tasks = (result.output as any[]) ?? [];
+        if (tasks.length === 0) {
+          yield { type: 'text', content: '📋 数据库中无任务' };
+        } else {
+          const lines = [`📋 数据库中有 ${tasks.length} 个任务:`];
+          for (const t of tasks) {
+            lines.push(`  ${t.status === 'completed' ? '✅' : '⏳'} [${t.priority}] ${t.description}${t.projectId ? ' (#' + t.projectId + ')' : ''}${t.dueDate ? ' 截止:' + new Date(t.dueDate).toLocaleDateString('zh-CN') : ''}`);
+          }
+          yield { type: 'text', content: lines.join('\n') };
+        }
+      } else if (sub === 'projects') {
+        const projects = agent.subAgentManager.list();
+        if (projects.length === 0) {
+          yield { type: 'text', content: '📁 数据库中无项目' };
+        } else {
+          const lines = [`📁 数据库中有 ${projects.length} 个项目:`];
+          for (const p of projects) {
+            lines.push(`  ${p.status === 'active' ? '🟢' : '⚪'} ${p.projectName} (${p.projectId}) [${p.status}]`);
+          }
+          yield { type: 'text', content: lines.join('\n') };
+        }
+      } else if (sub === 'memories') {
+        const memories = await agent.memorySystem.search({ limit: 10 });
+        if (memories.length === 0) {
+          yield { type: 'text', content: '🧠 数据库中无记忆' };
+        } else {
+          const lines = [`🧠 数据库中有记忆 (显示最近10条):`];
+          for (const m of memories) {
+            lines.push(`  [${m.type}] ${m.title}`);
+          }
+          yield { type: 'text', content: lines.join('\n') };
+        }
+      } else {
+        yield { type: 'text', content: '用法: /db tasks | /db projects | /db memories' };
+      }
+      yield { type: 'done' };
+      return;
+    }
+
+    case 'reset': {
+      const sub = args.trim();
+      const fs = await import('node:fs');
+      const rmFile = (f: string) => { const p = path.join(dataDir, f); if (fs.existsSync(p)) fs.unlinkSync(p); };
+      const rmDir = (d: string) => { const p = path.join(dataDir, d); if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true }); };
+
+      if (sub === 'tasks') { rmFile('tasks.json'); yield { type: 'text', content: '✅ 任务已清空' }; }
+      else if (sub === 'memories' || sub === 'memory') { await agent.memorySystem.deleteAll(); yield { type: 'text', content: '✅ 记忆已清空（移到回收站，可 /undo 恢复）' }; }
+      else if (sub === 'projects') { rmDir('agents'); yield { type: 'text', content: '✅ 项目已清空' }; }
+      else if (sub === 'sessions' || sub === 'history') { rmDir('sessions'); rmFile('last-session.txt'); yield { type: 'text', content: '✅ 会话历史已清空' }; }
+      else if (sub === 'usage' || sub === 'tokens') { rmFile('token-usage.json'); yield { type: 'text', content: '✅ Token 用量统计已清空' }; }
+      else if (sub === 'config') { rmFile('config.json'); yield { type: 'text', content: '✅ 配置已重置为默认' }; }
+      else if (sub === 'cron') { rmFile('cron-tasks.json'); yield { type: 'text', content: '✅ 定时任务已清空' }; }
+      else if (sub === 'trash') { rmDir('trash'); yield { type: 'text', content: '✅ 回收站已清空（不可恢复）' }; }
+      else if (sub === '' || sub === 'all') {
+        await agent.memorySystem.deleteAll();
+        for (const f of ['tasks.json', 'token-usage.json', 'last-session.txt', 'config.json', 'cron-tasks.json']) rmFile(f);
+        for (const d of ['agents', 'sessions']) rmDir(d);
+        yield { type: 'text', content: '✅ 全部清空（记忆移到回收站，可 /undo 恢复）。重启生效。' };
+      } else {
+        yield { type: 'text', content: '用法: /reset [all|tasks|memories|projects|sessions|usage|config|cron|trash]' };
+      }
+      yield { type: 'done' };
+      return;
+    }
+
+    case 'undo': {
+      const count = await agent.memorySystem.restoreFromTrash();
+      if (count > 0) {
+        yield { type: 'text', content: `✅ 已从回收站恢复 ${count} 个记忆文件` };
+      } else {
+        yield { type: 'text', content: '回收站为空，无可恢复的数据' };
+      }
+      yield { type: 'done' };
+      return;
+    }
+
+    default:
+      yield { type: 'text', content: `未知内置命令: ${target}` };
+      yield { type: 'done' };
   }
 }
 

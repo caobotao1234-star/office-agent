@@ -11,6 +11,11 @@ npm install
 # 2. 配置 API Key（阿里云百炼平台）
 echo "DASHSCOPE_API_KEY=sk-你的key" > .env
 
+# 2b.（可选）配置飞书机器人
+# 在 .env 中追加：
+# FEISHU_APP_ID=cli_xxx
+# FEISHU_APP_SECRET=xxx
+
 # 3. 启动
 npm start
 ```
@@ -19,6 +24,7 @@ npm start
 
 - Node.js >= 18
 - 阿里云百炼平台 API Key（https://bailian.console.aliyun.com/）
+- （可选）飞书自建应用 App ID + App Secret（用于飞书机器人）
 
 ## 使用方式
 
@@ -206,9 +212,10 @@ src/
 ├── types/index.ts              # 核心类型定义（TaskItem, MemoryEntry 等）
 ├── main.ts                     # 组件装配 + 消息处理流程
 │
-├── server/                     # Web 服务（可选，GUI 用）
+├── server/                     # Web 服务 & 飞书机器人
 │   ├── api.ts                  # REST API 服务器
-│   └── openai-compat.ts        # OpenAI 兼容 API（接 Lobe Chat 等）
+│   ├── openai-compat.ts        # OpenAI 兼容 API（接 Lobe Chat 等）
+│   └── feishu-bot.ts           # 飞书机器人（WebSocket 长连接）
 │
 └── web/dist/index.html         # Web GUI（实验性）
 ```
@@ -224,6 +231,40 @@ src/
 | `qwen-turbo` | 更快更便宜 |
 
 运行时指定：`npx tsx src/cli/index.ts chat -m qwen-max`
+
+## 飞书机器人（WebSocket 长连接）
+
+通过飞书机器人与 Office Agent 对话，不需要公网 IP、域名或服务器，只要电脑能上网即可。
+
+### 配置步骤
+
+1. 登录 [飞书开放平台](https://open.feishu.cn/)，创建「企业自建应用」
+2. 在应用后台 → 「应用能力」→ 开启「机器人」
+3. 在「事件订阅」→ 选择「使用长连接接收事件」
+4. 添加事件：`im.message.receive_v1`（接收消息）
+5. 在「权限管理」中申请：`im:message`（获取与发送单聊、群组消息）
+6. 发布应用（自用应用无需管理员审批）
+7. 在 `.env` 中添加：
+
+```bash
+FEISHU_APP_ID=cli_你的AppID
+FEISHU_APP_SECRET=你的AppSecret
+```
+
+### 启动
+
+```bash
+npm run feishu
+```
+
+启动后在飞书中找到你的机器人，直接发消息即可对话。支持所有 CLI 中的功能（任务管理、记忆、项目等）。
+
+### 注意事项
+
+- 目前只支持文本消息，语音/图片/文件暂不支持
+- 收到消息后需在 3 秒内开始处理，否则飞书会重推
+- 多客户端部署时只有一个客户端会收到消息（集群模式）
+- 每个飞书用户有独立的会话上下文
 
 ## Web GUI（实验性）
 
