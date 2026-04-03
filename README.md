@@ -1,62 +1,51 @@
-# 🤖 Office Agent — AI 办公助理
+# Office Agent
 
-专为有 ADHD 症状或容易遗忘工作事项的用户设计的办公 AI Agent。帮你管理任务、记忆工作信息、主动提醒，像一个真人秘书一样工作。
+AI 办公助理，专为容易遗忘工作事项的用户设计。通过对话管理任务、项目、记忆，主动提醒，参考 Claude Code 架构。
 
 ## 快速开始
 
-### 前置条件
-
-- [Node.js](https://nodejs.org/) >= 18（推荐 20+）
-- 阿里云百炼平台 API Key（[申请地址](https://bailian.console.aliyun.com/)）
-
-### 安装
-
 ```bash
-# 1. 克隆项目
-git clone <你的仓库地址>
-cd office-agent
-
-# 2. 安装依赖
+# 1. 安装依赖
 npm install
 
-# 3. 配置 API Key
-#    在项目根目录创建 .env 文件：
+# 2. 配置 API Key（阿里云百炼平台）
 echo "DASHSCOPE_API_KEY=sk-你的key" > .env
-echo "DASHSCOPE_MODEL=qwen-plus" >> .env
-```
 
-### 运行
-
-```bash
-# 交互式对话（推荐）
+# 3. 启动
 npm start
-
-# 单次提问
-npx tsx src/cli/index.ts ask "帮我列出今天的待办"
-
-# 查看任务列表
-npx tsx src/cli/index.ts tasks
-
-# 查看配置
-npx tsx src/cli/index.ts config
-
-# 帮助
-npx tsx src/cli/index.ts --help
 ```
 
-### 验证安装
+## 前置条件
+
+- Node.js >= 18
+- 阿里云百炼平台 API Key（https://bailian.console.aliyun.com/）
+
+## 使用方式
+
+### CLI 交互模式（默认）
 
 ```bash
-# 跑测试，确认一切正常
-npm test
-
-# 检查 API 连通性
-npx tsx src/api-test.ts
+npm start
 ```
 
-## 可用命令
+进入后直接用自然语言对话，Agent 会通过工具调用来执行操作。
 
-交互模式下输入 `/help` 查看所有命令：
+### 单次提问
+
+```bash
+npx tsx src/cli/index.ts ask "帮我列出今天的待办"
+```
+
+### 其他命令
+
+```bash
+npx tsx src/cli/index.ts tasks     # 查看任务列表
+npx tsx src/cli/index.ts config    # 查看配置
+npx tsx src/cli/index.ts usage     # 查看 token 用量
+npx tsx src/cli/index.ts -h        # 帮助
+```
+
+## 对话中的斜杠命令
 
 | 命令 | 说明 |
 |------|------|
@@ -70,80 +59,194 @@ npx tsx src/api-test.ts
 | `/project` | 查看项目列表 |
 | `/memory <关键词>` | 搜索记忆 |
 | `/cron` | 查看定时任务 |
+| `/usage` | 查看 token 用量 |
+| `/usage detail` | 查看详细用量（按模型/环节） |
+| `/help` | 显示帮助 |
 
-## 项目结构
+## 数据验证命令
+
+这些命令直接查数据库，不经过 LLM，用来验证 Agent 说的是否属实：
+
+| 命令 | 说明 |
+|------|------|
+| `/db tasks` | 查看数据库中的真实任务 |
+| `/db projects` | 查看数据库中的真实项目 |
+| `/db memories` | 查看数据库中的真实记忆 |
+
+每次 Agent 回复后会显示 `[本轮调用了 N 个工具]` 或 `[本轮未调用工具]`，帮你判断回答是否基于真实数据。
+
+## 数据管理命令
+
+| 命令 | 说明 |
+|------|------|
+| `/reset` | 清空所有数据（需确认，记忆移到回收站） |
+| `/reset tasks` | 只清空任务 |
+| `/reset memories` | 只清空记忆（移到回收站） |
+| `/reset projects` | 只清空项目 |
+| `/reset sessions` | 只清空会话历史 |
+| `/reset usage` | 只清空 token 统计 |
+| `/reset config` | 重置配置为默认 |
+| `/reset cron` | 只清空定时任务 |
+| `/reset trash` | 清空回收站（不可恢复） |
+| `/undo` | 从回收站恢复记忆 |
+
+## 10 个内置工具
+
+Agent 通过原生 Function Calling 调用这些工具：
+
+| 工具 | 功能 |
+|------|------|
+| TaskManager | 任务 CRUD、状态追踪、逾期检测、任务拆解 |
+| SubAgentTool | 项目管理（创建/归档/委派） |
+| MemoryTool | 长期记忆存储/搜索/删除 |
+| ReminderTool | 提醒管理 |
+| CronTool | 定时任务（cron 表达式） |
+| FeishuConnector | 飞书对接（消息/文档/日历，接口待集成） |
+| EmailTool | 邮件发送（接口待集成） |
+| CalendarTool | 日程管理（接口待集成） |
+| DocumentParser | 文档解析（飞书/Excel/Word/网页） |
+| BackgroundTaskTool | 后台任务管理 |
+
+## 5 个内置技能
+
+通过斜杠命令触发，定义在 `src/skills/bundled/` 下：
+
+| 技能 | 模式 | 说明 |
+|------|------|------|
+| `/daily-report` | inline | 每日工作汇报 |
+| `/meeting-notes` | inline | 会议纪要整理 |
+| `/task-breakdown` | fork | 大任务拆解 |
+| `/feishu-sync` | inline | 飞书状态同步 |
+| `/weekly-report` | fork | 周报生成 |
+
+自定义技能：在 `~/.office-agent/skills/` 下创建 SKILL.md 文件即可。
+
+## 数据存储
+
+所有数据存在本地 `~/.office-agent/`，不上传任何外部服务器：
+
+```
+~/.office-agent/
+├── tasks.json              # 任务数据
+├── token-usage.json        # Token 用量统计
+├── config.json             # 用户配置
+├── cron-tasks.json         # 定时任务
+├── last-session.txt        # 最近会话 ID
+├── memdir/                 # 记忆系统
+│   ├── MEMORY.md           # 记忆索引（自动维护）
+│   ├── auto/               # 自动提取的记忆
+│   ├── decisions/          # 决策类记忆
+│   ├── preferences/        # 偏好类记忆
+│   └── projects/           # 项目上下文记忆
+├── agents/                 # 项目（Sub-Agent）
+│   └── registry.json       # 项目注册表
+├── sessions/               # 会话历史
+├── skills/                 # 用户自定义技能
+└── trash/                  # 回收站（/undo 可恢复）
+```
+
+## 项目源码结构
 
 ```
 src/
-├── cli/                    # CLI 入口和子命令
-│   ├── index.ts            # 主入口（解析参数、路由子命令）
-│   └── commands/           # chat / ask / tasks / config
-├── core/                   # 核心引擎
-│   ├── query-engine.ts     # 主循环（LLM 调用 + 工具执行）
-│   ├── context-manager.ts  # 上下文窗口管理 + 自动压缩
-│   ├── memory-system.ts    # 分层记忆系统
-│   ├── tool-system.ts      # 可插拔工具框架
-│   ├── skill-system.ts     # 技能系统（SKILL.md）
-│   ├── sub-agent-manager.ts # 动态子 Agent
-│   ├── dashscope-llm.ts    # 百炼平台 LLM 客户端
-│   ├── security.ts         # AES-256-GCM 加密
-│   └── user-config.ts      # 用户配置管理
-├── services/               # 服务层
-│   ├── reminder-engine.ts  # 提醒引擎（定时/截止日期/智能）
-│   ├── cron-scheduler.ts   # 定时调度器
-│   ├── background-task-manager.ts
+├── cli/                        # CLI 入口
+│   ├── index.ts                # 主入口（参数解析、子命令路由）
+│   ├── agent-factory.ts        # Agent 工厂（创建 DashScope LLM + Agent）
+│   ├── env.ts                  # .env 加载器
+│   └── commands/
+│       ├── chat.ts             # 交互式对话（含 /db /reset /undo 命令）
+│       ├── ask.ts              # 单次提问
+│       ├── tasks.ts            # 任务列表
+│       ├── config.ts           # 配置查看
+│       └── usage.ts            # Token 用量
+│
+├── core/                       # 核心引擎
+│   ├── query-engine.ts         # 主循环（LLM 调用 + 工具执行 + 记忆注入）
+│   ├── context-manager.ts      # 上下文压缩（auto-compact）
+│   ├── memory-system.ts        # 三层记忆（索引 + side query + grep）
+│   ├── tool-system.ts          # 可插拔工具框架（Tool 接口 + Registry）
+│   ├── skill-system.ts         # 技能系统（SKILL.md 加载 + 执行）
+│   ├── sub-agent-manager.ts    # 动态子 Agent（项目级隔离）
+│   ├── dashscope-llm.ts        # 百炼 LLM 客户端（流式 + Function Calling）
+│   ├── llm-client.ts           # LLM 接口定义
+│   ├── schema-utils.ts         # Zod v4 → JSON Schema 转换
+│   ├── token-tracker.ts        # Token 用量统计（按模型/环节/天）
+│   ├── session-store.ts        # 会话持久化
+│   ├── security.ts             # AES-256-GCM 加密
+│   ├── user-config.ts          # 用户配置管理
+│   └── slash-command.ts        # 斜杠命令解析
+│
+├── services/                   # 服务层
+│   ├── reminder-engine.ts      # 提醒引擎（定时/截止日期/智能判断）
+│   ├── cron-scheduler.ts       # 定时调度器（cron 表达式 + 持久化）
+│   ├── background-task-manager.ts  # 后台任务
 │   ├── away-summary-engine.ts  # 离开摘要
-│   ├── voice-service.ts    # 语音输入（接口层）
-│   └── prompt-suggestion.ts # 主动建议
-├── tools/                  # 工具模块（每个独立目录）
-│   ├── TaskManager/        # 任务管理
-│   ├── FeishuConnector/    # 飞书连接器
-│   ├── DocumentParser/     # 文档解析
-│   ├── EmailTool/          # 邮件
-│   ├── CalendarTool/       # 日程
-│   ├── MemoryTool/         # 记忆操作
-│   ├── ReminderTool/       # 提醒操作
-│   ├── CronTool/           # 定时任务操作
-│   ├── BackgroundTaskTool/ # 后台任务操作
-│   └── SubAgentTool/       # 子 Agent 操作
-├── skills/bundled/         # 内置技能
+│   ├── prompt-suggestion.ts    # 主动建议
+│   └── voice-service.ts        # 语音输入（接口层）
+│
+├── tools/                      # 10 个工具模块（每个独立目录）
+│   ├── TaskManager/            # 任务管理
+│   ├── SubAgentTool/           # 项目管理
+│   ├── MemoryTool/             # 记忆操作
+│   ├── ReminderTool/           # 提醒操作
+│   ├── CronTool/               # 定时任务
+│   ├── FeishuConnector/        # 飞书连接器
+│   ├── EmailTool/              # 邮件
+│   ├── CalendarTool/           # 日程
+│   ├── DocumentParser/         # 文档解析
+│   └── BackgroundTaskTool/     # 后台任务
+│
+├── skills/bundled/             # 5 个内置技能（Markdown + YAML frontmatter）
 │   ├── daily-report.md
 │   ├── weekly-report.md
 │   ├── meeting-notes.md
 │   ├── task-breakdown.md
 │   └── feishu-sync.md
-├── types/index.ts          # 核心类型定义
-└── main.ts                 # 组件装配 + 消息处理流程
-```
-
-## 数据存储
-
-所有数据存储在本地 `~/.office-agent/` 目录下，不上传到任何外部服务器：
-
-```
-~/.office-agent/
-├── config.json         # 用户配置
-├── tasks.json          # 任务数据
-├── cron-tasks.json     # 定时任务
-├── memdir/             # 记忆系统（Markdown 文件）
-├── agents/             # 子 Agent 数据
-└── skills/             # 用户自定义技能
+│
+├── types/index.ts              # 核心类型定义（TaskItem, MemoryEntry 等）
+├── main.ts                     # 组件装配 + 消息处理流程
+│
+├── server/                     # Web 服务（可选，GUI 用）
+│   ├── api.ts                  # REST API 服务器
+│   └── openai-compat.ts        # OpenAI 兼容 API（接 Lobe Chat 等）
+│
+└── web/dist/index.html         # Web GUI（实验性）
 ```
 
 ## 支持的模型
 
-通过 `.env` 中的 `DASHSCOPE_MODEL` 配置，支持百炼平台所有模型：
+通过 `.env` 中的 `DASHSCOPE_MODEL` 配置：
 
-- `qwen-plus`（默认，性价比高）
-- `qwen-max`（更强）
-- `qwen-turbo`（更快更便宜）
+| 模型 | 说明 |
+|------|------|
+| `qwen-plus` | 默认，性价比高 |
+| `qwen-max` | 更强 |
+| `qwen-turbo` | 更快更便宜 |
 
-也可以在运行时指定：`npx tsx src/cli/index.ts chat -m qwen-max`
+运行时指定：`npx tsx src/cli/index.ts chat -m qwen-max`
+
+## Web GUI（实验性）
+
+```bash
+npm run web       # 启动 Web UI（http://localhost:3000）
+npm run api       # 启动 OpenAI 兼容 API（http://localhost:3001，可接 Lobe Chat）
+```
 
 ## 开发
 
 ```bash
-npm test          # 运行测试
+npm test          # 运行测试（69 个）
 npm run typecheck # 类型检查
 npm run build     # 编译 TypeScript
 ```
+
+## 架构参考
+
+参考 Claude Code 的架构模式：
+- QueryEngine 主循环（async generator）
+- 原生 Function Calling（非 prompt-based）
+- 三层记忆系统（MEMORY.md 索引 + LLM side query + 工具搜索）
+- 可插拔 Tool 系统
+- SKILL.md 技能定义
+- 上下文自动压缩
+- 会话持久化
