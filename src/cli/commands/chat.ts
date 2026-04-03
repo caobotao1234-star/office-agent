@@ -54,16 +54,64 @@ export async function chat(modelOverride?: string): Promise<void> {
         return;
       }
 
+      // 直接查数据库的命令（不经过 LLM）
+      if (trimmed === '/db tasks' || trimmed === '/verify tasks') {
+        const result = await agent.toolRegistry.execute('TaskManager', { action: 'list' },
+          { abortSignal: new AbortController().signal, userConfig: agent.getConfig() });
+        const tasks = (result.output as any[]) ?? [];
+        if (tasks.length === 0) { console.log('  📋 数据库中无任务'); }
+        else {
+          console.log(`  📋 数据库中有 ${tasks.length} 个任务:`);
+          for (const t of tasks) {
+            console.log(`    ${t.status === 'completed' ? '✅' : '⏳'} [${t.priority}] ${t.description}${t.projectId ? ' (#' + t.projectId + ')' : ''}${t.dueDate ? ' 截止:' + new Date(t.dueDate).toLocaleDateString('zh-CN') : ''}`);
+          }
+        }
+        prompt(); return;
+      }
+
+      if (trimmed === '/db projects' || trimmed === '/verify projects') {
+        const projects = agent.subAgentManager.list();
+        if (projects.length === 0) { console.log('  📁 数据库中无项目'); }
+        else {
+          console.log(`  📁 数据库中有 ${projects.length} 个项目:`);
+          for (const p of projects) {
+            console.log(`    ${p.status === 'active' ? '🟢' : '⚪'} ${p.projectName} (${p.projectId}) [${p.status}]`);
+          }
+        }
+        prompt(); return;
+      }
+
+      if (trimmed === '/db memories' || trimmed === '/verify memories') {
+        const memories = await agent.memorySystem.search({ limit: 10 });
+        if (memories.length === 0) { console.log('  🧠 数据库中无记忆'); }
+        else {
+          console.log(`  🧠 数据库中有记忆 (显示最近10条):`);
+          for (const m of memories) {
+            console.log(`    [${m.type}] ${m.title}`);
+          }
+        }
+        prompt(); return;
+      }
+
       console.log();
       process.stdout.write('\x1b[33mAgent>\x1b[0m ');
 
+      let toolCallCount = 0;
       try {
         for await (const event of agent.handleMessage(trimmed)) {
+          if (event.type === 'tool_use' || event.type === 'tool_result') toolCallCount++;
           renderEvent(event);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.log(`\n\x1b[31m❌ ${msg}\x1b[0m`);
+      }
+
+      // 显示本轮工具调用情况
+      if (toolCallCount > 0) {
+        console.log(`\n  \x1b[90m[本轮调用了 ${toolCallCount / 2} 个工具]\x1b[0m`);
+      } else {
+        console.log(`\n  \x1b[90m[本轮未调用工具 — 回答基于上下文，非数据库]\x1b[0m`);
       }
 
       console.log('\n');
@@ -113,6 +161,9 @@ function printHelp(): void {
   /cron               查看定时任务
   /usage              查看 token 用量统计
   /usage detail       查看详细用量（按模型×环节）
+  /db tasks           直接查数据库中的任务（不经过 LLM）
+  /db projects        直接查数据库中的项目
+  /db memories        直接查数据库中的记忆
   /help               显示此帮助
   quit                退出
 `);
