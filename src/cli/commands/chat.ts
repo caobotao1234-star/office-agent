@@ -93,35 +93,51 @@ export async function chat(modelOverride?: string): Promise<void> {
         prompt(); return;
       }
 
-      if (trimmed === '/reset') {
-        const confirm = await new Promise<string>(resolve => {
-          rl.question('  ⚠️  确定清空所有数据？数据会移到回收站，可用 /undo 恢复。输入 yes 确认: ', resolve);
-        });
-        if (confirm.trim() === 'yes') {
-          const fs = await import('node:fs');
-          const os = await import('node:os');
-          const path = await import('node:path');
-          const baseDir = path.join(os.homedir(), '.office-agent');
+      if (trimmed.startsWith('/reset')) {
+        const sub = trimmed.slice(6).trim();
+        const fs = await import('node:fs');
+        const os = await import('node:os');
+        const path = await import('node:path');
+        const baseDir = path.join(os.homedir(), '.office-agent');
+        const rmFile = (f: string) => { const p = path.join(baseDir, f); if (fs.existsSync(p)) fs.unlinkSync(p); };
+        const rmDir = (d: string) => { const p = path.join(baseDir, d); if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true }); };
 
-          // 先把记忆移到回收站（可 /undo 恢复）
+        if (sub === 'tasks') {
+          rmFile('tasks.json');
+          console.log('  ✅ 任务已清空');
+        } else if (sub === 'memories' || sub === 'memory') {
           await agent.memorySystem.deleteAll();
-
-          // 删除所有其他数据文件
-          const toDelete = ['tasks.json', 'token-usage.json', 'last-session.txt', 'config.json', 'cron-tasks.json'];
-          for (const f of toDelete) {
-            const p = path.join(baseDir, f);
-            if (fs.existsSync(p)) fs.unlinkSync(p);
-          }
-          // 删除目录（agents、sessions）
-          for (const d of ['agents', 'sessions']) {
-            const p = path.join(baseDir, d);
-            if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
-          }
-          // trash/ 保留（供 /undo 恢复）
-          console.log('  ✅ 全部清空（记忆在回收站 ~/.office-agent/trash/，可 /undo 恢复）');
-          console.log('  重启 npm start 生效。');
+          console.log('  ✅ 记忆已清空（移到回收站，可 /undo 恢复）');
+        } else if (sub === 'projects') {
+          rmDir('agents');
+          console.log('  ✅ 项目已清空');
+        } else if (sub === 'sessions' || sub === 'history') {
+          rmDir('sessions'); rmFile('last-session.txt');
+          console.log('  ✅ 会话历史已清空');
+        } else if (sub === 'usage' || sub === 'tokens') {
+          rmFile('token-usage.json');
+          console.log('  ✅ Token 用量统计已清空');
+        } else if (sub === 'config') {
+          rmFile('config.json');
+          console.log('  ✅ 配置已重置为默认');
+        } else if (sub === 'cron') {
+          rmFile('cron-tasks.json');
+          console.log('  ✅ 定时任务已清空');
+        } else if (sub === 'trash') {
+          rmDir('trash');
+          console.log('  ✅ 回收站已清空（不可恢复）');
+        } else if (sub === '' || sub === 'all') {
+          const confirm = await new Promise<string>(resolve => {
+            rl.question('  ⚠️  确定清空所有数据？记忆移到回收站，可 /undo 恢复。输入 yes: ', resolve);
+          });
+          if (confirm.trim() === 'yes') {
+            await agent.memorySystem.deleteAll();
+            for (const f of ['tasks.json', 'token-usage.json', 'last-session.txt', 'config.json', 'cron-tasks.json']) rmFile(f);
+            for (const d of ['agents', 'sessions']) rmDir(d);
+            console.log('  ✅ 全部清空。重启 npm start 生效。');
+          } else { console.log('  已取消。'); }
         } else {
-          console.log('  已取消。');
+          console.log('  用法: /reset [all|tasks|memories|projects|sessions|usage|config|cron|trash]');
         }
         prompt(); return;
       }
@@ -208,6 +224,13 @@ function printHelp(): void {
   /db projects        直接查数据库中的项目
   /db memories        直接查数据库中的记忆
   /reset              清空所有数据（移到回收站）
+  /reset tasks        只清空任务
+  /reset memories     只清空记忆（移到回收站）
+  /reset projects     只清空项目
+  /reset sessions     只清空会话历史
+  /reset usage        只清空 token 统计
+  /reset config       重置配置为默认
+  /reset trash        清空回收站（不可恢复）
   /undo               从回收站恢复记忆
   /help               显示此帮助
   quit                退出
