@@ -198,6 +198,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     reminderEngine,
     notificationService,
     toolRegistry,
+    llm,
     getConfig: () => configManager.get(),
   });
 

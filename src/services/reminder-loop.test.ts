@@ -4,6 +4,7 @@ import { ReminderEngine } from './reminder-engine.js';
 import { NotificationService } from './notification-service.js';
 import { ToolRegistry } from '../core/tool-system.js';
 import { UserConfigManager } from '../core/user-config.js';
+import type { LLMClient } from '../core/llm-client.js';
 
 describe('ReminderLoop', () => {
   let reminderEngine: ReminderEngine;
@@ -11,6 +12,7 @@ describe('ReminderLoop', () => {
   let toolRegistry: ToolRegistry;
   let config: ReturnType<typeof UserConfigManager.getDefault>;
   let notifyCb: ReturnType<typeof vi.fn>;
+  let mockLLM: LLMClient;
 
   beforeEach(() => {
     config = UserConfigManager.getDefault();
@@ -19,6 +21,9 @@ describe('ReminderLoop', () => {
     toolRegistry = new ToolRegistry();
     notifyCb = vi.fn<(message: string) => void>();
     notificationService.addChannel(notifyCb as any);
+    mockLLM = {
+      query: (async () => 'SKIP') as any,
+    } as LLMClient;
   });
 
   function createLoop() {
@@ -26,31 +31,32 @@ describe('ReminderLoop', () => {
       reminderEngine,
       notificationService,
       toolRegistry,
+      llm: mockLLM,
       getConfig: () => config,
     });
   }
 
   it('should not notify when no channels registered', async () => {
-    const ns = new NotificationService(); // no channels
+    const ns = new NotificationService();
     const loop = new ReminderLoop({
       reminderEngine,
       notificationService: ns,
       toolRegistry,
+      llm: mockLLM,
       getConfig: () => config,
     });
     await loop.tick();
     expect(notifyCb).not.toHaveBeenCalled();
   });
 
-  it('should deliver due reminders', async () => {
+  it('should deliver due scheduled reminders', async () => {
     const now = new Date();
-    // Manually add a pending reminder that is already due
     reminderEngine.getPendingReminders().push({
       id: 'test-1',
       type: 'smart_followup',
       message: '测试提醒',
       reason: 'test',
-      scheduledAt: new Date(now.getTime() - 1000), // 1 second ago
+      scheduledAt: new Date(now.getTime() - 1000),
       delivered: false,
     });
 
@@ -67,7 +73,7 @@ describe('ReminderLoop', () => {
       type: 'smart_followup',
       message: '未来提醒',
       reason: 'test',
-      scheduledAt: new Date(now.getTime() + 60_000), // 1 minute from now
+      scheduledAt: new Date(now.getTime() + 60_000),
       delivered: false,
     });
 
