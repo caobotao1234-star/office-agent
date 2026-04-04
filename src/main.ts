@@ -174,7 +174,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const notificationService = new NotificationService();
 
-  toolRegistry.register(new TaskManagerTool());
+  toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new DocumentParserTool());
   toolRegistry.register(new FeishuConnectorTool());
   toolRegistry.register(new EmailTool());

@@ -96,8 +96,7 @@ export type TaskManagerInput = z.infer<typeof TaskManagerInput>;
 // Persistence helpers
 // ============================================================
 
-const DATA_DIR = path.join(os.homedir(), '.office-agent');
-const DATA_FILE = path.join(DATA_DIR, 'tasks.json');
+const DEFAULT_DATA_DIR = path.join(os.homedir(), '.office-agent');
 
 /** Serialise dates to ISO strings for JSON storage */
 function serialiseTasks(tasks: TaskItem[]): string {
@@ -117,25 +116,25 @@ function deserialiseTasks(raw: string): TaskItem[] {
   })) as TaskItem[];
 }
 
-function ensureDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+function ensureDir(dir: string): void {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 }
 
-function loadTasks(): TaskItem[] {
-  ensureDir();
-  if (!fs.existsSync(DATA_FILE)) return [];
+function loadTasksFromFile(filePath: string): TaskItem[] {
+  ensureDir(path.dirname(filePath));
+  if (!fs.existsSync(filePath)) return [];
   try {
-    return deserialiseTasks(fs.readFileSync(DATA_FILE, 'utf-8'));
+    return deserialiseTasks(fs.readFileSync(filePath, 'utf-8'));
   } catch {
     return [];
   }
 }
 
-function saveTasks(tasks: TaskItem[]): void {
-  ensureDir();
-  fs.writeFileSync(DATA_FILE, serialiseTasks(tasks), 'utf-8');
+function saveTasksToFile(filePath: string, tasks: TaskItem[]): void {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, serialiseTasks(tasks), 'utf-8');
 }
 
 // ============================================================
@@ -326,6 +325,12 @@ export class TaskManagerTool implements Tool<TaskManagerInput, unknown> {
   inputSchema = TaskManagerInput;
 
   private enabled = true;
+  private dataFile: string;
+
+  constructor(baseDir?: string) {
+    const dir = baseDir ?? DEFAULT_DATA_DIR;
+    this.dataFile = path.join(dir, 'tasks.json');
+  }
 
   isEnabled(): boolean {
     return this.enabled;
@@ -350,25 +355,25 @@ export class TaskManagerTool implements Tool<TaskManagerInput, unknown> {
 
   async call(input: TaskManagerInput, _context: ToolContext): Promise<ToolResult<unknown>> {
     try {
-      const tasks = loadTasks();
+      const tasks = loadTasksFromFile(this.dataFile);
       let output: unknown;
 
       switch (input.action) {
         case 'create': {
           const task = createTask(input, tasks);
-          saveTasks(tasks);
+          saveTasksToFile(this.dataFile, tasks);
           output = task;
           break;
         }
         case 'update': {
           const task = updateTask(input, tasks);
-          saveTasks(tasks);
+          saveTasksToFile(this.dataFile, tasks);
           output = task;
           break;
         }
         case 'delete': {
           deleteTask(input.id ?? input.description ?? '', tasks);
-          saveTasks(tasks);
+          saveTasksToFile(this.dataFile, tasks);
           output = { deleted: input.id };
           break;
         }
@@ -384,20 +389,20 @@ export class TaskManagerTool implements Tool<TaskManagerInput, unknown> {
         }
         case 'decompose': {
           const created = decomposeTasks(input, tasks);
-          saveTasks(tasks);
+          saveTasksToFile(this.dataFile, tasks);
           output = created;
           break;
         }
         case 'delete_all': {
           const count = tasks.length;
           tasks.length = 0;
-          saveTasks(tasks);
+          saveTasksToFile(this.dataFile, tasks);
           output = { deletedAll: true, count };
           break;
         }
         case 'check_overdue': {
           const updated = checkOverdue(tasks);
-          if (updated.length > 0) saveTasks(tasks);
+          if (updated.length > 0) saveTasksToFile(this.dataFile, tasks);
           output = updated;
           break;
         }
