@@ -78,8 +78,9 @@ describe('resolveCommand', () => {
   });
 
   it('resolves known skill commands', () => {
-    expect(resolveCommand('daily-report')).toEqual({ type: 'skill', target: 'daily-report' });
+    expect(resolveCommand('daily-report')).toEqual({ type: 'skill', target: 'report' });
     expect(resolveCommand('task-breakdown')).toEqual({ type: 'skill', target: 'task-breakdown' });
+    expect(resolveCommand('report')).toEqual({ type: 'skill', target: 'report' });
   });
 
   it('returns undefined for unknown commands', () => {
