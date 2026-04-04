@@ -27,6 +27,8 @@ import { BackgroundTaskManager } from './services/background-task-manager.js';
 import { AwaySummaryEngine } from './services/away-summary-engine.js';
 import { VoiceService } from './services/voice-service.js';
 import { PromptSuggestionEngine } from './services/prompt-suggestion.js';
+import { NotificationService } from './services/notification-service.js';
+import { ReminderLoop } from './services/reminder-loop.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -122,6 +124,8 @@ export interface OfficeAgent {
   awaySummaryEngine: AwaySummaryEngine;
   voiceService: VoiceService;
   promptSuggestionEngine: PromptSuggestionEngine;
+  notificationService: NotificationService;
+  reminderLoop: ReminderLoop;
   configManager: UserConfigManager;
 
   handleMessage(input: string): AsyncGenerator<StreamEvent>;
@@ -166,6 +170,8 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const skillSystem = new SkillSystem(BUNDLED_SKILLS_DIR, USER_SKILLS_DIR, llm);
   const subAgentManager = new SubAgentManager(llm, path.join(dataDir, 'agents'));
 
+  const notificationService = new NotificationService();
+
   toolRegistry.register(new TaskManagerTool());
   toolRegistry.register(new DocumentParserTool());
   toolRegistry.register(new FeishuConnectorTool());
@@ -184,6 +190,14 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const systemPrompt = buildSystemPrompt(toolDescriptions);
 
   const sessionStore = new SessionStore(dataDir);
+
+  const reminderLoop = new ReminderLoop({
+    reminderEngine,
+    notificationService,
+    toolRegistry,
+    getConfig: () => configManager.get(),
+  });
+
   const queryEngine = new QueryEngine({
     model: model ?? 'claude-sonnet-4-20250514',
     systemPrompt,
@@ -198,7 +212,8 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     queryEngine, toolRegistry, memorySystem, contextManager,
     skillSystem, subAgentManager, reminderEngine, cronScheduler,
     backgroundTaskManager, awaySummaryEngine, voiceService,
-    promptSuggestionEngine, configManager,
+    promptSuggestionEngine, notificationService, reminderLoop,
+    configManager,
     handleMessage: (input: string) => handleMessage(agent, input),
     start: () => startAgent(agent),
     stop: () => stopAgent(agent),
@@ -215,10 +230,12 @@ async function startAgent(agent: OfficeAgent): Promise<void> {
   agent.cronScheduler.checkMissedTasks();
   agent.awaySummaryEngine.recordActivity();
   agent.queryEngine.restoreLastSession();
+  agent.reminderLoop.start();
 }
 
 function stopAgent(agent: OfficeAgent): void {
   agent.cronScheduler.stop();
+  agent.reminderLoop.stop();
 }
 
 async function* handleMessage(

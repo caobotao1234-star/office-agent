@@ -188,6 +188,27 @@ async function main() {
         agent.cronScheduler.checkMissedTasks();
         agent.awaySummaryEngine.recordActivity();
         // Deliberately skip: agent.queryEngine.restoreLastSession()
+
+        // Register Feishu as notification channel for proactive reminders
+        agent.notificationService.addChannel(async (message) => {
+          try {
+            const chunks = splitMessage(message, 3500);
+            for (const chunk of chunks) {
+              await lark.im.v1.message.create({
+                params: { receive_id_type: 'chat_id' },
+                data: {
+                  receive_id: chatId,
+                  content: JSON.stringify({ text: `📢 ${chunk}` }),
+                  msg_type: 'text',
+                },
+              });
+            }
+          } catch (err) {
+            console.error('[Feishu] 推送提醒失败:', err instanceof Error ? err.message : err);
+          }
+        });
+
+        agent.reminderLoop.start();
         startedAgents.add(senderId);
       }
 

@@ -19,6 +19,12 @@ export async function chat(modelOverride?: string): Promise<void> {
 
   await agent.start();
 
+  // Register CLI as a notification channel for proactive reminders
+  agent.notificationService.addChannel((message) => {
+    console.log(`\n\x1b[35m📢 提醒>\x1b[0m ${message}`);
+    process.stdout.write('\x1b[36m你>\x1b[0m ');
+  });
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
