@@ -22,9 +22,10 @@ Office Agent 是一个面向办公场景的 AI Agent 系统，参考 Claude Code
 ```mermaid
 graph TB
     subgraph 用户交互层
-        UI[对话界面]
-        Voice[语音输入服务]
+        CLI[CLI 终端]
+        Feishu[飞书机器人 WebSocket]
         SlashCmd[斜杠命令解析器]
+        STT[语音转文字 DashScope Paraformer]
     end
 
     subgraph 核心引擎层
@@ -70,8 +71,9 @@ graph TB
         BT[Background_Task 后台任务管理器]
     end
 
-    UI --> QE
-    Voice --> QE
+    CLI --> QE
+    Feishu --> QE
+    STT --> Feishu
     SlashCmd --> QE
     QE --> MA
     QE --> CM
@@ -112,7 +114,7 @@ graph TB
 | CronScheduler | Cron_Scheduler | 从代码定时任务改为办公定时提醒 |
 | awaySummary | Away_Summary_Engine | 从代码进度摘要改为办公事项摘要 |
 | PromptSuggestion | 主动建议引擎 | 从代码建议改为办公行动建议 |
-| voice service | 语音输入服务 | 保持一致，语音转文本 |
+| voice service | Speech-to-Text (DashScope Paraformer) | 从本地录音改为飞书语音消息 → STT API |
 | auto-compact | Context_Manager | 保持一致，上下文压缩 |
 | extractMemories | 自动记忆提取 | 从代码记忆改为办公记忆提取 |
 
@@ -557,33 +559,21 @@ interface BackgroundTaskManager {
 }
 ```
 
-### 11. Voice Service（语音输入服务）
+### 11. Speech-to-Text Service（语音转文字服务）
 
-参考 Claude Code 的 `voice.ts` 和 `voiceStreamSTT.ts`。
+飞书语音消息处理流程：用户发送语音 → 飞书推送 audio 类型消息 → 下载音频文件 → 调用 DashScope Paraformer STT API → 转写为文本 → 交给 Agent 处理。
 
 ```typescript
-interface VoiceService {
-  // 录音控制
-  startRecording(signal: AbortSignal): Promise<void>;
-  stopRecording(): AudioBuffer;
-  
-  // 语音转文本
-  transcribe(audio: AudioBuffer): Promise<TranscriptionResult>;
-  
-  // 流式识别
-  startStreamTranscription(onPartial: (text: string) => void): void;
-  
-  // 状态
-  isRecording(): boolean;
-  checkAvailability(): Promise<VoiceAvailability>;
+interface STTResult {
+  text: string;
+  success: boolean;
+  error?: string;
 }
 
-interface TranscriptionResult {
-  text: string;
-  confidence: number;
-  needsConfirmation: boolean;  // 置信度低时需要用户确认
-}
+function transcribeAudio(audioBuffer: Buffer, apiKey: string, fileName?: string): Promise<STTResult>;
 ```
+
+使用 DashScope 的 OpenAI 兼容接口 `/v1/audio/transcriptions`，模型为 `paraformer-v2`，与 LLM 共用同一个 API Key。
 
 ### 12. PromptSuggestion（主动建议引擎）
 

@@ -268,11 +268,10 @@ Office Agent 是一个面向办公场景的 AI Agent 系统，定位为用户的
 
 #### 验收标准
 
-1. THE Office_Agent SHALL 支持用户通过语音输入与 Main_Agent 交互
-2. WHEN 用户发送语音输入, THE Office_Agent SHALL 将语音转换为文本后交给 Main_Agent 处理
-3. THE Office_Agent SHALL 支持用户通过快捷键一键开启/关闭语音输入模式
-4. THE Office_Agent SHALL 支持流式语音识别，用户说话时实时显示识别文本
-5. IF 语音识别结果置信度较低, THEN THE Office_Agent SHALL 向用户展示识别结果并请求确认
+1. THE Office_Agent SHALL 支持用户通过飞书语音消息与 Main_Agent 交互
+2. WHEN 用户在飞书中发送语音消息, THE Office_Agent SHALL 下载音频文件并调用语音识别服务（DashScope Paraformer）将语音转换为文本，再交给 Main_Agent 处理
+3. THE Office_Agent SHALL 支持常见音频格式（ogg、opus、mp3、wav、m4a）
+4. IF 语音识别失败或无法识别内容, THEN THE Office_Agent SHALL 向用户返回明确的错误提示
 
 ### 需求 20：主动建议与下一步提示
 

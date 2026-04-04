@@ -146,7 +146,8 @@ CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。
 
 - 群聊中 @机器人 触发对话
 - 单聊直接发消息（需开通单聊权限）
-- 每个飞书用户独立会话，重启后自动恢复
+- 支持语音消息（自动转文字，使用 DashScope Paraformer STT）
+- 每个飞书用户独立会话和数据目录，重启后自动恢复
 - 主动推送提醒（截止日期、每日待办等）
 - 读取飞书云文档内容，自动提取项目信息存入记忆
 
@@ -231,7 +232,7 @@ src/
 │   ├── background-task-manager.ts  # 后台任务
 │   ├── away-summary-engine.ts  # 离开摘要
 │   ├── prompt-suggestion.ts    # 主动建议
-│   └── voice-service.ts        # 语音输入（接口层）
+│   └── speech-to-text.ts       # 语音转文字（DashScope Paraformer）
 │
 ├── tools/                      # 11 个工具模块
 │   ├── TaskManager/            # 任务管理
