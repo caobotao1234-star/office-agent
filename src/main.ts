@@ -20,6 +20,7 @@ import { SessionStore } from './core/session-store.js';
 import { isSlashCommand, parseSlashCommand, resolveCommand } from './core/slash-command.js';
 
 import { TokenTracker } from './core/token-tracker.js';
+import { UsageStats } from './core/usage-stats.js';
 
 import { ReminderEngine } from './services/reminder-engine.js';
 import { CronScheduler } from './services/cron-scheduler.js';
@@ -148,6 +149,7 @@ export interface OfficeAgent {
   promptSuggestionEngine: PromptSuggestionEngine;
   notificationService: NotificationService;
   reminderLoop: ReminderLoop;
+  usageStats: UsageStats;
   configManager: UserConfigManager;
 
   handleMessage(input: string): AsyncGenerator<StreamEvent>;
@@ -192,6 +194,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const subAgentManager = new SubAgentManager(llm, path.join(dataDir, 'agents'));
 
   const notificationService = new NotificationService();
+  const usageStats = new UsageStats(path.join(dataDir, 'usage-stats.json'));
 
   toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new DocumentParserTool());
@@ -236,7 +239,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     skillSystem, subAgentManager, reminderEngine, cronScheduler,
     backgroundTaskManager, awaySummaryEngine,
     promptSuggestionEngine, notificationService, reminderLoop,
-    configManager,
+    usageStats, configManager,
     handleMessage: (input: string) => handleMessage(agent, input),
     start: () => startAgent(agent),
     stop: () => stopAgent(agent),
@@ -286,7 +289,13 @@ async function* handleMessage(
     return;
   }
 
-  yield* agent.queryEngine.submitMessage(input);
+  // Track tool usage from stream events
+  for await (const event of agent.queryEngine.submitMessage(input)) {
+    if (event.type === 'tool_use') {
+      agent.usageStats.record(event.toolName, 'tool');
+    }
+    yield event;
+  }
 
   // Suggestions disabled — LLM was already appending its own, causing duplication
 }
@@ -342,6 +351,12 @@ async function* handleBuiltinCommand(
       return;
     }
 
+    case 'stats': {
+      yield { type: 'text', content: agent.usageStats.formatReport() };
+      yield { type: 'done' };
+      return;
+    }
+
     case 'help': {
       yield {
         type: 'text',
@@ -362,6 +377,7 @@ async function* handleBuiltinCommand(
           '  /cron               查看定时任务',
           '  /usage              查看 token 用量',
           '  /usage detail       查看详细用量',
+          '  /stats              查看工具/技能使用统计',
           '  /db tasks           直接查数据库任务',
           '  /db projects        直接查数据库项目',
           '  /db memories        直接查数据库记忆',
@@ -474,6 +490,8 @@ async function* handleSkillTrigger(
   }
 
   yield { type: 'text', content: `\u2699 \u6B63\u5728\u6267\u884C\u6280\u80FD\u300C${skill.name}\u300D...\n` };
+
+  agent.usageStats.record(skillName, 'skill');
 
   const result: SkillResult = await agent.skillSystem.executeSkill(skill, args);
 
