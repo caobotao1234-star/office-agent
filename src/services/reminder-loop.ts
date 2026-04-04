@@ -24,6 +24,8 @@ export class ReminderLoop {
   private getConfig: () => UserConfig;
   private lastDailyBriefingDate: string | null = null;
   private lastWeeklySummaryDate: string | null = null;
+  /** Track which task IDs have already been notified to prevent spam */
+  private deliveredTaskIds = new Set<string>();
 
   constructor(opts: {
     reminderEngine: ReminderEngine;
@@ -63,22 +65,33 @@ export class ReminderLoop {
     // 2. Check weekly summary
     this.checkWeeklySummary(tasks, now);
 
-    // 3. Check deadlines
+    // 3. Check deadlines — only generate new reminders for tasks
+    //    that don't already have a pending/delivered reminder
+    const existingTaskIds = new Set(
+      this.reminderEngine.getPendingReminders()
+        .filter(r => r.taskId)
+        .map(r => r.taskId),
+    );
     const deadlineReminders = this.reminderEngine.checkDeadlines(tasks, now);
     for (const r of deadlineReminders) {
+      // Skip if we already notified about this task
+      if (r.taskId && this.deliveredTaskIds.has(r.taskId)) continue;
       if (!r.delivered) {
         await this.notificationService.notify(r.message);
         r.delivered = true;
+        if (r.taskId) this.deliveredTaskIds.add(r.taskId);
       }
     }
 
-    // 4. Deliver any pending reminders that are due
+    // 4. Deliver any pending user-created reminders that are due
     const pending = this.reminderEngine.getPendingReminders();
     for (const r of pending) {
       if (r.delivered) continue;
       if (r.scheduledAt.getTime() <= now.getTime()) {
+        if (r.taskId && this.deliveredTaskIds.has(r.taskId)) continue;
         await this.notificationService.notify(r.message);
         r.delivered = true;
+        if (r.taskId) this.deliveredTaskIds.add(r.taskId);
       }
     }
   }
