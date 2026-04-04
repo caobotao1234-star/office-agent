@@ -41,6 +41,7 @@ import { BackgroundTaskTool } from './tools/BackgroundTaskTool/index.js';
 import { EmailTool } from './tools/EmailTool/index.js';
 import { CalendarTool } from './tools/CalendarTool/index.js';
 import { ConfigTool } from './tools/ConfigTool/index.js';
+import { WebSearchTool } from './tools/WebSearchTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -207,6 +208,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new BackgroundTaskTool(backgroundTaskManager));
   toolRegistry.register(new SubAgentTool(subAgentManager));
   toolRegistry.register(new ConfigTool(configManager));
+  toolRegistry.register(new WebSearchTool());
 
   const toolDescriptions = toolRegistry
     .listAll()
