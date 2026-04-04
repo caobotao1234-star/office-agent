@@ -58,9 +58,11 @@ function getOrCreateAgent(userId: string): OfficeAgent {
 
   const apiKey = process.env['DASHSCOPE_API_KEY'] ?? '';
   const model = process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus';
-  const tokenTracker = new TokenTracker(path.join(DATA_DIR, 'token-usage.json'));
+  // Per-user data directory for complete isolation
+  const userDataDir = path.join(DATA_DIR, 'users', userId);
+  const tokenTracker = new TokenTracker(path.join(userDataDir, 'token-usage.json'));
   const llm = createDashScopeLLM({ apiKey, model, tokenTracker });
-  const agent = createOfficeAgent({ llm, baseDir: DATA_DIR, model });
+  const agent = createOfficeAgent({ llm, baseDir: userDataDir, model });
 
   userAgents.set(userId, agent);
   return agent;
