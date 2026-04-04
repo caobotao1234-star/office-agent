@@ -40,6 +40,7 @@ import { CronTool } from './tools/CronTool/index.js';
 import { BackgroundTaskTool } from './tools/BackgroundTaskTool/index.js';
 import { EmailTool } from './tools/EmailTool/index.js';
 import { CalendarTool } from './tools/CalendarTool/index.js';
+import { ConfigTool } from './tools/ConfigTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -109,6 +110,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- When user asks about time, use the injected current time.',
     '- When deleting/updating tasks, use description if you do not know the ID.',
     '- For token usage, tell user to type /usage.',
+    '- When user asks to change settings (reminder time, working hours, etc.), use ConfigTool.',
   ].join('\n');
 }
 export interface OfficeAgent {
@@ -182,6 +184,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new CronTool(cronScheduler));
   toolRegistry.register(new BackgroundTaskTool(backgroundTaskManager));
   toolRegistry.register(new SubAgentTool(subAgentManager));
+  toolRegistry.register(new ConfigTool(configManager));
 
   const toolDescriptions = toolRegistry
     .listAll()
