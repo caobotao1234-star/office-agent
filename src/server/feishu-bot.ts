@@ -21,6 +21,9 @@ import * as fs from 'node:fs';
 import { createOfficeAgent, type OfficeAgent } from '../main.js';
 import { createDashScopeLLM } from '../core/dashscope-llm.js';
 import { TokenTracker } from '../core/token-tracker.js';
+import { logger } from '../core/logger.js';
+
+const log = logger.child('Feishu');
 
 const DATA_DIR = path.join(os.homedir(), '.office-agent');
 

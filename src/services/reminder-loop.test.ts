@@ -17,8 +17,8 @@ describe('ReminderLoop', () => {
     reminderEngine = new ReminderEngine(config);
     notificationService = new NotificationService();
     toolRegistry = new ToolRegistry();
-    notifyCb = vi.fn();
-    notificationService.addChannel(notifyCb);
+    notifyCb = vi.fn<(message: string) => void>();
+    notificationService.addChannel(notifyCb as any);
   });
 
   function createLoop() {
