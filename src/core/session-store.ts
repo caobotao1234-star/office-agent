@@ -21,7 +21,7 @@ export class SessionStore {
   }
 
   /** 保存会话消息 */
-  save(sessionId: string, messages: readonly Message[]): void {
+  save(sessionId: string, messages: readonly Message[], channel?: string): void {
     this.ensureDir();
     const data = messages.map(m => ({
       ...m,
@@ -33,8 +33,9 @@ export class SessionStore {
       'utf-8',
     );
     // 记录最近会话 ID
+    const fileName = channel ? `last-session-${channel}.txt` : 'last-session.txt';
     fs.writeFileSync(
-      path.join(this.baseDir, '..', 'last-session.txt'),
+      path.join(this.baseDir, '..', fileName),
       sessionId,
       'utf-8',
     );
@@ -59,8 +60,9 @@ export class SessionStore {
   }
 
   /** 获取最近一次会话 ID */
-  getLastSessionId(): string | null {
-    const filePath = path.join(this.baseDir, '..', 'last-session.txt');
+  getLastSessionId(channel?: string): string | null {
+    const fileName = channel ? `last-session-${channel}.txt` : 'last-session.txt';
+    const filePath = path.join(this.baseDir, '..', fileName);
     if (!fs.existsSync(filePath)) return null;
     try {
       return fs.readFileSync(filePath, 'utf-8').trim() || null;

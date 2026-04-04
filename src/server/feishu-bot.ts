@@ -178,16 +178,19 @@ async function main() {
       const agent = getOrCreateAgent(senderId);
 
       if (!startedAgents.has(senderId)) {
-        // Don't restore CLI session — feishu needs clean context
-        // agent.start() calls restoreLastSession() which loads CLI history,
-        // polluting feishu context and causing LLM to behave differently.
-        // Instead, start without session restore:
+        // Per-user session channel — isolates feishu sessions from CLI
+        const sessionChannel = `feishu-${senderId}`;
+        agent.queryEngine.setSessionChannel(sessionChannel);
+
+        // Start agent services without restoring CLI session
         agent.configManager.load();
         await agent.skillSystem.loadSkills();
         agent.cronScheduler.start();
         agent.cronScheduler.checkMissedTasks();
         agent.awaySummaryEngine.recordActivity();
-        // Deliberately skip: agent.queryEngine.restoreLastSession()
+
+        // Restore this user's own feishu session (not CLI's)
+        agent.queryEngine.restoreLastSession(sessionChannel);
 
         // Register Feishu as notification channel for proactive reminders
         agent.notificationService.addChannel(async (message) => {

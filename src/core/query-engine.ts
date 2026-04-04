@@ -33,6 +33,7 @@ export class QueryEngine {
   private abortController: AbortController | null = null;
   private maxToolRounds: number;
   private sessionStore: SessionStore | undefined;
+  private sessionChannel: string | undefined;
 
   constructor(config: QueryEngineConfig) {
     this.config = config;
@@ -41,10 +42,16 @@ export class QueryEngine {
     this.sessionStore = config.sessionStore;
   }
 
-  /** 从磁盘恢复上一次会话 */
-  restoreLastSession(): boolean {
+  /** Set a channel name for session persistence (e.g. "feishu-{userId}") */
+  setSessionChannel(channel: string): void {
+    this.sessionChannel = channel;
+  }
+
+  /** 从磁盘恢复上一次会话（支持按 channel 隔离） */
+  restoreLastSession(channel?: string): boolean {
     if (!this.sessionStore) return false;
-    const lastId = this.sessionStore.getLastSessionId();
+    const ch = channel ?? this.sessionChannel;
+    const lastId = this.sessionStore.getLastSessionId(ch);
     if (!lastId) return false;
     const msgs = this.sessionStore.load(lastId);
     if (msgs.length === 0) return false;
@@ -57,7 +64,7 @@ export class QueryEngine {
   /** 保存当前会话到磁盘 */
   private saveSession(): void {
     if (this.sessionStore && this.messages.length > 0) {
-      this.sessionStore.save(this.sessionId, this.messages);
+      this.sessionStore.save(this.sessionId, this.messages, this.sessionChannel);
     }
   }
 
