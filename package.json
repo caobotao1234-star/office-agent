@@ -4,6 +4,9 @@
   "description": "Office Agent - AI-powered office assistant for task management and information tracking",
   "type": "module",
   "main": "dist/main.js",
+  "bin": {
+    "oa": "dist/cli/index.js"
+  },
   "scripts": {
     "build": "tsc",
     "start": "tsx src/cli/index.ts",
