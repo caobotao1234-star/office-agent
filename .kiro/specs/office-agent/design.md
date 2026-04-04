@@ -793,3 +793,136 @@ interface UserConfig {
 - **定时任务**：JSON（durable 模式持久化）
 - **敏感信息**：加密存储（API 密钥、认证令牌使用 AES-256-GCM 加密）
 
+
+
+## 架构演进记录（实际实现）
+
+以下记录了从初版设计到当前实现的架构演进，供后续开发参考。
+
+### 多通道交互架构
+
+系统支持三个交互通道，共享同一个 Agent 核心：
+
+| 通道 | 入口 | 特点 |
+|------|------|------|
+| CLI | `npm start` / `oa chat` | 本地终端交互，流式输出，开发调试用 |
+| 飞书机器人 | `npm run feishu` | WebSocket 长连接，群聊@/单聊，企业级使用 |
+| Web API | `npm run api` | OpenAI 兼容接口，可接 Lobe Chat / Open WebUI |
+
+关键设计：所有斜杠命令（`/usage`、`/db`、`/reset` 等）统一在 `main.ts` 的 `handleBuiltinCommand` 中处理，不在各通道重复实现。命令路由在 `slash-command.ts` 的 `COMMAND_MAP` 中注册，类型分为 `tool`、`skill`、`builtin` 三种。
+
+### 多用户隔离架构
+
+```
+~/.office-agent/
+├── users/                          # 多用户数据隔离
+│   ├── {open_id_A}/               # 用户 A 的完整数据
+│   │   ├── tasks.json
+│   │   ├── memdir/
+│   │   ├── agents/
+│   │   ├── sessions/
+│   │   ├── config.json
+│   │   └── ...
+│   └── {open_id_B}/               # 用户 B 的完整数据
+│       └── ...
+├── token-usage.json               # 全局 token 统计（可选按用户分）
+├── logs/                          # 全局日志
+└── last-session.txt               # CLI 会话（单用户）
+```
+
+用户标识：飞书 `open_id`（`ou_xxx`），在同一应用的所有场景（单聊、群聊、文档、日历）中唯一且不变。
+
+每个用户创建独立的 `OfficeAgent` 实例，`baseDir` 指向 `~/.office-agent/users/{open_id}/`，实现 memory、tasks、projects、config、sessions 的完全隔离。
+
+并发安全：Node.js 单线程 + async/await，同一用户的请求串行处理，不同用户操作不同文件，无竞争。
+
+### 飞书集成架构
+
+```
+飞书 WebSocket ──→ feishu-bot.ts ──→ getOrCreateAgent(senderId)
+                                          │
+                                    OfficeAgent 实例
+                                    ├── QueryEngine（独立 session channel）
+                                    ├── NotificationService（注册飞书推送回调）
+                                    └── ReminderLoop（后台提醒检查）
+```
+
+关键设计决策：
+- 使用飞书官方 SDK `@larksuiteoapi/node-sdk` 的 `WSClient` 长连接模式，不需要公网 IP
+- 事件回调必须在 3 秒内返回，所以用 `void handleFeishuMessage(...)` 异步处理
+- 消息去重：`recentMessageIds` Set 防止飞书超时重推导致重复处理
+- 会话隔离：每个飞书用户的 session 存储在 `last-session-feishu-{userId}.txt`，不与 CLI 共享
+- 飞书 bot 不调用 `restoreLastSession()`（CLI 的），而是恢复自己的 feishu channel session
+
+### 统一通知架构
+
+```
+ReminderLoop (每30秒检查)
+    │
+    ├── 检查截止日期提醒
+    ├── 检查每日待办清单
+    ├── 检查每周工作总结
+    └── 检查用户创建的定时提醒
+    │
+    ▼
+NotificationService.notify(message)
+    │
+    ├── CLI 回调: console.log(紫色📢前缀)
+    └── 飞书回调: larkClient.im.v1.message.create()
+```
+
+各通道通过 `agent.notificationService.addChannel(callback)` 注册推送回调。ReminderLoop 不关心消息往哪发，只调 `notify()`。
+
+### 飞书 API 真实接入状态
+
+| API | 方法 | 状态 | 所需权限 |
+|-----|------|------|----------|
+| 文件夹浏览 | `drive.v1.file.list` | ✅ 真实 | `drive:drive:readonly` |
+| 文档元数据 | `docx.v1.document.get` | ✅ 真实 | `docx:document:readonly` |
+| 文档内容读取 | `docx.v1.document.rawContent` | ✅ 真实 | `docx:document:readonly` |
+| 消息发送 | `im.v1.message.create` | ✅ 真实 | `im:message` |
+| 日历创建 | `calendar.v4.calendarEvent.create` | ✅ 真实 | `calendar:calendar` |
+| 日历查询 | `calendar.v4.calendarEvent.list` | ✅ 真实 | `calendar:calendar:readonly` |
+| 日历删除 | `calendar.v4.calendarEvent.delete` | ✅ 真实 | `calendar:calendar` |
+| 文档写入 | `docx.v1.documentBlock.batchUpdate` | 🔲 待实现 | `docx:document` |
+
+### 工具系统（11 个工具）
+
+| 工具 | 类型 | 说明 |
+|------|------|------|
+| TaskManager | builtin | 任务 CRUD、逾期检测、拆解 |
+| SubAgentTool | builtin | 项目管理（创建/归档/委派） |
+| MemoryTool | builtin | 记忆存储/搜索/删除/导出 |
+| ReminderTool | builtin | 提醒创建/取消/列表 |
+| CronTool | builtin | 定时任务 CRUD |
+| ConfigTool | builtin | 通过对话修改配置（dot-path 语法） |
+| FeishuConnector | feishu | 文件夹浏览、文档读取、消息发送 |
+| CalendarTool | feishu | 飞书日历日程 CRUD |
+| EmailTool | stub | 邮件发送（待集成） |
+| DocumentParser | stub | 文档解析（待集成） |
+| BackgroundTaskTool | builtin | 后台任务列表/取消 |
+
+### 错误处理规范
+
+- Tool 层：catch 后返回 `{ success: false, output: null, error: 用户友好的中文描述 }`
+- Service 层：抛出 `AppError(code, userMessage, internalMessage, cause)`
+- 面向用户的错误用中文，内部日志用英文
+- `toUserMessage(err)` 统一提取用户友好消息
+
+### 日志规范
+
+- 全局 `logger` 实例，支持 `debug/info/warn/error` 四个级别
+- `logger.child(module)` 创建模块级 logger
+- 终端彩色输出 + 可选文件输出（`~/.office-agent/logs/` JSON lines 格式）
+- 关键模块（feishu-bot、query-engine）应使用 logger 替代 console.log
+
+### 关键架构原则
+
+1. **Agent 自主决策，不固化流程** — 只提供工具和系统提示，让 LLM 决定何时调用什么工具
+2. **统一命令路由** — 所有斜杠命令在 `COMMAND_MAP` 注册，CLI/飞书/Web 行为一致
+3. **通道无关的通知** — NotificationService 抽象推送通道，新增通道只需注册回调
+4. **数据按用户隔离** — 多用户场景下每个用户独立 baseDir
+5. **会话按通道隔离** — CLI 和飞书各用户的 session 互不干扰
+6. **工具 schema 自动生成** — 使用 `zodToJsonSchema()` 从 Zod v4 schema 自动转换，不手写 JSON Schema
+7. **原生 Function Calling** — 不用 prompt-based 工具调用，使用 OpenAI tools 格式
+8. **删除操作有回收站** — MemorySystem 的 delete/deleteAll 移到 trash，可 /undo 恢复
