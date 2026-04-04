@@ -34,6 +34,8 @@ export const COMMAND_MAP: Record<string, { type: 'tool' | 'skill' | 'builtin'; t
   'meeting-notes': { type: 'skill', target: 'meeting-notes' },
   'task-breakdown': { type: 'skill', target: 'task-breakdown' },
   'feishu-sync': { type: 'skill', target: 'feishu-sync' },
+  'project-report': { type: 'skill', target: 'project-report' },
+  'dev-workflow': { type: 'skill', target: 'dev-workflow' },
   // Builtin commands — handled directly by the agent, not routed to LLM
   usage: { type: 'builtin', target: 'usage' },
   token: { type: 'builtin', target: 'usage' },
