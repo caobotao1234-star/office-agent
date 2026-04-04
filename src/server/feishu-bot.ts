@@ -22,6 +22,7 @@ import { createOfficeAgent, type OfficeAgent } from '../main.js';
 import { createDashScopeLLM } from '../core/dashscope-llm.js';
 import { TokenTracker } from '../core/token-tracker.js';
 import { logger } from '../core/logger.js';
+import { transcribeAudio } from '../services/speech-to-text.js';
 
 const log = logger.child('Feishu');
 
@@ -170,7 +171,47 @@ async function main() {
   console.log('  退出: Ctrl+C');
   console.log();
 
-  // Background message handler — must NOT block the event callback
+  // Shared agent startup logic
+  async function ensureAgentStarted(
+    agent: OfficeAgent,
+    senderId: string,
+    lark: Lark.Client,
+    chatId: string,
+  ): Promise<void> {
+    if (startedAgents.has(senderId)) return;
+
+    const sessionChannel = `feishu-${senderId}`;
+    agent.queryEngine.setSessionChannel(sessionChannel);
+    agent.configManager.load();
+    await agent.skillSystem.loadSkills();
+    agent.cronScheduler.start();
+    agent.cronScheduler.checkMissedTasks();
+    agent.awaySummaryEngine.recordActivity();
+    agent.queryEngine.restoreLastSession(sessionChannel);
+
+    agent.notificationService.addChannel(async (message) => {
+      try {
+        const chunks = splitMessage(message, 3500);
+        for (const chunk of chunks) {
+          await lark.im.v1.message.create({
+            params: { receive_id_type: 'chat_id' },
+            data: {
+              receive_id: chatId,
+              content: JSON.stringify({ text: `📢 ${chunk}` }),
+              msg_type: 'text',
+            },
+          });
+        }
+      } catch (err) {
+        console.error('[Feishu] 推送提醒失败:', err instanceof Error ? err.message : err);
+      }
+    });
+
+    agent.reminderLoop.start();
+    startedAgents.add(senderId);
+  }
+
+  // Background message handler
   // Feishu requires event handlers to return within 3 seconds,
   // otherwise it considers the client unresponsive and may stop pushing.
   async function handleFeishuMessage(
@@ -181,44 +222,7 @@ async function main() {
   ): Promise<void> {
     try {
       const agent = getOrCreateAgent(senderId);
-
-      if (!startedAgents.has(senderId)) {
-        // Per-user session channel — isolates feishu sessions from CLI
-        const sessionChannel = `feishu-${senderId}`;
-        agent.queryEngine.setSessionChannel(sessionChannel);
-
-        // Start agent services without restoring CLI session
-        agent.configManager.load();
-        await agent.skillSystem.loadSkills();
-        agent.cronScheduler.start();
-        agent.cronScheduler.checkMissedTasks();
-        agent.awaySummaryEngine.recordActivity();
-
-        // Restore this user's own feishu session (not CLI's)
-        agent.queryEngine.restoreLastSession(sessionChannel);
-
-        // Register Feishu as notification channel for proactive reminders
-        agent.notificationService.addChannel(async (message) => {
-          try {
-            const chunks = splitMessage(message, 3500);
-            for (const chunk of chunks) {
-              await lark.im.v1.message.create({
-                params: { receive_id_type: 'chat_id' },
-                data: {
-                  receive_id: chatId,
-                  content: JSON.stringify({ text: `📢 ${chunk}` }),
-                  msg_type: 'text',
-                },
-              });
-            }
-          } catch (err) {
-            console.error('[Feishu] 推送提醒失败:', err instanceof Error ? err.message : err);
-          }
-        });
-
-        agent.reminderLoop.start();
-        startedAgents.add(senderId);
-      }
+      await ensureAgentStarted(agent, senderId, lark, chatId);
 
       const response = await processMessage(agent, cleanText);
 
@@ -266,21 +270,104 @@ async function main() {
           return;
         }
 
-        // Only handle text messages for now
-        if (msgType !== 'text') {
-          // Fire-and-forget, don't block
+        // Only handle text and audio messages
+        if (msgType !== 'text' && msgType !== 'audio') {
           void larkClient.im.v1.message.create({
             params: { receive_id_type: 'chat_id' },
             data: {
               receive_id: chatId,
-              content: JSON.stringify({ text: '目前只支持文本消息，语音/图片/文件暂不支持。' }),
+              content: JSON.stringify({ text: '目前支持文本和语音消息，图片/文件暂不支持。' }),
               msg_type: 'text',
             },
           });
           return;
         }
 
-        // Parse text content
+        let cleanText: string;
+
+        if (msgType === 'audio') {
+          // Handle voice message: download audio → STT → text
+          const messageId = message.message_id;
+          let fileKey: string;
+          try {
+            const content = JSON.parse(message.content);
+            fileKey = content.file_key;
+          } catch {
+            return;
+          }
+          if (!fileKey) return;
+
+          console.log(`[Feishu] 收到语音消息 from ${senderId}, file_key: ${fileKey}`);
+
+          // Download audio file from Feishu
+          void (async () => {
+            try {
+              const audioRes = await larkClient.im.v1.messageResource.get({
+                path: { message_id: messageId, file_key: fileKey },
+                params: { type: 'file' },
+              });
+
+              // audioRes.data should be a readable stream or buffer
+              const chunks: Buffer[] = [];
+              const stream = (audioRes as any).data;
+              if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
+                for await (const chunk of stream) {
+                  chunks.push(Buffer.from(chunk));
+                }
+              } else if (Buffer.isBuffer(stream)) {
+                chunks.push(stream);
+              } else {
+                throw new Error('无法读取音频数据');
+              }
+
+              const audioBuffer = Buffer.concat(chunks);
+              const apiKey = process.env['DASHSCOPE_API_KEY'] ?? '';
+              const sttResult = await transcribeAudio(audioBuffer, apiKey, 'audio.ogg');
+
+              if (!sttResult.success || !sttResult.text.trim()) {
+                await larkClient.im.v1.message.create({
+                  params: { receive_id_type: 'chat_id' },
+                  data: {
+                    receive_id: chatId,
+                    content: JSON.stringify({ text: `❌ 语音识别失败: ${sttResult.error ?? '无法识别内容'}` }),
+                    msg_type: 'text',
+                  },
+                });
+                return;
+              }
+
+              console.log(`[Feishu] 语音转文字: ${sttResult.text.slice(0, 80)}`);
+
+              // Process transcribed text as normal message
+              const agent = getOrCreateAgent(senderId);
+              await ensureAgentStarted(agent, senderId, larkClient, chatId);
+              const response = await processMessage(agent, sttResult.text);
+              console.log(`[Feishu] 回复 to ${senderId}: ${response.slice(0, 80)}...`);
+              const respChunks = splitMessage(response, 3500);
+              for (const chunk of respChunks) {
+                await larkClient.im.v1.message.create({
+                  params: { receive_id_type: 'chat_id' },
+                  data: { receive_id: chatId, content: JSON.stringify({ text: chunk }), msg_type: 'text' },
+                });
+              }
+            } catch (err) {
+              console.error('[Feishu] 语音处理失败:', err instanceof Error ? err.message : err);
+              try {
+                await larkClient.im.v1.message.create({
+                  params: { receive_id_type: 'chat_id' },
+                  data: {
+                    receive_id: chatId,
+                    content: JSON.stringify({ text: `❌ 语音处理失败: ${err instanceof Error ? err.message : String(err)}` }),
+                    msg_type: 'text',
+                  },
+                });
+              } catch { /* ignore */ }
+            }
+          })();
+          return;
+        }
+
+        // Text message handling
         let text: string;
         try {
           const content = JSON.parse(message.content);
@@ -291,8 +378,8 @@ async function main() {
 
         if (!text.trim()) return;
 
-        // Strip @bot mention prefix (Feishu adds @_user_1 etc.)
-        const cleanText = text.replace(/@_user_\d+\s*/g, '').trim();
+        // Strip @bot mention prefix
+        cleanText = text.replace(/@_user_\d+\s*/g, '').trim();
         if (!cleanText) return;
 
         console.log(`[Feishu] 收到消息 from ${senderId}: ${cleanText.slice(0, 80)}`);
