@@ -25,7 +25,6 @@ import { ReminderEngine } from './services/reminder-engine.js';
 import { CronScheduler } from './services/cron-scheduler.js';
 import { BackgroundTaskManager } from './services/background-task-manager.js';
 import { AwaySummaryEngine } from './services/away-summary-engine.js';
-import { VoiceService } from './services/voice-service.js';
 import { PromptSuggestionEngine } from './services/prompt-suggestion.js';
 import { NotificationService } from './services/notification-service.js';
 import { ReminderLoop } from './services/reminder-loop.js';
@@ -124,7 +123,6 @@ export interface OfficeAgent {
   cronScheduler: CronScheduler;
   backgroundTaskManager: BackgroundTaskManager;
   awaySummaryEngine: AwaySummaryEngine;
-  voiceService: VoiceService;
   promptSuggestionEngine: PromptSuggestionEngine;
   notificationService: NotificationService;
   reminderLoop: ReminderLoop;
@@ -167,7 +165,6 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   );
   const backgroundTaskManager = new BackgroundTaskManager();
   const awaySummaryEngine = new AwaySummaryEngine(llm, config.awaySummary.thresholdMinutes);
-  const voiceService = new VoiceService();
   const promptSuggestionEngine = new PromptSuggestionEngine(llm);
   const skillSystem = new SkillSystem(BUNDLED_SKILLS_DIR, USER_SKILLS_DIR, llm);
   const subAgentManager = new SubAgentManager(llm, path.join(dataDir, 'agents'));
@@ -214,7 +211,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
     skillSystem, subAgentManager, reminderEngine, cronScheduler,
-    backgroundTaskManager, awaySummaryEngine, voiceService,
+    backgroundTaskManager, awaySummaryEngine,
     promptSuggestionEngine, notificationService, reminderLoop,
     configManager,
     handleMessage: (input: string) => handleMessage(agent, input),

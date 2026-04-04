@@ -250,9 +250,7 @@ src/
 ├── types/index.ts              # 核心类型定义
 ├── main.ts                     # 组件装配 + 消息处理流程
 │
-└── server/                     # Web 服务 & 飞书机器人
-    ├── api.ts                  # REST API 服务器
-    ├── openai-compat.ts        # OpenAI 兼容 API
+└── server/                     # 飞书机器人
     └── feishu-bot.ts           # 飞书机器人（WebSocket 长连接）
 ```
 
@@ -267,13 +265,6 @@ src/
 | `qwen-turbo` | 更快更便宜 |
 
 运行时指定：`npx tsx src/cli/index.ts chat -m qwen-max`
-
-## Web GUI（实验性）
-
-```bash
-npm run web       # 启动 Web UI（http://localhost:3000）
-npm run api       # 启动 OpenAI 兼容 API（http://localhost:3001，可接 Lobe Chat）
-```
 
 ## 开发
 

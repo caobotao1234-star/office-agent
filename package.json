@@ -10,8 +10,6 @@
   "scripts": {
     "build": "tsc",
     "start": "tsx src/cli/index.ts",
-    "web": "tsx src/server/api.ts",
-    "api": "tsx src/server/openai-compat.ts",
     "feishu": "tsx src/server/feishu-bot.ts",
     "chat": "tsx src/cli/index.ts chat",
     "ask": "tsx src/cli/index.ts ask",
@@ -30,15 +28,11 @@
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.60.0",
-    "cors": "^2.8.6",
     "cron-parser": "^5.5.0",
-    "express": "^5.2.1",
     "uuid": "^13.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
     "@types/node": "^25.5.0",
     "@types/uuid": "^10.0.0",
     "tsx": "^4.21.0",

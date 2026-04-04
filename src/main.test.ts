@@ -66,7 +66,6 @@ describe('createOfficeAgent', () => {
     expect(agent.cronScheduler).toBeDefined();
     expect(agent.backgroundTaskManager).toBeDefined();
     expect(agent.awaySummaryEngine).toBeDefined();
-    expect(agent.voiceService).toBeDefined();
     expect(agent.promptSuggestionEngine).toBeDefined();
     expect(agent.configManager).toBeDefined();
   });
