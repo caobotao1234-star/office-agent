@@ -210,6 +210,15 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new ConfigTool(configManager));
   toolRegistry.register(new WebSearchTool());
 
+  // Disable WebSearch by default — qwen-plus has built-in enable_search.
+  // Only enable for models without native search capability.
+  if ((model ?? 'qwen-plus').startsWith('qwen')) {
+    const webSearch = toolRegistry.listAll().find(t => t.name === 'WebSearch');
+    if (webSearch && 'setEnabled' in webSearch) {
+      (webSearch as any).setEnabled(false);
+    }
+  }
+
   const toolDescriptions = toolRegistry
     .listAll()
     .map((t) => `- **${t.name}**: ${t.description}`)

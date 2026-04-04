@@ -174,6 +174,7 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
           tools: tools.length > 0 ? tools : undefined,
           max_tokens: maxTokens,
           temperature,
+          enable_search: true,
           // 百炼文档：tools 参数不能和 stream=True 同时使用
         }),
         signal,
