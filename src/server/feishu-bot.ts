@@ -137,18 +137,20 @@ function isDuplicate(messageId: string): boolean {
 async function main() {
   loadEnv();
 
+  // Enable file logging
+  logger.enableFileLogging();
+  logger.setLevel((process.env['LOG_LEVEL'] as any) ?? 'info');
+
   const appId = process.env['FEISHU_APP_ID'];
   const appSecret = process.env['FEISHU_APP_SECRET'];
 
   if (!appId || !appSecret) {
-    console.error('❌ 缺少飞书配置，请在 .env 中添加：');
-    console.error('   FEISHU_APP_ID=cli_xxx');
-    console.error('   FEISHU_APP_SECRET=xxx');
+    log.error('缺少飞书配置，请在 .env 中添加 FEISHU_APP_ID 和 FEISHU_APP_SECRET');
     process.exit(1);
   }
 
   if (!process.env['DASHSCOPE_API_KEY']) {
-    console.error('❌ 缺少 DASHSCOPE_API_KEY，请在 .env 中配置');
+    log.error('缺少 DASHSCOPE_API_KEY，请在 .env 中配置');
     process.exit(1);
   }
 
@@ -163,13 +165,11 @@ async function main() {
     loggerLevel: Lark.LoggerLevel.info,
   });
 
-  console.log('╔══════════════════════════════════════════╗');
-  console.log('║   🤖 Office Agent — 飞书机器人           ║');
-  console.log('╚══════════════════════════════════════════╝');
-  console.log(`  模型: ${process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus'}`);
-  console.log('  模式: WebSocket 长连接（无需公网 IP）');
-  console.log('  退出: Ctrl+C');
-  console.log();
+  log.info('╔══════════════════════════════════════════╗');
+  log.info('║   🤖 Office Agent — 飞书机器人           ║');
+  log.info('╚══════════════════════════════════════════╝');
+  log.info(`模型: ${process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus'}`);
+  log.info('模式: WebSocket 长连接（无需公网 IP）');
 
   // Shared agent startup logic
   async function ensureAgentStarted(
@@ -203,7 +203,7 @@ async function main() {
           });
         }
       } catch (err) {
-        console.error('[Feishu] 推送提醒失败:', err instanceof Error ? err.message : err);
+        log.error('推送提醒失败', { error: err instanceof Error ? err.message : String(err) });
       }
     });
 
@@ -226,7 +226,7 @@ async function main() {
 
       const response = await processMessage(agent, cleanText);
 
-      console.log(`[Feishu] 回复 to ${senderId}: ${response.slice(0, 80)}...`);
+      log.info(`回复 to ${senderId}: ${response.slice(0, 80)}`);
 
       const chunks = splitMessage(response, 3500);
       for (const chunk of chunks) {
@@ -240,7 +240,7 @@ async function main() {
         });
       }
     } catch (err) {
-      console.error('[Feishu] 处理消息失败:', err instanceof Error ? err.message : err);
+      log.error('处理消息失败', { error: err instanceof Error ? err.message : String(err) });
       // Try to send error message back to user
       try {
         await lark.im.v1.message.create({
@@ -266,7 +266,7 @@ async function main() {
 
         // Dedup
         if (isDuplicate(messageId)) {
-          console.log(`[Feishu] 跳过重复消息: ${messageId}`);
+          log.debug('跳过重复消息', { messageId });
           return;
         }
 
@@ -297,7 +297,7 @@ async function main() {
           }
           if (!fileKey) return;
 
-          console.log(`[Feishu] 收到语音消息 from ${senderId}, file_key: ${fileKey}`);
+          log.info(`收到语音消息 from ${senderId}`, { fileKey });
 
           // Download audio file from Feishu
           void (async () => {
@@ -336,13 +336,13 @@ async function main() {
                 return;
               }
 
-              console.log(`[Feishu] 语音转文字: ${sttResult.text.slice(0, 80)}`);
+              log.info(`语音转文字: ${sttResult.text.slice(0, 80)}`);
 
               // Process transcribed text as normal message
               const agent = getOrCreateAgent(senderId);
               await ensureAgentStarted(agent, senderId, larkClient, chatId);
               const response = await processMessage(agent, sttResult.text);
-              console.log(`[Feishu] 回复 to ${senderId}: ${response.slice(0, 80)}...`);
+              log.info(`回复 to ${senderId}: ${response.slice(0, 80)}`);
               const respChunks = splitMessage(response, 3500);
               for (const chunk of respChunks) {
                 await larkClient.im.v1.message.create({
@@ -351,7 +351,7 @@ async function main() {
                 });
               }
             } catch (err) {
-              console.error('[Feishu] 语音处理失败:', err instanceof Error ? err.message : err);
+              log.error('语音处理失败', { error: err instanceof Error ? err.message : String(err) });
               try {
                 await larkClient.im.v1.message.create({
                   params: { receive_id_type: 'chat_id' },
@@ -382,7 +382,7 @@ async function main() {
         cleanText = text.replace(/@_user_\d+\s*/g, '').trim();
         if (!cleanText) return;
 
-        console.log(`[Feishu] 收到消息 from ${senderId}: ${cleanText.slice(0, 80)}`);
+        log.info(`收到消息 from ${senderId}: ${cleanText.slice(0, 80)}`);
 
         // CRITICAL: Return immediately, process in background
         // Feishu requires the event handler to complete within 3 seconds.
@@ -393,9 +393,7 @@ async function main() {
     }),
   });
 
-  console.log('✅ 飞书 WebSocket 长连接已启动，等待消息...');
-  console.log('   在飞书中找到你的机器人，发送消息即可开始对话');
-  console.log();
+  log.info('✅ 飞书 WebSocket 长连接已启动，等待消息...');
 }
 
 /** Split long text into chunks for Feishu message limit */
@@ -418,6 +416,6 @@ function splitMessage(text: string, maxLen: number): string[] {
 }
 
 main().catch((err) => {
-  console.error('❌ 飞书机器人启动失败:', err instanceof Error ? err.message : err);
+  log.error('飞书机器人启动失败', { error: err instanceof Error ? err.message : String(err) });
   process.exit(1);
 });
