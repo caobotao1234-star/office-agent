@@ -41,6 +41,10 @@ export const COMMAND_MAP: Record<string, { type: 'tool' | 'skill' | 'builtin'; t
   'meeting': { type: 'skill', target: 'meeting-full' },
   'okr': { type: 'skill', target: 'okr-tracking' },
   'draft': { type: 'skill', target: 'draft-message' },
+  'memory-review': { type: 'skill', target: 'memory-review' },
+  'decision': { type: 'skill', target: 'decision-log' },
+  'retro': { type: 'skill', target: 'retrospective' },
+  'retrospective': { type: 'skill', target: 'retrospective' },
   // Builtin commands — handled directly by the agent, not routed to LLM
   usage: { type: 'builtin', target: 'usage' },
   token: { type: 'builtin', target: 'usage' },
