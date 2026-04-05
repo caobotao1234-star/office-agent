@@ -6,3 +6,17 @@ node_modules/
 
 # 参考源码，不纳入版本管理
 claude-code-ref/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kiro IDE 工作目录（保留 specs 设计文档）
+.kiro/settings/
+.kiro/hooks/
