@@ -202,6 +202,11 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
 
       if (data.error) throw new Error(`DashScope: ${data.error.message}`);
 
+      // Debug: log usage presence
+      if (!data.usage) {
+        console.log('[DashScope] queryWithTools: no usage in response, model=' + model);
+      }
+
       const msg = data.choices?.[0]?.message;
       const toolCalls: LLMToolCall[] | null = msg?.tool_calls?.map((tc) => ({
         id: tc.id,
@@ -212,6 +217,9 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
         // 有 tool_calls 的是工具调用轮次，否则是普通对话
         const source = (toolCalls && toolCalls.length > 0) ? 'tool_call' as const : 'chat' as const;
         tokenTracker.record(model, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0, source);
+      }
+      if (!data.usage) {
+        console.log('[DashScope] WARNING: API response missing usage field');
       }
 
       return {
