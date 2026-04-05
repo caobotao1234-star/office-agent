@@ -82,8 +82,21 @@ export class QueryEngine {
     const dateStr = now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
     const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+    // Generate upcoming week calendar for date reasoning
+    const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+    const upcomingDates: string[] = [];
+    for (let i = 0; i <= 14; i++) {
+      const d = new Date(now.getTime() + i * 86400000);
+      const m = d.getMonth() + 1;
+      const day = d.getDate();
+      const wd = weekDays[d.getDay()]!;
+      upcomingDates.push(`${m}月${day}日(周${wd})`);
+    }
+
     let prompt = this.config.systemPrompt;
-    prompt += `\n\n# 当前时间（实时，每次对话更新）\n\n${dateStr} ${timeStr}\n\n注意：这是此刻的真实时间。对话历史中出现的任何时间都是过去的，回答"现在几点"时必须使用上面这个时间。`;
+    prompt += `\n\n# 当前时间（实时，每次对话更新）\n\n${dateStr} ${timeStr}`;
+    prompt += `\n\n未来两周日历: ${upcomingDates.join(', ')}`;
+    prompt += `\n\n注意：这是此刻的真实时间。对话历史中出现的任何时间都是过去的，回答"现在几点"时必须使用上面这个时间。用户说"下周X"时，请对照上面的日历确认具体日期。`;
 
     // Layer 1: Reload latest MEMORY.md index
     const index = this.config.memorySystem.loadIndex();
