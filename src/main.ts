@@ -169,6 +169,7 @@ export interface OfficeAgent {
   reminderLoop: ReminderLoop;
   usageStats: UsageStats;
   configManager: UserConfigManager;
+  dataDir: string;
 
   handleMessage(input: string): AsyncGenerator<StreamEvent>;
   start(): Promise<void>;
@@ -268,6 +269,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     backgroundTaskManager, awaySummaryEngine,
     promptSuggestionEngine, notificationService, reminderLoop,
     usageStats, configManager,
+    dataDir,
     handleMessage: (input: string) => handleMessage(agent, input),
     start: () => startAgent(agent),
     stop: () => stopAgent(agent),
@@ -368,7 +370,7 @@ async function* handleBuiltinCommand(
   target: string,
   args: string,
 ): AsyncGenerator<StreamEvent> {
-  const dataDir = path.join(os.homedir(), '.office-agent');
+  const dataDir = agent.dataDir;
 
   switch (target) {
     case 'usage': {
