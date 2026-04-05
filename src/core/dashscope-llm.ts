@@ -4,6 +4,7 @@
  */
 import type { LLMClient, LLMMessage, LLMToolDef, LLMQueryResult, LLMToolCall } from './llm-client.js';
 import type { TokenTracker } from './token-tracker.js';
+import { logger } from './logger.js';
 
 const DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
 
@@ -212,6 +213,11 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
         // 有 tool_calls 的是工具调用轮次，否则是普通对话
         const source = (toolCalls && toolCalls.length > 0) ? 'tool_call' as const : 'chat' as const;
         tokenTracker.record(model, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0, source);
+        logger.debug(`tokens recorded`, {
+          source,
+          prompt: data.usage.prompt_tokens,
+          completion: data.usage.completion_tokens,
+        }, 'DashScope');
       }
 
       return {

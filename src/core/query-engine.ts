@@ -7,6 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { zodToJsonSchema } from './schema-utils.js';
+import { logger } from './logger.js';
 import type { Message, StreamEvent } from '../types/index.js';
 import type { LLMClient, LLMMessage, LLMToolDef } from './llm-client.js';
 import type { MemorySystem } from './memory-system.js';
@@ -102,6 +103,7 @@ export class QueryEngine {
     const index = this.config.memorySystem.loadIndex();
     if (index) {
       prompt += '\n\n# 记忆索引\n\n' + index;
+      logger.debug(`memory index loaded`, { lines: index.split('\n').length }, 'QueryEngine');
     }
 
     // Layer 2: On-demand recall — only when there are enough memories to justify a side query
@@ -110,6 +112,7 @@ export class QueryEngine {
       // Only do LLM side query when there are enough memories to select from
       const memories = await this.config.memorySystem.findRelevantMemories(userMessage, signal);
       if (memories.length > 0) {
+        logger.debug(`relevant memories found`, { count: memories.length, titles: memories.map(m => m.title) }, 'QueryEngine');
         prompt += '\n\n## 相关记忆（自动召回）\n\n' +
           memories.map(m =>
             `### [${m.type}] ${m.title}\n${m.content}`
@@ -125,9 +128,11 @@ export class QueryEngine {
     const signal = this.abortController.signal;
 
     this.messages.push({ role: 'user', content: userMessage, timestamp: new Date() });
+    logger.debug(`submitMessage: "${userMessage.slice(0, 80)}"`, { msgCount: this.messages.length }, 'QueryEngine');
 
     try {
       const systemPrompt = await this.buildDynamicSystemPrompt(userMessage, signal);
+      logger.debug(`systemPrompt built`, { length: systemPrompt.length, estimatedTokens: Math.ceil(systemPrompt.length / 4) }, 'QueryEngine');
 
       const hasNativeTools = !!this.config.llm.queryWithTools;
       if (hasNativeTools) {
@@ -205,6 +210,11 @@ export class QueryEngine {
       rounds++;
 
       const result = await this.config.llm.queryWithTools!(llmMessages, toolDefs, signal);
+      logger.debug(`LLM round ${rounds}`, {
+        hasToolCalls: !!(result.toolCalls?.length),
+        toolCallCount: result.toolCalls?.length ?? 0,
+        contentLength: result.content?.length ?? 0,
+      }, 'QueryEngine');
 
       // LLM returned tool calls
       if (result.toolCalls && result.toolCalls.length > 0) {
@@ -227,6 +237,7 @@ export class QueryEngine {
           try { parsedInput = JSON.parse(tc.function.arguments); } catch { parsedInput = {}; }
 
           yield { type: 'tool_use', toolName: tc.function.name, input: parsedInput };
+          logger.debug(`tool call: ${tc.function.name}`, { args: JSON.stringify(parsedInput).slice(0, 200) }, 'QueryEngine');
 
           const toolResult = await this.config.tools.execute(
             tc.function.name,
