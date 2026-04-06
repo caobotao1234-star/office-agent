@@ -70,7 +70,7 @@ describe('createOfficeAgent', () => {
     expect(agent.configManager).toBeDefined();
   });
 
-  it('should register all 12 tools', () => {
+  it('should register all 13 tools', () => {
     const tools = agent.toolRegistry.listAll();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
@@ -83,6 +83,7 @@ describe('createOfficeAgent', () => {
       'FeishuConnector',
       'MemoryTool',
       'ReminderTool',
+      'SkillCreator',
       'SubAgentTool',
       'TaskManager',
       'WebSearch',

@@ -42,6 +42,7 @@ import { EmailTool } from './tools/EmailTool/index.js';
 import { CalendarTool } from './tools/CalendarTool/index.js';
 import { ConfigTool } from './tools/ConfigTool/index.js';
 import { WebSearchTool } from './tools/WebSearchTool/index.js';
+import { SkillCreatorTool } from './tools/SkillCreatorTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -135,6 +136,11 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '',
     '# Smart Scheduling',
     '',
+    '- When you notice the user repeatedly asks for similar tasks (e.g. always formats reports the same way,',
+    '  always follows the same review checklist), proactively suggest creating a custom skill using SkillCreator.',
+    '  Say: "我发现你经常让我做XX，要不要我创建一个专属技能，以后自动按这个流程来？"',
+    '  Only create after user confirms.',
+    '',
     '- When user mentions periodic reports (周报, 月报, 日报) or recurring events,',
     '  proactively create a CronTool recurring task to automate it.',
     '  Example: user says "周报每周五下午5点" → create cron task with expression "0 17 * * 5"',
@@ -227,6 +233,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new SubAgentTool(subAgentManager));
   toolRegistry.register(new ConfigTool(configManager));
   toolRegistry.register(new WebSearchTool());
+  toolRegistry.register(new SkillCreatorTool(path.join(dataDir, 'skills')));
 
   // Disable WebSearch by default — qwen-plus has built-in enable_search.
   // Only enable for models without native search capability.
