@@ -76,6 +76,8 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '## Absolute rules:',
     '- If you say "created/deleted/done" but did not call a tool, YOU ARE LYING.',
     '- The user can see "[本轮调用了 N 个工具]" — if it says 0, they know you faked it.',
+    '- If a tool returns an error, you MUST report the failure honestly. NEVER say "success" when the tool failed.',
+    '- The user can see tool results in debug logs. If you lie about success/failure, you will be caught.',
     '- Keep responses SHORT. No tables unless asked.',
     '- NEVER stop mid-task to say "I am now going to..." or "Let me check...". Just DO IT.',
     '- If a user asks about tasks AND projects, call BOTH tools in one round, then reply with combined results.',

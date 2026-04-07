@@ -313,24 +313,28 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
       const paragraphs = content.split('\n').filter(line => line.trim());
 
       const children = paragraphs.map(text => ({
-        block_type: 2, // paragraph
+        block_type: 2 as const, // paragraph
         paragraph: {
           elements: [{
             text_run: {
               content: text,
+              text_element_style: {},
             },
           }],
         },
       }));
 
-      // The document itself is the root block
       const res = await client.docx.v1.documentBlockChildren.create({
         path: { document_id: documentId, block_id: documentId },
         data: {
           children,
           index: -1, // append at end
         },
-      } as any);
+      });
+
+      if ((res as any).code && (res as any).code !== 0) {
+        return { success: false, output: null, error: `写入失败: code=${(res as any).code}, msg=${(res as any).msg}` };
+      }
 
       return {
         success: true,
