@@ -148,16 +148,25 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
     const client = this.getClient();
     const token = folderToken === 'root' ? '' : folderToken;
 
-    const res = await client.drive.v1.file.list({
-      params: {
-        folder_token: token || undefined,
-        page_size: pageSize,
-      },
-    } as any);
+    try {
+      const res = await client.drive.v1.file.list({
+        params: {
+          folder_token: token || undefined,
+          page_size: pageSize,
+        },
+      } as any);
 
-    if (!res.data) {
-      return { success: false, output: null, error: '获取文件夹内容失败' };
-    }
+      const { logger } = await import('../../core/logger.js');
+      logger.debug('list_folder API response', {
+        hasData: !!res.data,
+        code: (res as any).code,
+        msg: (res as any).msg,
+        fileCount: res.data?.files?.length ?? 0,
+      }, 'FeishuConnector');
+
+      if (!res.data) {
+        return { success: false, output: null, error: `获取文件夹内容失败: code=${(res as any).code}, msg=${(res as any).msg}` };
+      }
 
     const files = (res.data.files ?? []).map((f: any) => ({
       token: f.token,
@@ -180,6 +189,11 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
         nextPageToken: res.data.next_page_token ?? null,
       },
     };
+    } catch (err) {
+      const { logger } = await import('../../core/logger.js');
+      logger.error('list_folder failed', { error: err instanceof Error ? err.message : String(err), folderToken }, 'FeishuConnector');
+      return { success: false, output: null, error: `文件夹访问失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
   }
 
   // ----------------------------------------------------------
