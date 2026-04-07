@@ -97,6 +97,22 @@ const ReadSheetInput = z.object({
   range: z.string().optional().describe('Cell range like "A1:Z100". Omit to read all data.'),
 });
 
+const WriteSheetInput = z.object({
+  action: z.literal('write_sheet'),
+  spreadsheetToken: z.string().min(1).describe('Spreadsheet token'),
+  sheetId: z.string().min(1).describe('Sheet ID'),
+  range: z.string().min(1).describe('Cell range to write, e.g. "A1:C3" or "A5" for single cell'),
+  values: z.array(z.array(z.union([z.string(), z.number(), z.null()]))).describe('2D array of values, each inner array is a row'),
+});
+
+const InsertRowsInput = z.object({
+  action: z.literal('insert_rows'),
+  spreadsheetToken: z.string().min(1).describe('Spreadsheet token'),
+  sheetId: z.string().min(1).describe('Sheet ID'),
+  startIndex: z.coerce.number().describe('Row index to insert before (0-based)'),
+  count: z.coerce.number().min(1).default(1).describe('Number of rows to insert'),
+});
+
 const FeishuConnectorInput = z.discriminatedUnion('action', [
   ListFolderInput,
   GetDocumentInput,
@@ -111,6 +127,8 @@ const FeishuConnectorInput = z.discriminatedUnion('action', [
   InsertBlockInput,
   GetSheetInfoInput,
   ReadSheetInput,
+  WriteSheetInput,
+  InsertRowsInput,
 ]);
 
 export type FeishuConnectorInput = z.infer<typeof FeishuConnectorInput>;
@@ -170,7 +188,9 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
            input.action === 'create_calendar_event' ||
            input.action === 'create_document' ||
            input.action === 'append_content' ||
-           input.action === 'insert_block';
+           input.action === 'insert_block' ||
+           input.action === 'write_sheet' ||
+           input.action === 'insert_rows';
   }
 
   async call(input: FeishuConnectorInput, _context: ToolContext): Promise<ToolResult<unknown>> {
@@ -187,6 +207,8 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
         case 'insert_block': return await this.insertBlock(input.documentId, input.parentBlockId, input.index, input.content);
         case 'get_sheet_info': return await this.getSheetInfo(input.spreadsheetToken);
         case 'read_sheet': return await this.readSheet(input.spreadsheetToken, input.sheetId, input.range);
+        case 'write_sheet': return await this.writeSheet(input.spreadsheetToken, input.sheetId, input.range, input.values);
+        case 'insert_rows': return await this.insertRows(input.spreadsheetToken, input.sheetId, input.startIndex, input.count);
         case 'watch_documents': return this.stubResult('文档监控已启动 [stub]');
         case 'watch_messages': { this.watchConfig = input.config; return this.stubResult('消息监控已启动 [stub]'); }
       }
@@ -555,6 +577,90 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
       return { success: true, output: data };
     } catch (err) {
       return { success: false, output: null, error: `读取表格失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Real API: Write to sheet cells
+  // ----------------------------------------------------------
+
+  private async writeSheet(spreadsheetToken: string, sheetId: string, range: string, values: (string | number | null)[][]): Promise<ToolResult<unknown>> {
+    try {
+      const token = await this.getTenantToken();
+      const fullRange = `${sheetId}!${range}`;
+      const url = `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values`;
+
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          valueRange: {
+            range: fullRange,
+            values,
+          },
+        }),
+      });
+
+      const data = await res.json() as any;
+      if (data.code !== 0) {
+        return { success: false, output: null, error: `写入表格失败: ${data.msg}` };
+      }
+
+      return {
+        success: true,
+        output: {
+          written: true,
+          spreadsheetToken,
+          sheetId,
+          range,
+          rowCount: values.length,
+        },
+      };
+    } catch (err) {
+      return { success: false, output: null, error: `写入表格失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Real API: Insert rows into sheet
+  // ----------------------------------------------------------
+
+  private async insertRows(spreadsheetToken: string, sheetId: string, startIndex: number, count: number): Promise<ToolResult<unknown>> {
+    try {
+      const token = await this.getTenantToken();
+      const url = `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/insert_dimension_range`;
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          dimension: {
+            sheetId,
+            majorDimension: 'ROWS',
+            startIndex,
+            endIndex: startIndex + count,
+          },
+          inheritStyle: 'AFTER',
+        }),
+      });
+
+      const data = await res.json() as any;
+      if (data.code !== 0) {
+        return { success: false, output: null, error: `插入行失败: ${data.msg}` };
+      }
+
+      return {
+        success: true,
+        output: { inserted: true, sheetId, startIndex, count },
+      };
+    } catch (err) {
+      return { success: false, output: null, error: `插入行失败: ${err instanceof Error ? err.message : String(err)}` };
     }
   }
 
