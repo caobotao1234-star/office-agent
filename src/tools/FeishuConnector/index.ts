@@ -85,6 +85,18 @@ const InsertBlockInput = z.object({
   content: z.string().min(1).describe('Text content to insert'),
 });
 
+const GetSheetInfoInput = z.object({
+  action: z.literal('get_sheet_info'),
+  spreadsheetToken: z.string().min(1).describe('Spreadsheet token from Feishu Sheets URL (the part after /sheets/)'),
+});
+
+const ReadSheetInput = z.object({
+  action: z.literal('read_sheet'),
+  spreadsheetToken: z.string().min(1).describe('Spreadsheet token'),
+  sheetId: z.string().min(1).describe('Sheet ID (from get_sheet_info result)'),
+  range: z.string().optional().describe('Cell range like "A1:Z100". Omit to read all data.'),
+});
+
 const FeishuConnectorInput = z.discriminatedUnion('action', [
   ListFolderInput,
   GetDocumentInput,
@@ -97,6 +109,8 @@ const FeishuConnectorInput = z.discriminatedUnion('action', [
   AppendContentInput,
   ListBlocksInput,
   InsertBlockInput,
+  GetSheetInfoInput,
+  ReadSheetInput,
 ]);
 
 export type FeishuConnectorInput = z.infer<typeof FeishuConnectorInput>;
@@ -141,7 +155,9 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
     return input.action === 'list_folder' ||
            input.action === 'get_document' ||
            input.action === 'get_document_raw' ||
-           input.action === 'list_blocks';
+           input.action === 'list_blocks' ||
+           input.action === 'get_sheet_info' ||
+           input.action === 'read_sheet';
   }
 
   checkPermissions(_input: FeishuConnectorInput): PermissionResult {
@@ -169,6 +185,8 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
         case 'append_content': return await this.appendContent(input.documentId, input.content);
         case 'list_blocks': return await this.listBlocks(input.documentId);
         case 'insert_block': return await this.insertBlock(input.documentId, input.parentBlockId, input.index, input.content);
+        case 'get_sheet_info': return await this.getSheetInfo(input.spreadsheetToken);
+        case 'read_sheet': return await this.readSheet(input.spreadsheetToken, input.sheetId, input.range);
         case 'watch_documents': return this.stubResult('文档监控已启动 [stub]');
         case 'watch_messages': { this.watchConfig = input.config; return this.stubResult('消息监控已启动 [stub]'); }
       }
@@ -448,6 +466,111 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
 
   // ----------------------------------------------------------
   // Stubs for future implementation
+  // ----------------------------------------------------------
+  // Real API: Get spreadsheet info (sheet list)
+  // ----------------------------------------------------------
+
+  private async getSheetInfo(spreadsheetToken: string): Promise<ToolResult<unknown>> {
+    const client = this.getClient();
+
+    try {
+      const res = await client.sheets.v3.spreadsheet.get({
+        path: { spreadsheet_token: spreadsheetToken },
+      });
+
+      const spreadsheet = (res.data as any)?.spreadsheet;
+      if (!spreadsheet) {
+        return { success: false, output: null, error: '获取表格信息失败' };
+      }
+
+      const sheets = (spreadsheet.sheets ?? []).map((s: any) => ({
+        sheetId: s.sheet_id,
+        title: s.title,
+        index: s.index,
+        rowCount: s.grid_properties?.row_count,
+        columnCount: s.grid_properties?.column_count,
+      }));
+
+      return {
+        success: true,
+        output: {
+          spreadsheetToken,
+          title: spreadsheet.title,
+          sheetCount: sheets.length,
+          sheets,
+        },
+      };
+    } catch (err) {
+      return { success: false, output: null, error: `获取表格信息失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Real API: Read sheet data
+  // ----------------------------------------------------------
+
+  private async readSheet(spreadsheetToken: string, sheetId: string, range?: string): Promise<ToolResult<unknown>> {
+    const client = this.getClient();
+
+    try {
+      const queryRange = range ? `${sheetId}!${range}` : sheetId;
+
+      const res = await client.sheets.v3.spreadsheetSheet.query({
+        path: { spreadsheet_token: spreadsheetToken, sheet_id: sheetId },
+      } as any);
+
+      // query returns the sheet data
+      const data = (res.data as any);
+
+      if (!data) {
+        // Fallback: try the v2 range read API via fetch
+        const token = await this.getTenantToken();
+        const url = `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${queryRange}`;
+        const fetchRes = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const json = await fetchRes.json() as any;
+
+        if (json.code !== 0) {
+          return { success: false, output: null, error: `读取表格失败: ${json.msg}` };
+        }
+
+        const values = json.data?.valueRange?.values ?? [];
+        // Truncate if too large
+        const truncated = values.length > 100 ? values.slice(0, 100) : values;
+
+        return {
+          success: true,
+          output: {
+            spreadsheetToken,
+            sheetId,
+            rowCount: truncated.length,
+            totalRows: values.length,
+            data: truncated,
+            truncated: values.length > 100,
+          },
+        };
+      }
+
+      return { success: true, output: data };
+    } catch (err) {
+      return { success: false, output: null, error: `读取表格失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  /** Get tenant access token for direct API calls */
+  private async getTenantToken(): Promise<string> {
+    const appId = process.env['FEISHU_APP_ID'] ?? '';
+    const appSecret = process.env['FEISHU_APP_SECRET'] ?? '';
+    const res = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+    });
+    const data = await res.json() as any;
+    return data.tenant_access_token;
+  }
+
   // ----------------------------------------------------------
 
   private async sendMessage(chatId: string, content: string): Promise<ToolResult<unknown>> {
