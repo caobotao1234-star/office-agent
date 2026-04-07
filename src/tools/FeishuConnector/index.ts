@@ -60,6 +60,18 @@ const WatchMessagesInput = z.object({
   }),
 });
 
+const CreateDocumentInput = z.object({
+  action: z.literal('create_document'),
+  title: z.string().min(1).describe('Document title'),
+  folderToken: z.string().optional().describe('Folder token to create in. Omit for root.'),
+});
+
+const AppendContentInput = z.object({
+  action: z.literal('append_content'),
+  documentId: z.string().min(1).describe('Document ID to append content to'),
+  content: z.string().min(1).describe('Text content to append (supports Markdown-like formatting)'),
+});
+
 const FeishuConnectorInput = z.discriminatedUnion('action', [
   ListFolderInput,
   GetDocumentInput,
@@ -68,6 +80,8 @@ const FeishuConnectorInput = z.discriminatedUnion('action', [
   CreateCalendarEventInput,
   WatchDocumentsInput,
   WatchMessagesInput,
+  CreateDocumentInput,
+  AppendContentInput,
 ]);
 
 export type FeishuConnectorInput = z.infer<typeof FeishuConnectorInput>;
@@ -79,11 +93,11 @@ export type FeishuConnectorInput = z.infer<typeof FeishuConnectorInput>;
 export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> {
   readonly name = 'FeishuConnector';
   readonly description =
-    'Feishu (Lark) integration: list_folder (list files/subfolders in a folder), ' +
-    'get_document (document metadata), get_document_raw (plain text content), ' +
+    'Feishu (Lark) integration: list_folder, get_document, get_document_raw, ' +
+    'create_document (create new doc), append_content (write to existing doc), ' +
     'send_message, create_calendar_event, watch_documents, watch_messages. ' +
-    'Use list_folder with folderToken="root" to browse root, then drill into subfolders. ' +
-    'Use get_document_raw to read document content as text.';
+    'Use list_folder with folderToken="root" to browse root. ' +
+    'Use get_document_raw to read. Use create_document + append_content to write.';
   readonly inputSchema = FeishuConnectorInput;
 
   private enabled = true;
@@ -120,7 +134,10 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
   }
 
   requiresUserConfirmation(input: FeishuConnectorInput): boolean {
-    return input.action === 'send_message' || input.action === 'create_calendar_event';
+    return input.action === 'send_message' ||
+           input.action === 'create_calendar_event' ||
+           input.action === 'create_document' ||
+           input.action === 'append_content';
   }
 
   async call(input: FeishuConnectorInput, _context: ToolContext): Promise<ToolResult<unknown>> {
@@ -131,6 +148,8 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
         case 'get_document_raw': return await this.getDocumentRaw(input.documentId);
         case 'send_message': return await this.sendMessage(input.chatId, input.content);
         case 'create_calendar_event': return await this.createCalendarEvent(input);
+        case 'create_document': return await this.createDocument(input.title, input.folderToken);
+        case 'append_content': return await this.appendContent(input.documentId, input.content);
         case 'watch_documents': return this.stubResult('文档监控已启动 [stub]');
         case 'watch_messages': { this.watchConfig = input.config; return this.stubResult('消息监控已启动 [stub]'); }
       }
@@ -246,6 +265,84 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
         content: (res.data as any).content ?? '',
       },
     };
+  }
+
+  // ----------------------------------------------------------
+  // Real API: Create new document
+  // ----------------------------------------------------------
+
+  private async createDocument(title: string, folderToken?: string): Promise<ToolResult<unknown>> {
+    const client = this.getClient();
+
+    try {
+      const res = await client.docx.v1.document.create({
+        data: {
+          title,
+          folder_token: folderToken || undefined,
+        },
+      });
+
+      const doc = (res.data as any)?.document;
+      if (!doc) {
+        return { success: false, output: null, error: '创建文档失败' };
+      }
+
+      return {
+        success: true,
+        output: {
+          created: true,
+          documentId: doc.document_id,
+          title: doc.title,
+          url: `https://ihaier.feishu.cn/docx/${doc.document_id}`,
+        },
+      };
+    } catch (err) {
+      return { success: false, output: null, error: `创建文档失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Real API: Append content to existing document
+  // ----------------------------------------------------------
+
+  private async appendContent(documentId: string, content: string): Promise<ToolResult<unknown>> {
+    const client = this.getClient();
+
+    try {
+      // Split content into paragraphs and create text blocks
+      const paragraphs = content.split('\n').filter(line => line.trim());
+
+      const children = paragraphs.map(text => ({
+        block_type: 2, // paragraph
+        paragraph: {
+          elements: [{
+            text_run: {
+              content: text,
+            },
+          }],
+        },
+      }));
+
+      // The document itself is the root block
+      const res = await client.docx.v1.documentBlockChildren.create({
+        path: { document_id: documentId, block_id: documentId },
+        data: {
+          children,
+          index: -1, // append at end
+        },
+      } as any);
+
+      return {
+        success: true,
+        output: {
+          appended: true,
+          documentId,
+          paragraphCount: paragraphs.length,
+        },
+      };
+    } catch (err) {
+      return { success: false, output: null, error: `写入文档失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
   }
 
   // ----------------------------------------------------------
