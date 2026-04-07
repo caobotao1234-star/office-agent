@@ -108,7 +108,7 @@ export class QueryEngine {
 
     // Layer 2: On-demand recall — only when there are enough memories to justify a side query
     const allMemoryCount = index ? index.split('\n').filter(l => l.startsWith('-')).length : 0;
-    if (allMemoryCount > 3) {
+    if (allMemoryCount > 20) {
       // Only do LLM side query when there are enough memories to select from
       const memories = await this.config.memorySystem.findRelevantMemories(userMessage, signal);
       if (memories.length > 0) {
