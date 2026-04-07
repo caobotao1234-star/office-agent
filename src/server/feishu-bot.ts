@@ -171,6 +171,17 @@ async function main() {
   log.info(`模型: ${process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus'}`);
   log.info('模式: WebSocket 长连接（无需公网 IP）');
 
+  // Helper: get tenant token for direct API calls
+  async function getFeishuTenantToken(): Promise<string> {
+    const res = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+    });
+    const data = await res.json() as any;
+    return data.tenant_access_token;
+  }
+
   // Shared agent startup logic
   async function ensureAgentStarted(
     agent: OfficeAgent,
@@ -307,17 +318,47 @@ async function main() {
                 params: { type: 'file' },
               });
 
-              // audioRes.data should be a readable stream or buffer
+              // SDK may return data as Buffer, ReadableStream, or nested in response
               const chunks: Buffer[] = [];
-              const stream = (audioRes as any).data;
-              if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
-                for await (const chunk of stream) {
+              const resData = audioRes as any;
+
+              // Try different response formats
+              if (Buffer.isBuffer(resData)) {
+                chunks.push(resData);
+              } else if (Buffer.isBuffer(resData?.data)) {
+                chunks.push(resData.data);
+              } else if (resData?.data && typeof resData.data[Symbol.asyncIterator] === 'function') {
+                for await (const chunk of resData.data) {
                   chunks.push(Buffer.from(chunk));
                 }
-              } else if (Buffer.isBuffer(stream)) {
-                chunks.push(stream);
+              } else if (resData?.data && typeof resData.data.pipe === 'function') {
+                // Node.js Readable stream
+                await new Promise<void>((resolve, reject) => {
+                  resData.data.on('data', (chunk: Buffer) => chunks.push(chunk));
+                  resData.data.on('end', resolve);
+                  resData.data.on('error', reject);
+                });
+              } else if (resData?.writeFile) {
+                // SDK v1.60+ returns a helper with writeFile method
+                // Fallback: use direct HTTP download
+                const token = await getFeishuTenantToken();
+                const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=file`;
+                const httpRes = await fetch(url, {
+                  headers: { 'Authorization': `Bearer ${token}` },
+                });
+                if (!httpRes.ok) throw new Error(`HTTP ${httpRes.status}`);
+                const arrayBuf = await httpRes.arrayBuffer();
+                chunks.push(Buffer.from(arrayBuf));
               } else {
-                throw new Error('无法读取音频数据');
+                // Last resort: direct HTTP download
+                const token = await getFeishuTenantToken();
+                const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=file`;
+                const httpRes = await fetch(url, {
+                  headers: { 'Authorization': `Bearer ${token}` },
+                });
+                if (!httpRes.ok) throw new Error(`HTTP ${httpRes.status}`);
+                const arrayBuf = await httpRes.arrayBuffer();
+                chunks.push(Buffer.from(arrayBuf));
               }
 
               const audioBuffer = Buffer.concat(chunks);
