@@ -18,7 +18,7 @@ import type { ToolContext, ToolResult, FeishuWatchConfig } from '../../types/ind
 const ListFolderInput = z.object({
   action: z.literal('list_folder'),
   folderToken: z.string().min(1).describe('Folder token from Feishu URL. Use "root" for root folder.'),
-  pageSize: z.number().min(1).max(200).default(50),
+  pageSize: z.coerce.number().min(1).max(200).default(50),
 });
 
 const GetDocumentInput = z.object({
