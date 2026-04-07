@@ -81,7 +81,7 @@ const InsertBlockInput = z.object({
   action: z.literal('insert_block'),
   documentId: z.string().min(1).describe('Document ID'),
   parentBlockId: z.string().min(1).describe('Parent block ID to insert under (usually document_id for root level)'),
-  index: z.coerce.number().describe('Position to insert at (0=beginning, -1=end, or specific index after list_blocks)'),
+  index: z.coerce.number().describe('Insert BEFORE this index position. To insert AFTER block at index N, use index N+1. Use -1 for end.'),
   content: z.string().min(1).describe('Text content to insert'),
 });
 
@@ -387,8 +387,8 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
         blockId: b.block_id,
         blockType: b.block_type,
         parentId: b.parent_id,
-        // Extract text content for easy identification
         text: this.extractBlockText(b),
+        hint: `To insert AFTER this block, use index=${i + 1}`,
       }));
 
       return {
