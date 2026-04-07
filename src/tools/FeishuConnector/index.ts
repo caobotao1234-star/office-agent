@@ -72,6 +72,19 @@ const AppendContentInput = z.object({
   content: z.string().min(1).describe('Text content to append (supports Markdown-like formatting)'),
 });
 
+const ListBlocksInput = z.object({
+  action: z.literal('list_blocks'),
+  documentId: z.string().min(1).describe('Document ID to list blocks from'),
+});
+
+const InsertBlockInput = z.object({
+  action: z.literal('insert_block'),
+  documentId: z.string().min(1).describe('Document ID'),
+  parentBlockId: z.string().min(1).describe('Parent block ID to insert under (usually document_id for root level)'),
+  index: z.coerce.number().describe('Position to insert at (0=beginning, -1=end, or specific index after list_blocks)'),
+  content: z.string().min(1).describe('Text content to insert'),
+});
+
 const FeishuConnectorInput = z.discriminatedUnion('action', [
   ListFolderInput,
   GetDocumentInput,
@@ -82,6 +95,8 @@ const FeishuConnectorInput = z.discriminatedUnion('action', [
   WatchMessagesInput,
   CreateDocumentInput,
   AppendContentInput,
+  ListBlocksInput,
+  InsertBlockInput,
 ]);
 
 export type FeishuConnectorInput = z.infer<typeof FeishuConnectorInput>;
@@ -125,7 +140,8 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
   isReadOnly(input: FeishuConnectorInput): boolean {
     return input.action === 'list_folder' ||
            input.action === 'get_document' ||
-           input.action === 'get_document_raw';
+           input.action === 'get_document_raw' ||
+           input.action === 'list_blocks';
   }
 
   checkPermissions(_input: FeishuConnectorInput): PermissionResult {
@@ -137,7 +153,8 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
     return input.action === 'send_message' ||
            input.action === 'create_calendar_event' ||
            input.action === 'create_document' ||
-           input.action === 'append_content';
+           input.action === 'append_content' ||
+           input.action === 'insert_block';
   }
 
   async call(input: FeishuConnectorInput, _context: ToolContext): Promise<ToolResult<unknown>> {
@@ -150,6 +167,8 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
         case 'create_calendar_event': return await this.createCalendarEvent(input);
         case 'create_document': return await this.createDocument(input.title, input.folderToken);
         case 'append_content': return await this.appendContent(input.documentId, input.content);
+        case 'list_blocks': return await this.listBlocks(input.documentId);
+        case 'insert_block': return await this.insertBlock(input.documentId, input.parentBlockId, input.index, input.content);
         case 'watch_documents': return this.stubResult('文档监控已启动 [stub]');
         case 'watch_messages': { this.watchConfig = input.config; return this.stubResult('消息监控已启动 [stub]'); }
       }
@@ -268,7 +287,7 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
   }
 
   // ----------------------------------------------------------
-  // Real API: Create new document
+  // Stubs for future implementation
   // ----------------------------------------------------------
 
   private async createDocument(title: string, folderToken?: string): Promise<ToolResult<unknown>> {
@@ -347,6 +366,83 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
       };
     } catch (err) {
       return { success: false, output: null, error: `写入文档失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Real API: List document blocks (for finding insertion points)
+  // ----------------------------------------------------------
+
+  private async listBlocks(documentId: string): Promise<ToolResult<unknown>> {
+    const client = this.getClient();
+
+    try {
+      const res = await client.docx.v1.documentBlock.list({
+        path: { document_id: documentId },
+        params: { page_size: 100 },
+      });
+
+      const blocks = ((res.data as any)?.items ?? []).map((b: any, i: number) => ({
+        index: i,
+        blockId: b.block_id,
+        blockType: b.block_type,
+        parentId: b.parent_id,
+        // Extract text content for easy identification
+        text: this.extractBlockText(b),
+      }));
+
+      return {
+        success: true,
+        output: { documentId, blockCount: blocks.length, blocks },
+      };
+    } catch (err) {
+      return { success: false, output: null, error: `获取文档结构失败: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  /** Extract readable text from a block for identification */
+  private extractBlockText(block: any): string {
+    const types: Record<number, string> = { 2: 'text', 3: 'heading1', 4: 'heading2', 5: 'heading3', 12: 'bullet', 13: 'ordered' };
+    const key = types[block.block_type];
+    if (!key) return `[type=${block.block_type}]`;
+    const elements = block[key]?.elements ?? [];
+    return elements.map((e: any) => e.text_run?.content ?? '').join('');
+  }
+
+  // ----------------------------------------------------------
+  // Real API: Insert block at specific position
+  // ----------------------------------------------------------
+
+  private async insertBlock(documentId: string, parentBlockId: string, index: number, content: string): Promise<ToolResult<unknown>> {
+    const client = this.getClient();
+
+    try {
+      const paragraphs = content.split('\n').filter(line => line.trim());
+      const children = paragraphs.map(text => ({
+        block_type: 2 as const,
+        text: {
+          elements: [{
+            text_run: { content: text, text_element_style: {} },
+          }],
+        },
+      }));
+
+      const res = await client.docx.v1.documentBlockChildren.create({
+        path: { document_id: documentId, block_id: parentBlockId },
+        params: { document_revision_id: '-1' },
+        data: { children, index },
+      } as any);
+
+      if ((res as any).code && (res as any).code !== 0) {
+        return { success: false, output: null, error: `插入失败: code=${(res as any).code}, msg=${(res as any).msg}` };
+      }
+
+      return {
+        success: true,
+        output: { inserted: true, documentId, parentBlockId, index, paragraphCount: paragraphs.length },
+      };
+    } catch (err) {
+      return { success: false, output: null, error: `插入文档失败: ${err instanceof Error ? err.message : String(err)}` };
     }
   }
 
