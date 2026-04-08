@@ -532,49 +532,54 @@ export class FeishuConnectorTool implements Tool<FeishuConnectorInput, unknown> 
   // ----------------------------------------------------------
 
   private async readSheet(spreadsheetToken: string, sheetId: string, range?: string): Promise<ToolResult<unknown>> {
-    const client = this.getClient();
-
     try {
+      const token = await this.getTenantToken();
       const queryRange = range ? `${sheetId}!${range}` : sheetId;
+      const url = `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${queryRange}`;
 
-      const res = await client.sheets.v3.spreadsheetSheet.query({
-        path: { spreadsheet_token: spreadsheetToken, sheet_id: sheetId },
-      } as any);
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const json = await res.json() as any;
 
-      // query returns the sheet data
-      const data = (res.data as any);
+      if (json.code !== 0) {
+        return { success: false, output: null, error: `读取表格失败 (code=${json.code}): ${json.msg}` };
+      }
 
-      if (!data) {
-        // Fallback: try the v2 range read API via fetch
-        const token = await this.getTenantToken();
-        const url = `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${queryRange}`;
-        const fetchRes = await fetch(url, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        const json = await fetchRes.json() as any;
+      const values: any[][] = json.data?.valueRange?.values ?? [];
 
-        if (json.code !== 0) {
-          return { success: false, output: null, error: `读取表格失败: ${json.msg}` };
-        }
-
-        const values = json.data?.valueRange?.values ?? [];
-        // Truncate if too large
-        const truncated = values.length > 100 ? values.slice(0, 100) : values;
-
+      if (values.length === 0) {
         return {
           success: true,
           output: {
             spreadsheetToken,
             sheetId,
-            rowCount: truncated.length,
-            totalRows: values.length,
-            data: truncated,
-            truncated: values.length > 100,
+            range: queryRange,
+            rowCount: 0,
+            data: [],
+            message: '该范围内没有数据',
           },
         };
       }
 
-      return { success: true, output: data };
+      // Truncate if too large to avoid blowing up context
+      const MAX_ROWS = 100;
+      const isTruncated = values.length > MAX_ROWS;
+      const data = isTruncated ? values.slice(0, MAX_ROWS) : values;
+
+      return {
+        success: true,
+        output: {
+          spreadsheetToken,
+          sheetId,
+          range: queryRange,
+          rowCount: data.length,
+          totalRows: values.length,
+          columnCount: Math.max(...data.map((r: any[]) => r.length)),
+          data,
+          truncated: isTruncated,
+        },
+      };
     } catch (err) {
       return { success: false, output: null, error: `读取表格失败: ${err instanceof Error ? err.message : String(err)}` };
     }
