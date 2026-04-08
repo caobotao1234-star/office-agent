@@ -204,6 +204,7 @@ export class QueryEngine {
     ];
 
     let rounds = 0;
+    let nudged = false;
 
     while (rounds < this.maxToolRounds) {
       if (signal.aborted) { yield { type: 'error', error: 'Request interrupted' }; return; }
@@ -273,6 +274,15 @@ export class QueryEngine {
         // First round, no content and no tools — stream directly
         yield* this.executeWithStream(systemPrompt, signal);
         return;
+      }
+
+      // After tool calls, if model returns empty content, nudge it to respond (once only)
+      if (rounds > 1 && !result.content && !nudged) {
+        nudged = true;
+        llmMessages.push({ role: 'assistant', content: '' });
+        llmMessages.push({ role: 'user', content: '请根据工具执行结果，给用户一个简短的回复。' });
+        logger.debug('Empty response after tool calls, nudging LLM for a reply', {}, 'QueryEngine');
+        continue;
       }
 
       if (this.config.llm.queryStream && result.content) {

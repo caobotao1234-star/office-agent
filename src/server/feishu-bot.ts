@@ -101,7 +101,12 @@ async function processMessage(agent: OfficeAgent, text: string): Promise<string>
     parts.push(`\n❌ ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  let response = parts.join('');
+  let response = parts.join('').trim();
+
+  // If tools were called but model produced no text, add a fallback acknowledgment
+  if (!response && toolCount > 0) {
+    response = '好的，已处理完成。';
+  }
 
   // Append tool call transparency
   if (toolCount > 0) {
