@@ -70,6 +70,67 @@ function getOrCreateAgent(userId: string): OfficeAgent {
 }
 
 // ============================================================
+// Per-user message queue — serialize processing per user
+// ============================================================
+
+/** Each user gets a serial queue so messages don't interleave */
+const userQueues = new Map<string, Promise<void>>();
+
+interface QueuedMessageContext {
+  lark: Lark.Client;
+  chatId: string;
+  senderId: string;
+  cleanText: string;
+}
+
+/**
+ * Enqueue a message for serial processing.
+ * If the user already has a message being processed, send a "please wait" hint
+ * and queue this one behind it.
+ */
+function enqueueMessage(ctx: QueuedMessageContext, handler: (ctx: QueuedMessageContext) => Promise<void>): void {
+  const { senderId, lark, chatId } = ctx;
+  const prev = userQueues.get(senderId) ?? Promise.resolve();
+
+  // Check if there's already a pending task — if so, notify user
+  const isQueueBusy = userQueues.has(senderId);
+
+  const next = prev.then(async () => {
+    if (isQueueBusy) {
+      // The previous message was still processing when this one arrived,
+      // so we sent a "please wait" earlier. Now it's our turn.
+      log.debug(`队列: 开始处理排队消息 from ${senderId}`);
+    }
+    await handler(ctx);
+  }).catch((err) => {
+    log.error('队列处理异常', { error: err instanceof Error ? err.message : String(err) });
+  });
+
+  userQueues.set(senderId, next);
+
+  // Send "please wait" if there's already something in flight
+  if (isQueueBusy) {
+    log.debug(`队列: 消息排队中 from ${senderId}`);
+    void lark.im.v1.message.create({
+      params: { receive_id_type: 'chat_id' },
+      data: {
+        receive_id: chatId,
+        content: JSON.stringify({ text: '⏳ 上一条消息还在处理中，稍等一下，马上轮到你这条。' }),
+        msg_type: 'text',
+      },
+    }).catch(() => { /* ignore send failure */ });
+  }
+
+  // Clean up the map entry when the queue drains
+  next.then(() => {
+    // Only clean up if this is still the latest promise in the chain
+    if (userQueues.get(senderId) === next) {
+      userQueues.delete(senderId);
+    }
+  }).catch(() => {});
+}
+
+// ============================================================
 // Message processing
 // ============================================================
 
@@ -271,6 +332,91 @@ async function main() {
     }
   }
 
+  // Voice message handler — extracted for queue integration
+  async function handleFeishuVoice(
+    lark: Lark.Client,
+    chatId: string,
+    senderId: string,
+    msgId: string,
+    fileKey: string,
+    getTenantToken: () => Promise<string>,
+  ): Promise<void> {
+    try {
+      const audioRes = await lark.im.v1.messageResource.get({
+        path: { message_id: msgId, file_key: fileKey },
+        params: { type: 'file' },
+      });
+
+      const chunks: Buffer[] = [];
+      const resData = audioRes as any;
+
+      if (Buffer.isBuffer(resData)) {
+        chunks.push(resData);
+      } else if (Buffer.isBuffer(resData?.data)) {
+        chunks.push(resData.data);
+      } else if (resData?.data && typeof resData.data[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of resData.data) {
+          chunks.push(Buffer.from(chunk));
+        }
+      } else if (resData?.data && typeof resData.data.pipe === 'function') {
+        await new Promise<void>((resolve, reject) => {
+          resData.data.on('data', (chunk: Buffer) => chunks.push(chunk));
+          resData.data.on('end', resolve);
+          resData.data.on('error', reject);
+        });
+      } else {
+        const token = await getTenantToken();
+        const url = `https://open.feishu.cn/open-apis/im/v1/messages/${msgId}/resources/${fileKey}?type=file`;
+        const httpRes = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!httpRes.ok) throw new Error(`HTTP ${httpRes.status}`);
+        const arrayBuf = await httpRes.arrayBuffer();
+        chunks.push(Buffer.from(arrayBuf));
+      }
+
+      const audioBuffer = Buffer.concat(chunks);
+      const apiKey = process.env['DASHSCOPE_API_KEY'] ?? '';
+      const sttResult = await transcribeAudio(audioBuffer, apiKey, 'audio.ogg');
+
+      if (!sttResult.success || !sttResult.text.trim()) {
+        await lark.im.v1.message.create({
+          params: { receive_id_type: 'chat_id' },
+          data: {
+            receive_id: chatId,
+            content: JSON.stringify({ text: `❌ 语音识别失败: ${sttResult.error ?? '无法识别内容'}` }),
+            msg_type: 'text',
+          },
+        });
+        return;
+      }
+
+      log.info(`语音转文字: ${sttResult.text.slice(0, 80)}`);
+
+      const agent = getOrCreateAgent(senderId);
+      await ensureAgentStarted(agent, senderId, lark, chatId);
+      const response = await processMessage(agent, sttResult.text);
+      log.info(`回复 to ${senderId}: ${response.slice(0, 80)}`);
+      const respChunks = splitMessage(response, 3500);
+      for (const chunk of respChunks) {
+        await lark.im.v1.message.create({
+          params: { receive_id_type: 'chat_id' },
+          data: { receive_id: chatId, content: JSON.stringify({ text: chunk }), msg_type: 'text' },
+        });
+      }
+    } catch (err) {
+      log.error('语音处理失败', { error: err instanceof Error ? err.message : String(err) });
+      try {
+        await lark.im.v1.message.create({
+          params: { receive_id_type: 'chat_id' },
+          data: {
+            receive_id: chatId,
+            content: JSON.stringify({ text: `❌ 语音处理失败: ${err instanceof Error ? err.message : String(err)}` }),
+            msg_type: 'text',
+          },
+        });
+      } catch { /* ignore */ }
+    }
+  }
+
   wsClient.start({
     eventDispatcher: new Lark.EventDispatcher({}).register({
       'im.message.receive_v1': async (data: any) => {
@@ -315,101 +461,13 @@ async function main() {
 
           log.info(`收到语音消息 from ${senderId}`, { fileKey });
 
-          // Download audio file from Feishu
-          void (async () => {
-            try {
-              const audioRes = await larkClient.im.v1.messageResource.get({
-                path: { message_id: messageId, file_key: fileKey },
-                params: { type: 'file' },
-              });
-
-              // SDK may return data as Buffer, ReadableStream, or nested in response
-              const chunks: Buffer[] = [];
-              const resData = audioRes as any;
-
-              // Try different response formats
-              if (Buffer.isBuffer(resData)) {
-                chunks.push(resData);
-              } else if (Buffer.isBuffer(resData?.data)) {
-                chunks.push(resData.data);
-              } else if (resData?.data && typeof resData.data[Symbol.asyncIterator] === 'function') {
-                for await (const chunk of resData.data) {
-                  chunks.push(Buffer.from(chunk));
-                }
-              } else if (resData?.data && typeof resData.data.pipe === 'function') {
-                // Node.js Readable stream
-                await new Promise<void>((resolve, reject) => {
-                  resData.data.on('data', (chunk: Buffer) => chunks.push(chunk));
-                  resData.data.on('end', resolve);
-                  resData.data.on('error', reject);
-                });
-              } else if (resData?.writeFile) {
-                // SDK v1.60+ returns a helper with writeFile method
-                // Fallback: use direct HTTP download
-                const token = await getFeishuTenantToken();
-                const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=file`;
-                const httpRes = await fetch(url, {
-                  headers: { 'Authorization': `Bearer ${token}` },
-                });
-                if (!httpRes.ok) throw new Error(`HTTP ${httpRes.status}`);
-                const arrayBuf = await httpRes.arrayBuffer();
-                chunks.push(Buffer.from(arrayBuf));
-              } else {
-                // Last resort: direct HTTP download
-                const token = await getFeishuTenantToken();
-                const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=file`;
-                const httpRes = await fetch(url, {
-                  headers: { 'Authorization': `Bearer ${token}` },
-                });
-                if (!httpRes.ok) throw new Error(`HTTP ${httpRes.status}`);
-                const arrayBuf = await httpRes.arrayBuffer();
-                chunks.push(Buffer.from(arrayBuf));
-              }
-
-              const audioBuffer = Buffer.concat(chunks);
-              const apiKey = process.env['DASHSCOPE_API_KEY'] ?? '';
-              const sttResult = await transcribeAudio(audioBuffer, apiKey, 'audio.ogg');
-
-              if (!sttResult.success || !sttResult.text.trim()) {
-                await larkClient.im.v1.message.create({
-                  params: { receive_id_type: 'chat_id' },
-                  data: {
-                    receive_id: chatId,
-                    content: JSON.stringify({ text: `❌ 语音识别失败: ${sttResult.error ?? '无法识别内容'}` }),
-                    msg_type: 'text',
-                  },
-                });
-                return;
-              }
-
-              log.info(`语音转文字: ${sttResult.text.slice(0, 80)}`);
-
-              // Process transcribed text as normal message
-              const agent = getOrCreateAgent(senderId);
-              await ensureAgentStarted(agent, senderId, larkClient, chatId);
-              const response = await processMessage(agent, sttResult.text);
-              log.info(`回复 to ${senderId}: ${response.slice(0, 80)}`);
-              const respChunks = splitMessage(response, 3500);
-              for (const chunk of respChunks) {
-                await larkClient.im.v1.message.create({
-                  params: { receive_id_type: 'chat_id' },
-                  data: { receive_id: chatId, content: JSON.stringify({ text: chunk }), msg_type: 'text' },
-                });
-              }
-            } catch (err) {
-              log.error('语音处理失败', { error: err instanceof Error ? err.message : String(err) });
-              try {
-                await larkClient.im.v1.message.create({
-                  params: { receive_id_type: 'chat_id' },
-                  data: {
-                    receive_id: chatId,
-                    content: JSON.stringify({ text: `❌ 语音处理失败: ${err instanceof Error ? err.message : String(err)}` }),
-                    msg_type: 'text',
-                  },
-                });
-              } catch { /* ignore */ }
-            }
-          })();
+          // Enqueue voice processing through the same serial queue
+          enqueueMessage(
+            { lark: larkClient, chatId, senderId, cleanText: '' },
+            async () => {
+              await handleFeishuVoice(larkClient, chatId, senderId, messageId, fileKey, getFeishuTenantToken);
+            },
+          );
           return;
         }
 
@@ -434,7 +492,10 @@ async function main() {
         // Feishu requires the event handler to complete within 3 seconds.
         // Our Agent processing (LLM API + tools) takes much longer.
         // If we block here, Feishu will stop pushing subsequent messages.
-        void handleFeishuMessage(larkClient, chatId, senderId, cleanText);
+        enqueueMessage(
+          { lark: larkClient, chatId, senderId, cleanText },
+          (ctx) => handleFeishuMessage(ctx.lark, ctx.chatId, ctx.senderId, ctx.cleanText),
+        );
       },
     }),
   });
