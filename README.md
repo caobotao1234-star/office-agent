@@ -75,6 +75,7 @@ npx tsx src/cli/index.ts -h        # 帮助
 | `/feishu-sync` | 同步飞书状态 |
 | `/project` | 查看项目列表 |
 | `/memory <关键词>` | 搜索记忆 |
+| `/expenses` | 查看待报销记录 |
 | `/cron` | 查看定时任务 |
 | `/usage` | 查看 token 用量 |
 | `/usage detail` | 查看详细用量（按模型/环节） |
@@ -104,6 +105,7 @@ Agent 通过原生 Function Calling 调用这些工具：
 | EmailTool | 邮件发送 | 🔲 stub |
 | DocumentParser | 文档解析（飞书/Excel/Word/网页） | 🔲 stub |
 | BackgroundTaskTool | 后台任务管理 | ✅ 完整 |
+| ExpenseTool | 报销记账（采购记录、发票追踪、报销状态） | ✅ 完整 |
 
 ## 主动提醒系统
 

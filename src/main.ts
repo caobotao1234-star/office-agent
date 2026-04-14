@@ -43,6 +43,7 @@ import { CalendarTool } from './tools/CalendarTool/index.js';
 import { ConfigTool } from './tools/ConfigTool/index.js';
 import { WebSearchTool } from './tools/WebSearchTool/index.js';
 import { SkillCreatorTool } from './tools/SkillCreatorTool/index.js';
+import { ExpenseTool } from './tools/ExpenseTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -137,6 +138,20 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- When user asks "张三电话多少" or "服务器密码是什么", search MemoryTool to find it.',
     '',
     '# Smart Scheduling',
+    '',
+    '# Expense Tracking (报销记账)',
+    '',
+    '- When user mentions buying something for work, IMMEDIATELY call ExpenseTool create.',
+    '- Extract: description, amount (if mentioned), platform (淘宝/京东/1688/拼多多/线下 etc.)',
+    '- purchaseDate: use today if not specified.',
+    '- invoiceStatus: DEFAULT to "pending" (发票未到). Only set "received" if user explicitly says 有发票/发票已开.',
+    '- reimbursementStatus: always starts as "unreimbursed".',
+    '- When user says "XX已经报销了", call ExpenseTool update with reimbursementStatus="reimbursed".',
+    '- When user says "XX发票到了", call ExpenseTool update with invoiceStatus="received".',
+    '- When user asks "还有哪些没报销", call ExpenseTool list with filter="unreimbursed".',
+    '- When user asks "哪些还没开发票", call ExpenseTool list with filter="no_invoice".',
+    '- Keep responses SHORT after recording: "记下了：XX，¥YY，淘宝，发票待开" style.',
+    '',
     '',
     '- When you notice the user repeatedly asks for similar tasks (e.g. always formats reports the same way,',
     '  always follows the same review checklist), proactively suggest creating a custom skill using SkillCreator.',
@@ -236,6 +251,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new ConfigTool(configManager));
   toolRegistry.register(new WebSearchTool());
   toolRegistry.register(new SkillCreatorTool(path.join(dataDir, 'skills')));
+  toolRegistry.register(new ExpenseTool(dataDir));
 
   // Disable WebSearch by default — qwen-plus has built-in enable_search.
   // Only enable for models without native search capability.
