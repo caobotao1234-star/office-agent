@@ -432,13 +432,27 @@ async function main() {
           return;
         }
 
-        // Only handle text and audio messages
-        if (msgType !== 'text' && msgType !== 'audio') {
+        // Only handle text, audio, and post (rich text) messages
+        // For image-only or file messages, reply with a friendly note
+        if (msgType !== 'text' && msgType !== 'audio' && msgType !== 'post' && msgType !== 'image') {
           void larkClient.im.v1.message.create({
             params: { receive_id_type: 'chat_id' },
             data: {
               receive_id: chatId,
-              content: JSON.stringify({ text: '目前支持文本和语音消息，图片/文件暂不支持。' }),
+              content: JSON.stringify({ text: '目前支持文本、语音和富文本消息，该类型暂不支持。' }),
+              msg_type: 'text',
+            },
+          });
+          return;
+        }
+
+        // Image-only messages — no text to process
+        if (msgType === 'image') {
+          void larkClient.im.v1.message.create({
+            params: { receive_id_type: 'chat_id' },
+            data: {
+              receive_id: chatId,
+              content: JSON.stringify({ text: '收到图片，不过我暂时还看不懂图片内容。可以用文字描述一下，或者图文一起发（富文本），我会处理其中的文字部分。' }),
               msg_type: 'text',
             },
           });
@@ -471,11 +485,16 @@ async function main() {
           return;
         }
 
-        // Text message handling
+        // Text and post (rich text) message handling
         let text: string;
         try {
           const content = JSON.parse(message.content);
-          text = content.text ?? '';
+          if (msgType === 'post') {
+            // Extract text from rich text (post) message, ignoring images
+            text = extractTextFromPost(content);
+          } else {
+            text = content.text ?? '';
+          }
         } catch {
           text = message.content ?? '';
         }
@@ -501,6 +520,41 @@ async function main() {
   });
 
   log.info('✅ 飞书 WebSocket 长连接已启动，等待消息...');
+}
+
+/**
+ * Extract plain text from a Feishu post (rich text) message content.
+ * Ignores images and other non-text elements.
+ *
+ * Post content structure:
+ * { "zh_cn": { "title": "...", "content": [[{ tag: "text", text: "..." }, { tag: "img", ... }]] } }
+ */
+function extractTextFromPost(content: any): string {
+  const parts: string[] = [];
+
+  // Post content can be under zh_cn, en_us, or ja_jp — try all
+  const locales = content.zh_cn ?? content.en_us ?? content.ja_jp ?? content;
+  const title = locales?.title;
+  if (title) parts.push(title);
+
+  const paragraphs: any[][] = locales?.content ?? [];
+  for (const paragraph of paragraphs) {
+    if (!Array.isArray(paragraph)) continue;
+    for (const element of paragraph) {
+      if (element?.tag === 'text' && element.text) {
+        parts.push(element.text);
+      } else if (element?.tag === 'a' && element.text) {
+        // Hyperlinks — keep the text, append URL
+        const href = element.href ? ` (${element.href})` : '';
+        parts.push(element.text + href);
+      } else if (element?.tag === 'at' && element.user_name) {
+        parts.push(`@${element.user_name}`);
+      }
+      // img, media, emotion etc. — silently ignored
+    }
+  }
+
+  return parts.join(' ').trim();
 }
 
 /** Split long text into chunks for Feishu message limit */
