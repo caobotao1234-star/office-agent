@@ -15,12 +15,22 @@ import type { MemorySystem } from '../../core/memory-system.js';
 // Input Schema
 // ============================================================
 
+// Helper: coerce tags from string or array to string[]
+const coerceTags = z.preprocess(
+  (val) => {
+    if (Array.isArray(val)) return val.map(String);
+    if (typeof val === 'string') return val.split(/[,，、\s]+/).map(s => s.trim()).filter(Boolean);
+    return [];
+  },
+  z.array(z.string()),
+);
+
 const StoreMemoryInput = z.object({
   action: z.literal('store'),
   title: z.string().min(1),
   content: z.string().min(1),
   type: z.enum(['preference', 'task', 'project_context', 'colleague', 'conversation_summary', 'decision', 'commitment']),
-  tags: z.array(z.string()).default([]),
+  tags: coerceTags.default([]),
   source: z.enum(['user_input', 'feishu_doc', 'feishu_message', 'auto_extract', 'document_upload']).default('user_input'),
   projectId: z.string().optional(),
 });
@@ -29,7 +39,7 @@ const SearchMemoryInput = z.object({
   action: z.literal('search'),
   keyword: z.string().optional(),
   type: z.enum(['preference', 'task', 'project_context', 'colleague', 'conversation_summary', 'decision', 'commitment']).optional(),
-  tags: z.array(z.string()).optional(),
+  tags: coerceTags.optional(),
   projectId: z.string().optional(),
   limit: z.number().positive().optional(),
   sortBy: z.enum(['relevance', 'recency', 'frequency']).optional(),
