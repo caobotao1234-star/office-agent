@@ -76,6 +76,8 @@ npx tsx src/cli/index.ts -h        # 帮助
 | `/project` | 查看项目列表 |
 | `/memory <关键词>` | 搜索记忆 |
 | `/expenses` | 查看待报销记录 |
+| `/wiki` | 浏览知识库 |
+| `/stats` | 使用洞察报告 |
 | `/cron` | 查看定时任务 |
 | `/usage` | 查看 token 用量 |
 | `/usage detail` | 查看详细用量（按模型/环节） |
@@ -88,7 +90,7 @@ npx tsx src/cli/index.ts -h        # 帮助
 
 每次 Agent 回复后会显示 `[本轮调用了 N 个工具]` 或 `[本轮未调用工具]`，帮你判断回答是否基于真实数据。
 
-## 11 个内置工具
+## 14 个内置工具
 
 Agent 通过原生 Function Calling 调用这些工具：
 
@@ -100,12 +102,14 @@ Agent 通过原生 Function Calling 调用这些工具：
 | ReminderTool | 提醒管理 | ✅ 完整 |
 | CronTool | 定时任务（cron 表达式） | ✅ 完整 |
 | ConfigTool | 通过对话修改配置（提醒时间、工作时间等） | ✅ 完整 |
-| FeishuConnector | 飞书云文档读取、文件夹浏览、消息发送 | ✅ 真实 API |
+| FeishuConnector | 飞书云文档/表格读取、文件夹浏览、消息发送 | ✅ 真实 API |
 | CalendarTool | 飞书日历日程创建/查询/删除 | ✅ 真实 API |
+| ExpenseTool | 报销记账（采购记录、发票追踪、报销状态） | ✅ 完整 |
+| ClarifyTool | 主动澄清（结构化选择题/开放式问题） | ✅ 完整 |
+| SkillCreator | 自定义技能创建/管理 | ✅ 完整 |
 | EmailTool | 邮件发送 | 🔲 stub |
 | DocumentParser | 文档解析（飞书/Excel/Word/网页） | 🔲 stub |
 | BackgroundTaskTool | 后台任务管理 | ✅ 完整 |
-| ExpenseTool | 报销记账（采购记录、发票追踪、报销状态） | ✅ 完整 |
 
 ## 主动提醒系统
 
@@ -149,9 +153,12 @@ CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。
 - 群聊中 @机器人 触发对话
 - 单聊直接发消息（需开通单聊权限）
 - 支持语音消息（自动转文字，使用 DashScope Paraformer STT）
+- 支持富文本消息（图文混合），自动提取文字部分，忽略图片
+- 消息串行队列：同一用户的消息按顺序处理，不会并发冲突
+- 排队提示：上一条消息还在处理时，自动提示"稍等"
 - 每个飞书用户独立会话和数据目录，重启后自动恢复
 - 主动推送提醒（截止日期、每日待办等）
-- 读取飞书云文档内容，自动提取项目信息存入记忆
+- 读取飞书云文档和表格内容，自动提取项目信息存入记忆
 
 ## 5 个内置技能
 
@@ -174,18 +181,28 @@ CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。
 ```
 ~/.office-agent/
 ├── tasks.json              # 任务数据
+├── expenses.json           # 报销记账数据
 ├── token-usage.json        # Token 用量统计
 ├── config.json             # 用户配置（可通过对话修改）
 ├── cron-tasks.json         # 定时任务
+├── skill-trajectories.json # 工具调用轨迹（自动技能检测用）
 ├── last-session.txt        # CLI 最近会话 ID
 ├── last-session-feishu-*.txt  # 飞书用户会话 ID（按用户隔离）
-├── memdir/                 # 记忆系统
+├── memdir/                 # 记忆系统（零散记忆条目）
 │   ├── MEMORY.md           # 记忆索引（自动维护）
 │   ├── auto/               # 自动提取的记忆
 │   ├── decisions/          # 决策类记忆
 │   ├── preferences/        # 偏好类记忆
 │   ├── colleagues/         # 同事信息
 │   └── projects/           # 项目上下文记忆
+├── wikidir/                # 知识 Wiki（结构化知识页面，参考 LLMwiki）
+│   ├── index.md            # 知识导航索引（自动维护）
+│   ├── log.md              # 变更日志
+│   ├── projects/           # 项目知识页
+│   ├── people/             # 人物知识页
+│   ├── concepts/           # 概念知识页
+│   ├── decisions/          # 决策知识页
+│   └── general/            # 综合知识页
 ├── agents/                 # 项目（Sub-Agent）
 ├── sessions/               # 会话历史
 ├── skills/                 # 用户自定义技能
@@ -209,14 +226,16 @@ src/
 │       └── usage.ts            # Token 用量
 │
 ├── core/                       # 核心引擎
-│   ├── query-engine.ts         # 主循环（LLM 调用 + 工具执行 + 记忆注入）
-│   ├── context-manager.ts      # 上下文压缩（auto-compact）
-│   ├── memory-system.ts        # 三层记忆（索引 + side query + grep）
+│   ├── query-engine.ts         # 主循环（LLM 调用 + 工具执行 + 记忆注入 + 自动重试）
+│   ├── context-manager.ts      # 上下文压缩（auto-compact + 压缩前记忆提取）
+│   ├── memory-system.ts        # 三层记忆（索引 + side query + grep + Wiki 联动）
+│   ├── wiki-engine.ts          # 知识 Wiki 引擎（参考 Karpathy LLMwiki）
 │   ├── tool-system.ts          # 可插拔工具框架（Tool 接口 + Registry）
 │   ├── skill-system.ts         # 技能系统（SKILL.md 加载 + 执行）
 │   ├── sub-agent-manager.ts    # 动态子 Agent（项目级隔离）
 │   ├── dashscope-llm.ts        # 百炼 LLM 客户端（流式 + Function Calling）
 │   ├── llm-client.ts           # LLM 接口定义
+│   ├── error-classifier.ts     # API 错误自动分类与恢复策略
 │   ├── schema-utils.ts         # Zod v4 → JSON Schema 转换
 │   ├── token-tracker.ts        # Token 用量统计（按模型/环节/天）
 │   ├── session-store.ts        # 会话持久化（支持多通道隔离）
@@ -234,9 +253,11 @@ src/
 │   ├── background-task-manager.ts  # 后台任务
 │   ├── away-summary-engine.ts  # 离开摘要
 │   ├── prompt-suggestion.ts    # 主动建议
+│   ├── skill-proposer.ts       # 自动技能提议（参考 Hermes Agent）
+│   ├── insights-engine.ts      # 使用洞察分析（参考 Hermes Agent）
 │   └── speech-to-text.ts       # 语音转文字（DashScope Paraformer）
 │
-├── tools/                      # 11 个工具模块
+├── tools/                      # 14 个工具模块
 │   ├── TaskManager/            # 任务管理
 │   ├── SubAgentTool/           # 项目管理
 │   ├── MemoryTool/             # 记忆操作
@@ -245,6 +266,9 @@ src/
 │   ├── ConfigTool/             # 配置修改（通过对话）
 │   ├── FeishuConnector/        # 飞书连接器（真实 API）
 │   ├── CalendarTool/           # 飞书日历（真实 API）
+│   ├── ExpenseTool/            # 报销记账
+│   ├── ClarifyTool/            # 主动澄清（结构化问题）
+│   ├── SkillCreatorTool/       # 自定义技能创建
 │   ├── EmailTool/              # 邮件
 │   ├── DocumentParser/         # 文档解析
 │   └── BackgroundTaskTool/     # 后台任务
@@ -283,10 +307,24 @@ npm run build     # 编译 TypeScript
 - QueryEngine 主循环（async generator + 多轮工具调用）
 - 原生 Function Calling（非 prompt-based）
 - 三层记忆系统（MEMORY.md 索引 + LLM side query + 工具搜索）
-- 可插拔 Tool 系统（11 个工具，Zod schema 自动转 JSON Schema）
+- 可插拔 Tool 系统（14 个工具，Zod schema 自动转 JSON Schema）
 - SKILL.md 技能定义（inline/fork 两种执行模式）
-- 上下文自动压缩
+- 上下文自动压缩（含压缩前记忆提取钩子）
 - 会话持久化（多通道隔离：CLI / 飞书各用户独立）
 - 统一通知架构（NotificationService + ReminderLoop）
 - 统一命令路由（slash-command.ts，CLI/飞书/Web 行为一致）
 - 结构化日志 + 统一错误处理
+
+参考 Hermes Agent 的设计：
+- 自动技能提议（SkillProposer）：追踪工具调用模式，检测重复工作流，主动提议创建可复用 skill
+- 主动澄清工具（ClarifyTool）：结构化选择题 + 开放式问题，适合模糊任务和多方案决策
+- API 错误自动分类（Error Classifier）：限流/认证/余额/上下文过长等细粒度分类，自动重试和降级
+- Memory Provider 钩子：上下文压缩前自动提取记忆（onPreCompress），会话结束时提取（onSessionEnd）
+- 使用洞察引擎（Insights Engine）：综合 token 用量 + 工具频率 + 活跃时段分析
+
+参考 Karpathy LLMwiki 的设计：
+- 知识 Wiki 引擎（WikiEngine）：在零散记忆之上维护结构化知识页面
+- 新信息自动整合到已有 wiki 页面（不是追加，是真正的知识编译）
+- 按实体组织：项目页、人物页、概念页、决策页
+- index.md 知识导航 + log.md 变更日志
+- Wiki 索引注入系统提示，agent 可引用已编译的知识
