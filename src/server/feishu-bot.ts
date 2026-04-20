@@ -504,6 +504,7 @@ async function main() {
           if (msgType === 'post') {
             text = extractTextFromPost(content);
             imageKeys = extractImageKeysFromPost(content);
+            log.debug('Post message parsed', { text: text.slice(0, 80), imageKeyCount: imageKeys.length, imageKeys });
           } else {
             text = content.text ?? '';
           }
@@ -526,10 +527,12 @@ async function main() {
             // Download images in parallel if any
             let images: string[] | undefined;
             if (imageKeys.length > 0) {
+              log.info('Downloading images from post', { count: imageKeys.length });
               const results = await Promise.all(
                 imageKeys.map(key => downloadFeishuImage(key, messageId, getFeishuTenantToken)),
               );
               const valid = results.filter((r): r is string => r !== null);
+              log.info('Images downloaded', { total: imageKeys.length, success: valid.length });
               if (valid.length > 0) images = valid;
             }
             await handleFeishuMessage(ctx.lark, ctx.chatId, ctx.senderId, ctx.cleanText, images);
@@ -558,12 +561,18 @@ async function downloadFeishuImage(
   try {
     const token = await getTenantToken();
     const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${imageKey}?type=image`;
+    log.debug('Downloading image', { imageKey, messageId });
     const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      log.warn('Image download failed', { status: res.status, imageKey });
+      return null;
+    }
     const buffer = Buffer.from(await res.arrayBuffer());
     const contentType = res.headers.get('content-type') ?? 'image/png';
+    log.info('Image downloaded', { imageKey, size: buffer.length, contentType });
     return `data:${contentType};base64,${buffer.toString('base64')}`;
-  } catch {
+  } catch (err) {
+    log.error('Image download error', { imageKey, error: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }
