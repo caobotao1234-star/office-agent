@@ -29,6 +29,7 @@ import { AwaySummaryEngine } from './services/away-summary-engine.js';
 import { PromptSuggestionEngine } from './services/prompt-suggestion.js';
 import { NotificationService } from './services/notification-service.js';
 import { ReminderLoop } from './services/reminder-loop.js';
+import { SkillProposer } from './services/skill-proposer.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -278,6 +279,8 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     getConfig: () => configManager.get(),
   });
 
+  const skillProposer = new SkillProposer(llm, dataDir);
+
   const queryEngine = new QueryEngine({
     model: model ?? 'claude-sonnet-4-20250514',
     systemPrompt,
@@ -286,6 +289,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     contextManager,
     llm,
     sessionStore,
+    skillProposer,
   });
 
   const agent: OfficeAgent = {

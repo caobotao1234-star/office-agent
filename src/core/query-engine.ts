@@ -15,6 +15,7 @@ import type { ContextManager } from './context-manager.js';
 import type { ToolRegistry } from './tool-system.js';
 
 import type { SessionStore } from './session-store.js';
+import type { SkillProposer } from '../services/skill-proposer.js';
 
 export interface QueryEngineConfig {
   model: string;
@@ -25,6 +26,7 @@ export interface QueryEngineConfig {
   llm: LLMClient;
   maxToolRounds?: number;
   sessionStore?: SessionStore;
+  skillProposer?: SkillProposer;
 }
 
 export class QueryEngine {
@@ -35,6 +37,7 @@ export class QueryEngine {
   private maxToolRounds: number;
   private sessionStore: SessionStore | undefined;
   private sessionChannel: string | undefined;
+  private pendingSkillProposal: { name: string; description: string; pattern: string; occurrences: number } | null = null;
 
   constructor(config: QueryEngineConfig) {
     this.config = config;
@@ -120,6 +123,18 @@ export class QueryEngine {
       }
     }
 
+    // Inject pending skill proposal if available
+    if (this.pendingSkillProposal) {
+      const p = this.pendingSkillProposal;
+      prompt += '\n\n# 技能提议（自动检测到的重复工作流）\n\n';
+      prompt += `检测到用户反复执行以下工作流（${p.occurrences}次）：${p.pattern}\n`;
+      prompt += `建议技能名称：${p.name}\n`;
+      prompt += `描述：${p.description}\n\n`;
+      prompt += '请在回复末尾友好地提议用户："我发现你经常做这个操作，要不要我创建一个专属技能，以后一句话就能完成？"\n';
+      prompt += '如果用户同意，使用 SkillCreator 工具创建技能。提议一次后不再重复。';
+      this.pendingSkillProposal = null; // Only propose once
+    }
+
     return prompt;
   }
 
@@ -129,6 +144,9 @@ export class QueryEngine {
 
     this.messages.push({ role: 'user', content: userMessage, timestamp: new Date() });
     logger.debug(`submitMessage: "${userMessage.slice(0, 80)}"`, { msgCount: this.messages.length }, 'QueryEngine');
+
+    // Track user intent for skill proposer
+    this.config.skillProposer?.setUserIntent(userMessage);
 
     try {
       const systemPrompt = await this.buildDynamicSystemPrompt(userMessage, signal);
@@ -154,6 +172,36 @@ export class QueryEngine {
 
       // 持久化会话
       this.saveSession();
+
+      // Skill proposer: end trajectory and check for patterns
+      const proposer = this.config.skillProposer;
+      if (proposer) {
+        proposer.endConversationTurn();
+        if (proposer.shouldAnalyze()) {
+          // Run pattern detection in background (don't block response)
+          void (async () => {
+            try {
+              const patterns = proposer.detectPatterns();
+              if (patterns.length > 0) {
+                const proposal = await proposer.proposeSkill(patterns[0]!);
+                if (proposal) {
+                  logger.info('Skill proposal detected', {
+                    name: proposal.name,
+                    pattern: proposal.pattern,
+                    occurrences: proposal.occurrences,
+                  }, 'SkillProposer');
+                  // Inject the proposal as a suggestion in the next turn's system prompt
+                  this.pendingSkillProposal = proposal;
+                }
+              }
+            } catch (err) {
+              logger.debug('Skill pattern analysis failed', {
+                error: err instanceof Error ? err.message : String(err),
+              }, 'SkillProposer');
+            }
+          })();
+        }
+      }
 
       yield { type: 'done' };
     } catch (err) {
@@ -239,6 +287,9 @@ export class QueryEngine {
 
           yield { type: 'tool_use', toolName: tc.function.name, input: parsedInput };
           logger.debug(`tool call: ${tc.function.name}`, { args: JSON.stringify(parsedInput).slice(0, 200) }, 'QueryEngine');
+
+          // Record for skill proposer pattern detection
+          this.config.skillProposer?.recordToolCall(tc.function.name, parsedInput);
 
           const toolResult = await this.config.tools.execute(
             tc.function.name,
