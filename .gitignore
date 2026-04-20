@@ -6,6 +6,7 @@ node_modules/
 
 # 参考源码，不纳入版本管理
 claude-code-ref/
+hermes-agent-ref/
 
 # IDE
 .vscode/
