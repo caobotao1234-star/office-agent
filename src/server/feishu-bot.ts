@@ -63,7 +63,7 @@ function getOrCreateAgent(userId: string): OfficeAgent {
   const userDataDir = path.join(DATA_DIR, 'users', userId);
   const tokenTracker = new TokenTracker(path.join(userDataDir, 'token-usage.json'));
   const llm = createDashScopeLLM({ apiKey, model, tokenTracker });
-  const agent = createOfficeAgent({ llm, baseDir: userDataDir, model });
+  const agent = createOfficeAgent({ llm, baseDir: userDataDir, model, sideQueryModel: 'qwen3.5-flash' });
 
   userAgents.set(userId, agent);
   return agent;

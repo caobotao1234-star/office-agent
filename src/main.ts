@@ -49,6 +49,8 @@ import { SkillCreatorTool } from './tools/SkillCreatorTool/index.js';
 import { ExpenseTool } from './tools/ExpenseTool/index.js';
 import { ClarifyTool } from './tools/ClarifyTool/index.js';
 
+import { createDashScopeLLM } from './core/dashscope-llm.js';
+
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUNDLED_SKILLS_DIR = path.join(__dirname, 'skills', 'bundled');
@@ -216,19 +218,31 @@ export interface CreateOfficeAgentOptions {
   baseDir?: string;
   contextWindowSize?: number;
   model?: string;
+  sideQueryModel?: string;
 }
 
 export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgent {
-  const { llm, baseDir, contextWindowSize, model } = options;
+  const { llm, baseDir, contextWindowSize, model, sideQueryModel } = options;
   const dataDir = baseDir ?? BASE_DIR;
+
+  // Create a fast LLM for side queries (memory recall, extraction, compression, wiki)
+  // Uses a smaller/faster model to reduce latency on non-critical LLM calls
+  const fastLlm = sideQueryModel
+    ? createDashScopeLLM({
+        apiKey: process.env['DASHSCOPE_API_KEY'] ?? '',
+        model: sideQueryModel,
+        maxTokens: 2048,
+        temperature: 0.3,
+      })
+    : llm;
 
   const configManager = new UserConfigManager(dataDir);
   const config = configManager.load();
 
-  const memorySystem = new MemorySystem(path.join(dataDir, 'memdir'), llm);
-  const wikiEngine = new WikiEngine(path.join(dataDir, 'memdir'), llm);
+  const memorySystem = new MemorySystem(path.join(dataDir, 'memdir'), fastLlm);
+  const wikiEngine = new WikiEngine(path.join(dataDir, 'memdir'), fastLlm);
   memorySystem.setWikiEngine(wikiEngine);
-  const contextManager = new ContextManager(contextWindowSize ?? 128_000, llm);
+  const contextManager = new ContextManager(contextWindowSize ?? 128_000, fastLlm);
   const toolRegistry = new ToolRegistry();
 
   const reminderEngine = new ReminderEngine(config);

@@ -39,5 +39,5 @@ export function getAgent(modelOverride?: string): OfficeAgent {
     tokenTracker,
   });
 
-  return createOfficeAgent({ llm, baseDir: DATA_DIR, model });
+  return createOfficeAgent({ llm, baseDir: DATA_DIR, model, sideQueryModel: 'qwen3.5-flash' });
 }
