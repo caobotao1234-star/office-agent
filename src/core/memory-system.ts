@@ -256,8 +256,10 @@ export class MemorySystem {
   /** Move a file to trash instead of deleting it */
   private moveToTrash(filePath: string): void {
     if (!fs.existsSync(filePath)) return;
-    const trashPath = path.join(this.trashDir, path.basename(filePath));
-    this.ensureDir(this.trashDir);
+    // Preserve subdirectory structure in trash
+    const relPath = path.relative(this.baseDir, filePath);
+    const trashPath = path.join(this.trashDir, relPath);
+    this.ensureDir(path.dirname(trashPath));
     fs.renameSync(filePath, trashPath);
   }
 
