@@ -148,11 +148,11 @@ export class QueryEngine {
     return prompt;
   }
 
-  async *submitMessage(userMessage: string): AsyncGenerator<StreamEvent> {
+  async *submitMessage(userMessage: string, images?: string[]): AsyncGenerator<StreamEvent> {
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
 
-    this.messages.push({ role: 'user', content: userMessage, timestamp: new Date() });
+    this.messages.push({ role: 'user', content: userMessage, images, timestamp: new Date() });
     logger.debug(`submitMessage: "${userMessage.slice(0, 80)}"`, { msgCount: this.messages.length }, 'QueryEngine');
 
     // Track user intent for skill proposer
@@ -417,9 +417,22 @@ export class QueryEngine {
   // ============================================================
 
   private toLLMMessage(msg: Message): LLMMessage {
+    // Build multimodal content if images are present
+    let content: string | import('./llm-client.js').LLMContentPart[] | null = msg.content;
+    if (msg.images && msg.images.length > 0 && msg.role === 'user') {
+      const parts: import('./llm-client.js').LLMContentPart[] = [];
+      if (msg.content) {
+        parts.push({ type: 'text', text: msg.content });
+      }
+      for (const img of msg.images) {
+        parts.push({ type: 'image_url', image_url: { url: img } });
+      }
+      content = parts;
+    }
+
     return {
       role: msg.role === 'tool' ? 'tool' : msg.role as 'user' | 'assistant',
-      content: msg.content,
+      content,
       ...(msg.toolName && { name: msg.toolName }),
       ...(msg.toolCallId && { tool_call_id: msg.toolCallId }),
     };

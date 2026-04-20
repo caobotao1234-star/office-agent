@@ -81,6 +81,7 @@ interface QueuedMessageContext {
   chatId: string;
   senderId: string;
   cleanText: string;
+  images?: string[];
 }
 
 /**
@@ -135,12 +136,12 @@ function enqueueMessage(ctx: QueuedMessageContext, handler: (ctx: QueuedMessageC
 // ============================================================
 
 /** Collect all stream events into a single text response */
-async function processMessage(agent: OfficeAgent, text: string): Promise<string> {
+async function processMessage(agent: OfficeAgent, text: string, images?: string[]): Promise<string> {
   const parts: string[] = [];
   let toolCount = 0;
 
   try {
-    for await (const event of agent.handleMessage(text)) {
+    for await (const event of agent.handleMessage(text, images)) {
       switch (event.type) {
         case 'text':
           parts.push(event.content);
@@ -296,12 +297,13 @@ async function main() {
     chatId: string,
     senderId: string,
     cleanText: string,
+    images?: string[],
   ): Promise<void> {
     try {
       const agent = getOrCreateAgent(senderId);
       await ensureAgentStarted(agent, senderId, lark, chatId);
 
-      const response = await processMessage(agent, cleanText);
+      const response = await processMessage(agent, cleanText, images);
 
       log.info(`回复 to ${senderId}: ${response.slice(0, 80)}`);
 
@@ -446,16 +448,25 @@ async function main() {
           return;
         }
 
-        // Image-only messages — no text to process
+        // Image-only messages — download and process with multimodal
         if (msgType === 'image') {
-          void larkClient.im.v1.message.create({
-            params: { receive_id_type: 'chat_id' },
-            data: {
-              receive_id: chatId,
-              content: JSON.stringify({ text: '收到图片，不过我暂时还看不懂图片内容。可以用文字描述一下，或者图文一起发（富文本），我会处理其中的文字部分。' }),
-              msg_type: 'text',
+          let imageKey: string;
+          try {
+            const content = JSON.parse(message.content);
+            imageKey = content.image_key;
+          } catch { return; }
+          if (!imageKey) return;
+
+          log.info(`收到图片消息 from ${senderId}`, { imageKey });
+
+          enqueueMessage(
+            { lark: larkClient, chatId, senderId, cleanText: '用户发送了一张图片，请描述图片内容并回应。' },
+            async (ctx) => {
+              const dataUrl = await downloadFeishuImage(imageKey, messageId, getFeishuTenantToken);
+              const images = dataUrl ? [dataUrl] : undefined;
+              await handleFeishuMessage(ctx.lark, ctx.chatId, ctx.senderId, ctx.cleanText, images);
             },
-          });
+          );
           return;
         }
 
@@ -487,11 +498,12 @@ async function main() {
 
         // Text and post (rich text) message handling
         let text: string;
+        let imageKeys: string[] = [];
         try {
           const content = JSON.parse(message.content);
           if (msgType === 'post') {
-            // Extract text from rich text (post) message, ignoring images
             text = extractTextFromPost(content);
+            imageKeys = extractImageKeysFromPost(content);
           } else {
             text = content.text ?? '';
           }
@@ -499,21 +511,29 @@ async function main() {
           text = message.content ?? '';
         }
 
-        if (!text.trim()) return;
+        if (!text.trim() && imageKeys.length === 0) return;
 
         // Strip @bot mention prefix
-        cleanText = text.replace(/@_user_\d+\s*/g, '').trim();
-        if (!cleanText) return;
+        cleanText = (text || '').replace(/@_user_\d+\s*/g, '').trim();
+        if (!cleanText && imageKeys.length === 0) return;
 
-        log.info(`收到消息 from ${senderId}: ${cleanText.slice(0, 80)}`);
+        log.info(`收到消息 from ${senderId}: ${cleanText.slice(0, 80)}`, { imageCount: imageKeys.length });
 
         // CRITICAL: Return immediately, process in background
-        // Feishu requires the event handler to complete within 3 seconds.
-        // Our Agent processing (LLM API + tools) takes much longer.
-        // If we block here, Feishu will stop pushing subsequent messages.
         enqueueMessage(
-          { lark: larkClient, chatId, senderId, cleanText },
-          (ctx) => handleFeishuMessage(ctx.lark, ctx.chatId, ctx.senderId, ctx.cleanText),
+          { lark: larkClient, chatId, senderId, cleanText: cleanText || '用户发送了图片，请描述并回应。' },
+          async (ctx) => {
+            // Download images in parallel if any
+            let images: string[] | undefined;
+            if (imageKeys.length > 0) {
+              const results = await Promise.all(
+                imageKeys.map(key => downloadFeishuImage(key, messageId, getFeishuTenantToken)),
+              );
+              const valid = results.filter((r): r is string => r !== null);
+              if (valid.length > 0) images = valid;
+            }
+            await handleFeishuMessage(ctx.lark, ctx.chatId, ctx.senderId, ctx.cleanText, images);
+          },
         );
       },
     }),
@@ -529,6 +549,41 @@ async function main() {
  * Post content structure:
  * { "zh_cn": { "title": "...", "content": [[{ tag: "text", text: "..." }, { tag: "img", ... }]] } }
  */
+/** Download a Feishu image by image_key and return as base64 data URL */
+async function downloadFeishuImage(
+  imageKey: string,
+  messageId: string,
+  getTenantToken: () => Promise<string>,
+): Promise<string | null> {
+  try {
+    const token = await getTenantToken();
+    const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${imageKey}?type=image`;
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get('content-type') ?? 'image/png';
+    return `data:${contentType};base64,${buffer.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Extract image_keys from a Feishu post (rich text) message */
+function extractImageKeysFromPost(content: any): string[] {
+  const keys: string[] = [];
+  const locales = content.zh_cn ?? content.en_us ?? content.ja_jp ?? content;
+  const paragraphs: any[][] = locales?.content ?? [];
+  for (const paragraph of paragraphs) {
+    if (!Array.isArray(paragraph)) continue;
+    for (const element of paragraph) {
+      if (element?.tag === 'img' && element.image_key) {
+        keys.push(element.image_key);
+      }
+    }
+  }
+  return keys;
+}
+
 function extractTextFromPost(content: any): string {
   const parts: string[] = [];
 

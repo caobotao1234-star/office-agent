@@ -138,6 +138,7 @@ export interface UserConfig {
 export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  images?: string[];  // base64 data URLs for multimodal messages
   toolCallId?: string;
   toolName?: string;
   timestamp: Date;

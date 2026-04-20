@@ -27,10 +27,15 @@ export interface LLMQueryResult {
   toolCalls: LLMToolCall[] | null;
 }
 
+/** Multimodal content part (OpenAI vision format) */
+export type LLMContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 /** Chat message for multi-turn conversations */
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | LLMContentPart[] | null;
   tool_calls?: LLMToolCall[];
   tool_call_id?: string;
   name?: string;
