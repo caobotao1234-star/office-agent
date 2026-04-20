@@ -46,6 +46,8 @@ export const COMMAND_MAP: Record<string, { type: 'tool' | 'skill' | 'builtin'; t
   'retro': { type: 'skill', target: 'retrospective' },
   'retrospective': { type: 'skill', target: 'retrospective' },
   expenses: { type: 'tool', target: 'ExpenseTool' },
+  stats: { type: 'builtin', target: 'stats' },
+  insights: { type: 'builtin', target: 'stats' },
   // Builtin commands — handled directly by the agent, not routed to LLM
   usage: { type: 'builtin', target: 'usage' },
   token: { type: 'builtin', target: 'usage' },

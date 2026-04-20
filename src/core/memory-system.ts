@@ -511,6 +511,68 @@ export class MemorySystem {
    * Index is automatically updated after each store.
    * No-op when no LLM client is available.
    */
+  /**
+   * on_pre_compress hook (参考 Hermes Agent MemoryProvider)
+   * 在上下文压缩前，从即将被丢弃的消息中提取有价值的信息存入记忆。
+   * 返回提取的摘要文本，供压缩器参考保留。
+   */
+  async onPreCompress(messages: Message[]): Promise<string> {
+    if (!this.llm || messages.length < 3) return '';
+
+    const transcript = messages
+      .filter(m => m.role !== 'system')
+      .slice(0, 20) // 只看前 20 条即将被丢弃的
+      .map(m => `[${m.role}] ${m.content.slice(0, 300)}`)
+      .join('\n');
+
+    try {
+      const controller = new AbortController();
+      const response = await this.llm.query(
+        '你是一个信息提取助手。以下对话即将被压缩丢弃。\n' +
+        '请提取其中值得长期记住的信息（用户偏好、重要决策、承诺、关键结论）。\n' +
+        '用 JSON 数组格式返回：[{"title":"...","content":"...","type":"preference|decision|commitment","tags":["..."]}]\n' +
+        '如果没有值得记住的，返回空数组 []。只返回 JSON。',
+        transcript,
+        controller.signal,
+      );
+
+      const match = response.match(/\[[\s\S]*\]/);
+      if (!match) return '';
+
+      const items: Array<{ title: string; content: string; type: string; tags: string[] }> = JSON.parse(match[0]);
+      if (!Array.isArray(items) || items.length === 0) return '';
+
+      const summaryParts: string[] = [];
+      for (const item of items) {
+        if (!item.title || !item.content) continue;
+        await this.store({
+          title: item.title,
+          content: item.content,
+          type: (item.type as MemoryType) || 'decision',
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          source: 'auto_extract',
+          updatedAt: new Date(),
+        });
+        summaryParts.push(`- ${item.title}: ${item.content}`);
+      }
+
+      return summaryParts.length > 0
+        ? `压缩前提取的记忆:\n${summaryParts.join('\n')}`
+        : '';
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * on_session_end hook (参考 Hermes Agent MemoryProvider)
+   * 会话结束时，从完整对话中提取值得长期保留的信息。
+   */
+  async onSessionEnd(messages: Message[]): Promise<void> {
+    // Reuse existing extractAndStoreFromConversation
+    await this.extractAndStoreFromConversation(messages);
+  }
+
   async extractAndStoreFromConversation(messages: Message[]): Promise<void> {
     if (!this.llm || messages.length === 0) return;
 

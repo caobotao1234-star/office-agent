@@ -63,6 +63,14 @@ export class ContextManager {
       return { compressedMessages: messages, extractedMemories: [], summary: '' };
     }
 
+    // on_pre_compress hook: extract memories from messages about to be discarded
+    if (memorySystem) {
+      const discardable = convMsgs.slice(0, -Math.max(2, Math.ceil(convMsgs.length / 4)));
+      if (discardable.length > 0) {
+        await memorySystem.onPreCompress(discardable).catch(() => {});
+      }
+    }
+
     // --- LLM-powered compaction ---
     if (this.llm) {
       return this.compactWithLLM(systemMsgs, convMsgs, memorySystem);

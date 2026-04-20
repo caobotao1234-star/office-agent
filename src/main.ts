@@ -30,6 +30,7 @@ import { PromptSuggestionEngine } from './services/prompt-suggestion.js';
 import { NotificationService } from './services/notification-service.js';
 import { ReminderLoop } from './services/reminder-loop.js';
 import { SkillProposer } from './services/skill-proposer.js';
+import { InsightsEngine } from './services/insights-engine.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -193,6 +194,7 @@ export interface OfficeAgent {
   notificationService: NotificationService;
   reminderLoop: ReminderLoop;
   usageStats: UsageStats;
+  insightsEngine: InsightsEngine;
   configManager: UserConfigManager;
   dataDir: string;
 
@@ -294,12 +296,17 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     skillProposer,
   });
 
+  const insightsEngine = new InsightsEngine(
+    new TokenTracker(path.join(dataDir, 'token-usage.json')),
+    usageStats,
+  );
+
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
     skillSystem, subAgentManager, reminderEngine, cronScheduler,
     backgroundTaskManager, awaySummaryEngine,
     promptSuggestionEngine, notificationService, reminderLoop,
-    usageStats, configManager,
+    usageStats, insightsEngine, configManager,
     dataDir,
     handleMessage: (input: string) => handleMessage(agent, input),
     start: () => startAgent(agent),
@@ -413,7 +420,8 @@ async function* handleBuiltinCommand(
     }
 
     case 'stats': {
-      yield { type: 'text', content: agent.usageStats.formatReport() };
+      const report = agent.insightsEngine.generate();
+      yield { type: 'text', content: report.formatted };
       yield { type: 'done' };
       return;
     }
