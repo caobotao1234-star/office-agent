@@ -13,6 +13,7 @@ import type { LLMClient, LLMMessage, LLMToolDef } from './llm-client.js';
 import type { MemorySystem } from './memory-system.js';
 import type { ContextManager } from './context-manager.js';
 import type { ToolRegistry } from './tool-system.js';
+import { classifyApiError } from './error-classifier.js';
 
 import type { SessionStore } from './session-store.js';
 import type { SkillProposer } from '../services/skill-proposer.js';
@@ -258,7 +259,7 @@ export class QueryEngine {
       if (signal.aborted) { yield { type: 'error', error: 'Request interrupted' }; return; }
       rounds++;
 
-      const result = await this.config.llm.queryWithTools!(llmMessages, toolDefs, signal);
+      const result = await this.callLLMWithRetry(llmMessages, toolDefs, signal);
       logger.debug(`LLM round ${rounds}`, {
         hasToolCalls: !!(result.toolCalls?.length),
         toolCallCount: result.toolCalls?.length ?? 0,
@@ -413,6 +414,51 @@ export class QueryEngine {
       ...(msg.toolName && { name: msg.toolName }),
       ...(msg.toolCallId && { tool_call_id: msg.toolCallId }),
     };
+  }
+
+  /** Call LLM with auto-retry on transient errors */
+  private async callLLMWithRetry(
+    llmMessages: LLMMessage[],
+    toolDefs: LLMToolDef[],
+    signal: AbortSignal,
+    maxRetries = 2,
+  ) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.config.llm.queryWithTools!(llmMessages, toolDefs, signal);
+      } catch (err) {
+        const classified = classifyApiError(err);
+        logger.warn(`LLM API error (attempt ${attempt + 1}/${maxRetries + 1})`, {
+          category: classified.category,
+          retryable: classified.retryable,
+          message: classified.message.slice(0, 200),
+        }, 'QueryEngine');
+
+        if (!classified.retryable || attempt >= maxRetries) {
+          throw new Error(classified.userMessage);
+        }
+
+        if (classified.retryDelayMs > 0) {
+          await new Promise(r => setTimeout(r, classified.retryDelayMs));
+        }
+
+        // For context_too_long, try compacting before retry
+        if (classified.category === 'context_too_long') {
+          const compactResult = await this.config.contextManager.compact(
+            this.messages,
+            this.config.memorySystem,
+          );
+          this.messages = [...compactResult.compressedMessages];
+          // Rebuild llmMessages with compacted history
+          const systemMsg = llmMessages[0];
+          llmMessages.length = 0;
+          if (systemMsg) llmMessages.push(systemMsg);
+          llmMessages.push(...this.messages.map(m => this.toLLMMessage(m)));
+          logger.info('Context compacted after context_too_long error', {}, 'QueryEngine');
+        }
+      }
+    }
+    throw new Error('LLM 调用失败，请稍后重试。');
   }
 
   interrupt(): void { this.abortController?.abort(); }

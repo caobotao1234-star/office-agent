@@ -45,6 +45,7 @@ import { ConfigTool } from './tools/ConfigTool/index.js';
 import { WebSearchTool } from './tools/WebSearchTool/index.js';
 import { SkillCreatorTool } from './tools/SkillCreatorTool/index.js';
 import { ExpenseTool } from './tools/ExpenseTool/index.js';
+import { ClarifyTool } from './tools/ClarifyTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -253,6 +254,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new WebSearchTool());
   toolRegistry.register(new SkillCreatorTool(path.join(dataDir, 'skills')));
   toolRegistry.register(new ExpenseTool(dataDir));
+  toolRegistry.register(new ClarifyTool());
 
   // Disable WebSearch by default — qwen-plus has built-in enable_search.
   // Only enable for models without native search capability.
