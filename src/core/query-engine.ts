@@ -17,6 +17,7 @@ import { classifyApiError } from './error-classifier.js';
 
 import type { SessionStore } from './session-store.js';
 import type { SkillProposer } from '../services/skill-proposer.js';
+import type { WikiEngine } from './wiki-engine.js';
 
 export interface QueryEngineConfig {
   model: string;
@@ -28,6 +29,7 @@ export interface QueryEngineConfig {
   maxToolRounds?: number;
   sessionStore?: SessionStore;
   skillProposer?: SkillProposer;
+  wikiEngine?: WikiEngine;
 }
 
 export class QueryEngine {
@@ -108,6 +110,13 @@ export class QueryEngine {
     if (index) {
       prompt += '\n\n# 记忆索引\n\n' + index;
       logger.debug(`memory index loaded`, { lines: index.split('\n').length }, 'QueryEngine');
+    }
+
+    // Layer 1.5: Wiki knowledge index (LLMwiki pattern)
+    const wikiIndex = this.config.wikiEngine?.loadIndex();
+    if (wikiIndex) {
+      prompt += '\n\n# 知识库索引\n\n' + wikiIndex;
+      logger.debug('wiki index loaded', { length: wikiIndex.length }, 'QueryEngine');
     }
 
     // Layer 2: On-demand recall — only when there are enough memories to justify a side query

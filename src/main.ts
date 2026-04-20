@@ -31,6 +31,7 @@ import { NotificationService } from './services/notification-service.js';
 import { ReminderLoop } from './services/reminder-loop.js';
 import { SkillProposer } from './services/skill-proposer.js';
 import { InsightsEngine } from './services/insights-engine.js';
+import { WikiEngine } from './core/wiki-engine.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -225,6 +226,8 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const config = configManager.load();
 
   const memorySystem = new MemorySystem(path.join(dataDir, 'memdir'), llm);
+  const wikiEngine = new WikiEngine(path.join(dataDir, 'memdir'), llm);
+  memorySystem.setWikiEngine(wikiEngine);
   const contextManager = new ContextManager(contextWindowSize ?? 128_000, llm);
   const toolRegistry = new ToolRegistry();
 
@@ -294,6 +297,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     llm,
     sessionStore,
     skillProposer,
+    wikiEngine,
   });
 
   const insightsEngine = new InsightsEngine(
@@ -426,6 +430,33 @@ async function* handleBuiltinCommand(
       return;
     }
 
+    case 'wiki': {
+      const pages = wikiEngine.listPages();
+      if (pages.length === 0) {
+        yield { type: 'text', content: '📚 知识库暂无内容。随着对话积累，会自动生成项目、人物、概念等知识页面。' };
+      } else {
+        const lines = [`📚 知识库 (${pages.length} 个页面)`, ''];
+        const grouped = new Map<string, typeof pages>();
+        for (const p of pages) {
+          const arr = grouped.get(p.type) ?? [];
+          arr.push(p);
+          grouped.set(p.type, arr);
+        }
+        const labels: Record<string, string> = {
+          projects: '📁 项目', people: '👤 人物', concepts: '💡 概念',
+          decisions: '⚖️ 决策', general: '📝 综合',
+        };
+        for (const [type, ps] of grouped) {
+          lines.push(`${labels[type] ?? type}:`);
+          for (const p of ps) lines.push(`  - ${p.title}`);
+          lines.push('');
+        }
+        yield { type: 'text', content: lines.join('\n') };
+      }
+      yield { type: 'done' };
+      return;
+    }
+
     case 'help': {
       yield {
         type: 'text',
@@ -446,7 +477,8 @@ async function* handleBuiltinCommand(
           '  /cron               查看定时任务',
           '  /usage              查看 token 用量',
           '  /usage detail       查看详细用量',
-          '  /stats              查看工具/技能使用统计',
+          '  /stats              使用洞察报告',
+          '  /wiki               浏览知识库',
           '  /db tasks           直接查数据库任务',
           '  /db projects        直接查数据库项目',
           '  /db memories        直接查数据库记忆',

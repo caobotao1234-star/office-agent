@@ -15,6 +15,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { MemoryEntry, MemoryQuery, MemoryType, MemorySource, Message } from '../types/index.js';
 import type { LLMClient } from './llm-client.js';
+import type { WikiEngine } from './wiki-engine.js';
 
 // ============================================================
 // Constants
@@ -121,10 +122,16 @@ function metaToEntry(id: string, meta: Record<string, string>, content: string):
 export class MemorySystem {
   private baseDir: string;
   private llm: LLMClient | undefined;
+  private wikiEngine: WikiEngine | undefined;
 
   constructor(baseDir?: string, llm?: LLMClient) {
     this.baseDir = baseDir ?? BASE_DIR;
     this.llm = llm;
+  }
+
+  /** Attach a WikiEngine for automatic wiki page updates on memory store */
+  setWikiEngine(wiki: WikiEngine): void {
+    this.wikiEngine = wiki;
   }
 
   // ----------------------------------------------------------
@@ -200,6 +207,12 @@ export class MemorySystem {
     const filePath = this.filePathForEntry(entry.type, entry.id);
     fs.writeFileSync(filePath, serializeFrontmatter(entry), 'utf-8');
     this.updateIndex();
+
+    // Trigger wiki page update in background (LLMwiki pattern)
+    if (this.wikiEngine) {
+      void this.wikiEngine.onMemoryStored(entry).catch(() => {});
+    }
+
     return entry;
   }
 
