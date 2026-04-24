@@ -14,6 +14,8 @@ export interface DashScopeLLMOptions {
   maxTokens?: number;
   temperature?: number;
   tokenTracker?: TokenTracker;
+  /** Custom base URL for OpenAI-compatible providers (e.g. DeepSeek) */
+  baseUrl?: string;
 }
 
 export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
@@ -23,7 +25,12 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
     maxTokens = 4096,
     temperature = 0.7,
     tokenTracker,
+    baseUrl,
   } = options;
+
+  const apiUrl = baseUrl
+    ? (baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl.replace(/\/+$/, '')}/chat/completions`)
+    : DASHSCOPE_BASE_URL;
 
   function buildMessages(system: string, user: string) {
     return [
@@ -42,7 +49,7 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
   return {
     // --- 非流式（用于 side query、记忆提取等轻量调用）---
     async query(system: string, user: string, signal: AbortSignal): Promise<string> {
-      const response = await fetch(DASHSCOPE_BASE_URL, {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: buildHeaders(),
         body: JSON.stringify({
@@ -77,7 +84,7 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
 
     // --- 流式输出（SSE）---
     async *queryStream(system: string, user: string, signal: AbortSignal): AsyncGenerator<string> {
-      const response = await fetch(DASHSCOPE_BASE_URL, {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: buildHeaders(),
         body: JSON.stringify({
@@ -166,7 +173,7 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
       tools: LLMToolDef[],
       signal: AbortSignal,
     ): Promise<LLMQueryResult> {
-      const response = await fetch(DASHSCOPE_BASE_URL, {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: buildHeaders(),
         body: JSON.stringify({
@@ -175,7 +182,8 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
           tools: tools.length > 0 ? tools : undefined,
           max_tokens: maxTokens,
           temperature,
-          enable_search: true,
+          // DashScope-specific: enable built-in web search (ignored by other providers)
+          ...(baseUrl ? {} : { enable_search: true }),
           // 百炼文档：tools 参数不能和 stream=True 同时使用
         }),
         signal,

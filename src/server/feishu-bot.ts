@@ -57,13 +57,26 @@ function getOrCreateAgent(userId: string): OfficeAgent {
   const existing = userAgents.get(userId);
   if (existing) return existing;
 
-  const apiKey = process.env['DASHSCOPE_API_KEY'] ?? '';
-  const model = process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus';
+  // Support multiple LLM providers via env vars
+  const provider = process.env['LLM_PROVIDER'] ?? 'dashscope';
+  const apiKey = provider === 'deepseek'
+    ? (process.env['LLM_API_KEY'] ?? '')
+    : (process.env['DASHSCOPE_API_KEY'] ?? '');
+  const model = provider === 'deepseek'
+    ? (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash')
+    : (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus');
+  const baseUrl = provider === 'deepseek'
+    ? (process.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1')
+    : undefined;
+
   // Per-user data directory for complete isolation
   const userDataDir = path.join(DATA_DIR, 'users', userId);
   const tokenTracker = new TokenTracker(path.join(userDataDir, 'token-usage.json'));
-  const llm = createDashScopeLLM({ apiKey, model, tokenTracker });
-  const agent = createOfficeAgent({ llm, baseDir: userDataDir, model, sideQueryModel: 'qwen3.5-flash' });
+  const llm = createDashScopeLLM({ apiKey, model, tokenTracker, baseUrl });
+
+  // Side query model: use DashScope qwen3.5-flash for fast queries regardless of main provider
+  const sideQueryModel = 'qwen3.5-flash';
+  const agent = createOfficeAgent({ llm, baseDir: userDataDir, model, sideQueryModel });
 
   userAgents.set(userId, agent);
   return agent;
@@ -235,7 +248,11 @@ async function main() {
   log.info('╔══════════════════════════════════════════╗');
   log.info('║   🤖 Office Agent — 飞书机器人           ║');
   log.info('╚══════════════════════════════════════════╝');
-  log.info(`模型: ${process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus'}`);
+  const activeProvider = process.env['LLM_PROVIDER'] ?? 'dashscope';
+  const activeModel = activeProvider === 'deepseek'
+    ? (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash')
+    : (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus');
+  log.info(`模型: ${activeModel} (${activeProvider})`);
   log.info('模式: WebSocket 长连接（无需公网 IP）');
 
   // Helper: get tenant token for direct API calls
