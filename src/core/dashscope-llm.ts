@@ -214,6 +214,7 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
       const msg = data.choices?.[0]?.message;
       const toolCalls: LLMToolCall[] | null = msg?.tool_calls?.map((tc) => ({
         id: tc.id,
+        type: 'function' as const,
         function: { name: tc.function.name, arguments: tc.function.arguments },
       })) ?? null;
 

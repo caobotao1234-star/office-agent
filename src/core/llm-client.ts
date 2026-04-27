@@ -15,6 +15,7 @@ export interface LLMToolDef {
 /** A tool call returned by the LLM */
 export interface LLMToolCall {
   id: string;
+  type: 'function';
   function: {
     name: string;
     arguments: string; // JSON string
