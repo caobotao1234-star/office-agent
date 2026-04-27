@@ -22,9 +22,9 @@ export function getTokenTracker(): TokenTracker {
 export function getAgent(modelOverride?: string): OfficeAgent {
   const provider = process.env['LLM_PROVIDER'] ?? 'dashscope';
 
-  const apiKey = provider === 'deepseek'
-    ? (process.env['LLM_API_KEY'] ?? '')
-    : (process.env['DASHSCOPE_API_KEY'] ?? '');
+  const apiKey = provider === 'dashscope'
+    ? (process.env['DASHSCOPE_API_KEY'] ?? '')
+    : (process.env['LLM_API_KEY'] ?? '');
   if (!apiKey) {
     console.error('❌ 缺少 API Key');
     console.error('   请在 .env 中配置 DASHSCOPE_API_KEY 或 LLM_API_KEY');
@@ -32,12 +32,12 @@ export function getAgent(modelOverride?: string): OfficeAgent {
   }
 
   const model = modelOverride
-    ?? (provider === 'deepseek'
-      ? (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash')
-      : (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus'));
-  const baseUrl = provider === 'deepseek'
-    ? (process.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1')
-    : undefined;
+    ?? (provider === 'dashscope'
+      ? (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus')
+      : (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash'));
+  const baseUrl = provider === 'dashscope'
+    ? undefined
+    : (process.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1');
 
   const tokenTracker = getTokenTracker();
 

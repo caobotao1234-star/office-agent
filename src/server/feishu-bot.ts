@@ -59,15 +59,15 @@ function getOrCreateAgent(userId: string): OfficeAgent {
 
   // Support multiple LLM providers via env vars
   const provider = process.env['LLM_PROVIDER'] ?? 'dashscope';
-  const apiKey = provider === 'deepseek'
-    ? (process.env['LLM_API_KEY'] ?? '')
-    : (process.env['DASHSCOPE_API_KEY'] ?? '');
-  const model = provider === 'deepseek'
-    ? (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash')
-    : (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus');
-  const baseUrl = provider === 'deepseek'
-    ? (process.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1')
-    : undefined;
+  const apiKey = provider === 'dashscope'
+    ? (process.env['DASHSCOPE_API_KEY'] ?? '')
+    : (process.env['LLM_API_KEY'] ?? '');
+  const model = provider === 'dashscope'
+    ? (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus')
+    : (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash');
+  const baseUrl = provider === 'dashscope'
+    ? undefined
+    : (process.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1');
 
   // Per-user data directory for complete isolation
   const userDataDir = path.join(DATA_DIR, 'users', userId);
@@ -249,9 +249,9 @@ async function main() {
   log.info('║   🤖 Office Agent — 飞书机器人           ║');
   log.info('╚══════════════════════════════════════════╝');
   const activeProvider = process.env['LLM_PROVIDER'] ?? 'dashscope';
-  const activeModel = activeProvider === 'deepseek'
-    ? (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash')
-    : (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus');
+  const activeModel = activeProvider === 'dashscope'
+    ? (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus')
+    : (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash');
   log.info(`模型: ${activeModel} (${activeProvider})`);
   log.info('模式: WebSocket 长连接（无需公网 IP）');
 
