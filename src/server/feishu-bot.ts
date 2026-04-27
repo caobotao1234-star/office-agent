@@ -20,6 +20,7 @@ import * as os from 'node:os';
 import * as fs from 'node:fs';
 import { createOfficeAgent, type OfficeAgent } from '../main.js';
 import { createDashScopeLLM } from '../core/dashscope-llm.js';
+import { resolveMainModel, resolveSideModel } from '../core/model-registry.js';
 import { TokenTracker } from '../core/token-tracker.js';
 import { logger } from '../core/logger.js';
 import { transcribeAudio } from '../services/speech-to-text.js';
@@ -57,30 +58,23 @@ function getOrCreateAgent(userId: string): OfficeAgent {
   const existing = userAgents.get(userId);
   if (existing) return existing;
 
-  // Main LLM — configured entirely via env vars
-  const apiKey = process.env['LLM_API_KEY'] ?? '';
-  const model = process.env['LLM_MODEL'] ?? 'qwen-plus';
-  const baseUrl = process.env['LLM_BASE_URL'];
-
+  const main = resolveMainModel();
   const userDataDir = path.join(DATA_DIR, 'users', userId);
   const tokenTracker = new TokenTracker(path.join(userDataDir, 'token-usage.json'));
-  const llm = createDashScopeLLM({ apiKey, model, tokenTracker, baseUrl });
+  const llm = createDashScopeLLM({
+    apiKey: main.apiKey, model: main.model, tokenTracker, baseUrl: main.baseUrl,
+  });
 
-  // Side query LLM — optional, falls back to main LLM if not configured
   let sideLlm: ReturnType<typeof createDashScopeLLM> | undefined;
-  const sideApiKey = process.env['SIDE_LLM_API_KEY'];
-  const sideModel = process.env['SIDE_LLM_MODEL'];
-  if (sideApiKey && sideModel) {
+  const side = resolveSideModel();
+  if (side) {
     sideLlm = createDashScopeLLM({
-      apiKey: sideApiKey,
-      model: sideModel,
-      baseUrl: process.env['SIDE_LLM_BASE_URL'],
-      maxTokens: 2048,
-      temperature: 0.3,
+      apiKey: side.apiKey, model: side.model, baseUrl: side.baseUrl,
+      maxTokens: 2048, temperature: 0.3,
     });
   }
 
-  const agent = createOfficeAgent({ llm, sideLlm, baseDir: userDataDir, model });
+  const agent = createOfficeAgent({ llm, sideLlm, baseDir: userDataDir, model: main.model });
   userAgents.set(userId, agent);
   return agent;
 }
@@ -232,8 +226,8 @@ async function main() {
     process.exit(1);
   }
 
-  if (!process.env['LLM_API_KEY']) {
-    log.error('缺少 LLM_API_KEY，请在 .env 中配置');
+  if (!process.env['LLM_MODEL']) {
+    log.error('缺少 LLM_MODEL，请在 .env 中配置');
     process.exit(1);
   }
 
@@ -251,7 +245,7 @@ async function main() {
   log.info('╔══════════════════════════════════════════╗');
   log.info('║   🤖 Office Agent — 飞书机器人           ║');
   log.info('╚══════════════════════════════════════════╝');
-  const activeModel = process.env['LLM_MODEL'] ?? 'qwen-plus';
+  const activeModel = process.env['LLM_MODEL'] ?? '?';
   const sideModel = process.env['SIDE_LLM_MODEL'];
   log.info(`主模型: ${activeModel}`);
   if (sideModel) log.info(`轻量模型: ${sideModel}`);

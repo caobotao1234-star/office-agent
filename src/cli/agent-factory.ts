@@ -5,11 +5,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createOfficeAgent, type OfficeAgent } from '../main.js';
 import { createDashScopeLLM } from '../core/dashscope-llm.js';
+import { resolveMainModel, resolveSideModel } from '../core/model-registry.js';
 import { TokenTracker } from '../core/token-tracker.js';
 
 const DATA_DIR = path.join(os.homedir(), '.office-agent');
 
-/** Shared token tracker instance */
 let _tokenTracker: TokenTracker | null = null;
 
 export function getTokenTracker(): TokenTracker {
@@ -20,38 +20,23 @@ export function getTokenTracker(): TokenTracker {
 }
 
 export function getAgent(modelOverride?: string): OfficeAgent {
-  const apiKey = process.env['LLM_API_KEY'];
-  if (!apiKey) {
-    console.error('❌ 缺少 LLM_API_KEY，请在 .env 中配置');
-    process.exit(1);
-  }
+  const main = modelOverride
+    ? { model: modelOverride, apiKey: process.env['LLM_API_KEY'] ?? '', baseUrl: process.env['LLM_BASE_URL'] }
+    : resolveMainModel();
 
-  const model = modelOverride ?? process.env['LLM_MODEL'] ?? 'qwen-plus';
-  const baseUrl = process.env['LLM_BASE_URL'];
   const tokenTracker = getTokenTracker();
-
   const llm = createDashScopeLLM({
-    apiKey,
-    model,
-    maxTokens: 4096,
-    temperature: 0.7,
-    tokenTracker,
-    baseUrl,
+    apiKey: main.apiKey, model: main.model, tokenTracker, baseUrl: main.baseUrl,
   });
 
-  // Side query LLM — optional
   let sideLlm: ReturnType<typeof createDashScopeLLM> | undefined;
-  const sideApiKey = process.env['SIDE_LLM_API_KEY'];
-  const sideModel = process.env['SIDE_LLM_MODEL'];
-  if (sideApiKey && sideModel) {
+  const side = resolveSideModel();
+  if (side) {
     sideLlm = createDashScopeLLM({
-      apiKey: sideApiKey,
-      model: sideModel,
-      baseUrl: process.env['SIDE_LLM_BASE_URL'],
-      maxTokens: 2048,
-      temperature: 0.3,
+      apiKey: side.apiKey, model: side.model, baseUrl: side.baseUrl,
+      maxTokens: 2048, temperature: 0.3,
     });
   }
 
-  return createOfficeAgent({ llm, sideLlm, baseDir: DATA_DIR, model });
+  return createOfficeAgent({ llm, sideLlm, baseDir: DATA_DIR, model: main.model });
 }
