@@ -57,28 +57,30 @@ function getOrCreateAgent(userId: string): OfficeAgent {
   const existing = userAgents.get(userId);
   if (existing) return existing;
 
-  // Support multiple LLM providers via env vars
-  const provider = process.env['LLM_PROVIDER'] ?? 'dashscope';
-  const apiKey = provider === 'dashscope'
-    ? (process.env['DASHSCOPE_API_KEY'] ?? '')
-    : (process.env['LLM_API_KEY'] ?? '');
-  const model = provider === 'dashscope'
-    ? (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus')
-    : (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash');
-  const baseUrl = provider === 'dashscope'
-    ? undefined
-    : (process.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1');
+  // Main LLM — configured entirely via env vars
+  const apiKey = process.env['LLM_API_KEY'] ?? '';
+  const model = process.env['LLM_MODEL'] ?? 'qwen-plus';
+  const baseUrl = process.env['LLM_BASE_URL'];
 
-  // Per-user data directory for complete isolation
   const userDataDir = path.join(DATA_DIR, 'users', userId);
   const tokenTracker = new TokenTracker(path.join(userDataDir, 'token-usage.json'));
   const llm = createDashScopeLLM({ apiKey, model, tokenTracker, baseUrl });
 
-  // Side query: use DashScope fast model only when main provider is not DashScope
-  // When using internal GLM, all queries go through GLM (no DashScope dependency)
-  const sideQueryModel = provider === 'dashscope' ? undefined : 'qwen3.5-flash';
-  const agent = createOfficeAgent({ llm, baseDir: userDataDir, model, sideQueryModel });
+  // Side query LLM — optional, falls back to main LLM if not configured
+  let sideLlm: ReturnType<typeof createDashScopeLLM> | undefined;
+  const sideApiKey = process.env['SIDE_LLM_API_KEY'];
+  const sideModel = process.env['SIDE_LLM_MODEL'];
+  if (sideApiKey && sideModel) {
+    sideLlm = createDashScopeLLM({
+      apiKey: sideApiKey,
+      model: sideModel,
+      baseUrl: process.env['SIDE_LLM_BASE_URL'],
+      maxTokens: 2048,
+      temperature: 0.3,
+    });
+  }
 
+  const agent = createOfficeAgent({ llm, sideLlm, baseDir: userDataDir, model });
   userAgents.set(userId, agent);
   return agent;
 }
@@ -230,8 +232,8 @@ async function main() {
     process.exit(1);
   }
 
-  if (!process.env['DASHSCOPE_API_KEY']) {
-    log.error('缺少 DASHSCOPE_API_KEY，请在 .env 中配置');
+  if (!process.env['LLM_API_KEY']) {
+    log.error('缺少 LLM_API_KEY，请在 .env 中配置');
     process.exit(1);
   }
 
@@ -249,11 +251,10 @@ async function main() {
   log.info('╔══════════════════════════════════════════╗');
   log.info('║   🤖 Office Agent — 飞书机器人           ║');
   log.info('╚══════════════════════════════════════════╝');
-  const activeProvider = process.env['LLM_PROVIDER'] ?? 'dashscope';
-  const activeModel = activeProvider === 'dashscope'
-    ? (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus')
-    : (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash');
-  log.info(`模型: ${activeModel} (${activeProvider})`);
+  const activeModel = process.env['LLM_MODEL'] ?? 'qwen-plus';
+  const sideModel = process.env['SIDE_LLM_MODEL'];
+  log.info(`主模型: ${activeModel}`);
+  if (sideModel) log.info(`轻量模型: ${sideModel}`);
   log.info('模式: WebSocket 长连接（无需公网 IP）');
 
   // Helper: get tenant token for direct API calls

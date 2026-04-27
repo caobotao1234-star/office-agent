@@ -20,25 +20,14 @@ export function getTokenTracker(): TokenTracker {
 }
 
 export function getAgent(modelOverride?: string): OfficeAgent {
-  const provider = process.env['LLM_PROVIDER'] ?? 'dashscope';
-
-  const apiKey = provider === 'dashscope'
-    ? (process.env['DASHSCOPE_API_KEY'] ?? '')
-    : (process.env['LLM_API_KEY'] ?? '');
+  const apiKey = process.env['LLM_API_KEY'];
   if (!apiKey) {
-    console.error('❌ 缺少 API Key');
-    console.error('   请在 .env 中配置 DASHSCOPE_API_KEY 或 LLM_API_KEY');
+    console.error('❌ 缺少 LLM_API_KEY，请在 .env 中配置');
     process.exit(1);
   }
 
-  const model = modelOverride
-    ?? (provider === 'dashscope'
-      ? (process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus')
-      : (process.env['LLM_MODEL'] ?? 'deepseek-v4-flash'));
-  const baseUrl = provider === 'dashscope'
-    ? undefined
-    : (process.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1');
-
+  const model = modelOverride ?? process.env['LLM_MODEL'] ?? 'qwen-plus';
+  const baseUrl = process.env['LLM_BASE_URL'];
   const tokenTracker = getTokenTracker();
 
   const llm = createDashScopeLLM({
@@ -50,6 +39,19 @@ export function getAgent(modelOverride?: string): OfficeAgent {
     baseUrl,
   });
 
-  const sideQueryModel = provider === 'dashscope' ? undefined : 'qwen3.5-flash';
-  return createOfficeAgent({ llm, baseDir: DATA_DIR, model, sideQueryModel });
+  // Side query LLM — optional
+  let sideLlm: ReturnType<typeof createDashScopeLLM> | undefined;
+  const sideApiKey = process.env['SIDE_LLM_API_KEY'];
+  const sideModel = process.env['SIDE_LLM_MODEL'];
+  if (sideApiKey && sideModel) {
+    sideLlm = createDashScopeLLM({
+      apiKey: sideApiKey,
+      model: sideModel,
+      baseUrl: process.env['SIDE_LLM_BASE_URL'],
+      maxTokens: 2048,
+      temperature: 0.3,
+    });
+  }
+
+  return createOfficeAgent({ llm, sideLlm, baseDir: DATA_DIR, model });
 }

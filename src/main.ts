@@ -215,27 +215,18 @@ export interface HandleMessageResult {
 
 export interface CreateOfficeAgentOptions {
   llm: LLMClient;
+  sideLlm?: LLMClient;
   baseDir?: string;
   contextWindowSize?: number;
   model?: string;
-  sideQueryModel?: string;
 }
 
 export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgent {
-  const { llm, baseDir, contextWindowSize, model, sideQueryModel } = options;
+  const { llm, sideLlm, baseDir, contextWindowSize, model } = options;
   const dataDir = baseDir ?? BASE_DIR;
 
-  // Side query model: use a separate fast model if configured, otherwise reuse main LLM.
-  // When sideQueryModel is set AND DashScope key is available, use DashScope for side queries.
-  // Otherwise, all queries go through the main LLM (e.g. GLM internal deployment).
-  const fastLlm = (sideQueryModel && process.env['DASHSCOPE_API_KEY'])
-    ? createDashScopeLLM({
-        apiKey: process.env['DASHSCOPE_API_KEY'],
-        model: sideQueryModel,
-        maxTokens: 2048,
-        temperature: 0.3,
-      })
-    : llm;
+  // Side query LLM: use dedicated fast model if provided, otherwise reuse main LLM
+  const fastLlm = sideLlm ?? llm;
 
   const configManager = new UserConfigManager(dataDir);
   const config = configManager.load();
