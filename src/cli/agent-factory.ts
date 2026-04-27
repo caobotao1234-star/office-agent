@@ -50,5 +50,6 @@ export function getAgent(modelOverride?: string): OfficeAgent {
     baseUrl,
   });
 
-  return createOfficeAgent({ llm, baseDir: DATA_DIR, model, sideQueryModel: 'qwen3.5-flash' });
+  const sideQueryModel = provider === 'dashscope' ? undefined : 'qwen3.5-flash';
+  return createOfficeAgent({ llm, baseDir: DATA_DIR, model, sideQueryModel });
 }

@@ -225,11 +225,12 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const { llm, baseDir, contextWindowSize, model, sideQueryModel } = options;
   const dataDir = baseDir ?? BASE_DIR;
 
-  // Create a fast LLM for side queries (memory recall, extraction, compression, wiki)
-  // Uses a smaller/faster model to reduce latency on non-critical LLM calls
-  const fastLlm = sideQueryModel
+  // Side query model: use a separate fast model if configured, otherwise reuse main LLM.
+  // When sideQueryModel is set AND DashScope key is available, use DashScope for side queries.
+  // Otherwise, all queries go through the main LLM (e.g. GLM internal deployment).
+  const fastLlm = (sideQueryModel && process.env['DASHSCOPE_API_KEY'])
     ? createDashScopeLLM({
-        apiKey: process.env['DASHSCOPE_API_KEY'] ?? '',
+        apiKey: process.env['DASHSCOPE_API_KEY'],
         model: sideQueryModel,
         maxTokens: 2048,
         temperature: 0.3,

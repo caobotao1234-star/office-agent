@@ -74,8 +74,9 @@ function getOrCreateAgent(userId: string): OfficeAgent {
   const tokenTracker = new TokenTracker(path.join(userDataDir, 'token-usage.json'));
   const llm = createDashScopeLLM({ apiKey, model, tokenTracker, baseUrl });
 
-  // Side query model: use DashScope qwen3.5-flash for fast queries regardless of main provider
-  const sideQueryModel = 'qwen3.5-flash';
+  // Side query: use DashScope fast model only when main provider is not DashScope
+  // When using internal GLM, all queries go through GLM (no DashScope dependency)
+  const sideQueryModel = provider === 'dashscope' ? undefined : 'qwen3.5-flash';
   const agent = createOfficeAgent({ llm, baseDir: userDataDir, model, sideQueryModel });
 
   userAgents.set(userId, agent);
