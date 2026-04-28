@@ -48,6 +48,7 @@ import { WebSearchTool } from './tools/WebSearchTool/index.js';
 import { SkillCreatorTool } from './tools/SkillCreatorTool/index.js';
 import { ExpenseTool } from './tools/ExpenseTool/index.js';
 import { ClarifyTool } from './tools/ClarifyTool/index.js';
+import { FeishuCLITool } from './tools/FeishuCLI/index.js';
 
 import { createDashScopeLLM } from './core/dashscope-llm.js';
 
@@ -253,7 +254,19 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new DocumentParserTool());
-  toolRegistry.register(new FeishuConnectorTool());
+
+  // Feishu backend: "cli" uses lark-cli (user identity), "sdk" uses SDK (app identity)
+  const feishuBackend = process.env['FEISHU_BACKEND'] ?? 'sdk';
+  if (feishuBackend === 'cli') {
+    toolRegistry.register(new FeishuCLITool());
+    // Disable SDK-based tools when using CLI
+    const sdkConnector = new FeishuConnectorTool();
+    sdkConnector.setEnabled(false);
+    toolRegistry.register(sdkConnector);
+  } else {
+    toolRegistry.register(new FeishuConnectorTool());
+  }
+
   toolRegistry.register(new EmailTool());
   toolRegistry.register(new CalendarTool());
   toolRegistry.register(new ReminderTool(reminderEngine));
