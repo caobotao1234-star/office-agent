@@ -110,7 +110,7 @@ describe('QueryEngine', () => {
         if (callCount === 1) {
           return {
             content: null,
-            toolCalls: [{ id: 'tc1', function: { name: 'TestTool', arguments: '{"q":"data"}' } }],
+            toolCalls: [{ id: 'tc1', type: 'function' as const, function: { name: 'TestTool', arguments: '{"q":"data"}' } }],
           };
         }
         return { content: 'Final answer after tool call', toolCalls: null };
@@ -152,7 +152,7 @@ describe('QueryEngine', () => {
       async queryWithTools() {
         return {
           content: null,
-          toolCalls: [{ id: 'tc', function: { name: 'Loop', arguments: '{}' } }],
+          toolCalls: [{ id: 'tc', type: 'function' as const, function: { name: 'Loop', arguments: '{}' } }],
         };
       },
     };

@@ -19,7 +19,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import { createOfficeAgent, type OfficeAgent } from '../main.js';
-import { createDashScopeLLM } from '../core/dashscope-llm.js';
+// 🎓 Step 1: 从手搓 DashScope 客户端切换到 LangChain 封装
+// 旧代码: import { createDashScopeLLM } from '../core/dashscope-llm.js';
+import { createLangChainLLM } from '../core/langchain-llm.js';
 import { resolveMainModel, resolveSideModel } from '../core/model-registry.js';
 import { TokenTracker } from '../core/token-tracker.js';
 import { logger } from '../core/logger.js';
@@ -61,14 +63,15 @@ function getOrCreateAgent(userId: string): OfficeAgent {
   const main = resolveMainModel();
   const userDataDir = path.join(DATA_DIR, 'users', userId);
   const tokenTracker = new TokenTracker(path.join(userDataDir, 'token-usage.json'));
-  const llm = createDashScopeLLM({
+  // 🎓 Step 1: 使用 LangChain ChatOpenAI 替代手搓的 DashScope 客户端
+  const llm = createLangChainLLM({
     apiKey: main.apiKey, model: main.model, tokenTracker, baseUrl: main.baseUrl,
   });
 
-  let sideLlm: ReturnType<typeof createDashScopeLLM> | undefined;
+  let sideLlm: ReturnType<typeof createLangChainLLM> | undefined;
   const side = resolveSideModel();
   if (side) {
-    sideLlm = createDashScopeLLM({
+    sideLlm = createLangChainLLM({
       apiKey: side.apiKey, model: side.model, baseUrl: side.baseUrl,
       maxTokens: 2048, temperature: 0.3,
     });
