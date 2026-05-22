@@ -145,6 +145,58 @@ describe('QueryEngine', () => {
     expect(textEv.content).toBe('Final answer after tool call');
   });
 
+  it('passes tool errors back to the LLM, not only output', async () => {
+    let callCount = 0;
+    let toolMessageContent = '';
+
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools(msgs) {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: null,
+            toolCalls: [{ id: 'tc1', function: { name: 'FailTool', arguments: '{}' } }],
+          };
+        }
+
+        const lastToolMsg = [...msgs].reverse().find((m) => m.role === 'tool');
+        toolMessageContent = lastToolMsg?.content ?? '';
+        return { content: toolMessageContent.includes('boom') ? '工具失败：boom' : 'missing error', toolCalls: null };
+      },
+    };
+
+    const failingTool: Tool = {
+      name: 'FailTool',
+      description: 'Always fails',
+      inputSchema: z.object({}),
+      isEnabled: () => true,
+      isReadOnly: () => true,
+      checkPermissions: () => ({ allowed: true }),
+      requiresUserConfirmation: () => false,
+      call: async () => ({ success: false, output: null, error: 'boom' }),
+    };
+
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(failingTool);
+
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+    });
+
+    const events = await collectEvents(engine.submitMessage('Use a failing tool'));
+    const textEv = events.find((e) => e.type === 'text') as Extract<StreamEvent, { type: 'text' }>;
+
+    expect(toolMessageContent).toContain('"success":false');
+    expect(toolMessageContent).toContain('"error":"boom"');
+    expect(textEv.content).toBe('工具失败：boom');
+  });
+
   it('respects maxToolRounds to prevent infinite loops', async () => {
     // LLM always returns tool_calls — should stop after maxToolRounds
     const llm: LLMClient = {

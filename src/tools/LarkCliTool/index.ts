@@ -70,16 +70,19 @@ const READ_ONLY_PATTERNS = [
 export class LarkCliTool implements Tool<LarkCliInput, unknown> {
   readonly name = 'LarkCli';
   readonly description = [
-    'Run the official lark-cli for Feishu/Lark operations. Prefer this tool for ALL Feishu work: messages, documents, sheets, base, calendar, mail, tasks, wiki, contacts, meetings, approval, and raw OpenAPI calls.',
+    'Run the official lark-cli for Feishu/Lark operations: messages, docs, sheets, base, calendar, mail, tasks, wiki, contacts, meetings, approval, and raw OpenAPI calls.',
     'Pass args as an argv array after lark-cli, never as a shell string.',
-    'Use lark-cli schema or --help to inspect parameters when unsure.',
+    'Use lark-cli schema or --help to inspect parameters when unsure. Do not guess flags.',
+    'Before any confirmed write command, inspect the command with --help or run a successful --dry-run for that same command first.',
+    'Docs v2 create/update/fetch flags are version-specific: docs +create --api-version v2 uses --content and --doc-format, not --title or --markdown.',
     'Prefer --as user for personal data and --as bot for bot-owned actions.',
-    'Prefer --format json for machine-readable output.',
+    'Prefer --format json for machine-readable output when --help shows the command supports it.',
     'For side-effect commands, run --dry-run first when unsure; set confirmed=true only when the user explicitly asked to execute.',
   ].join(' ');
   readonly inputSchema = LarkCliInput;
 
   private enabled = true;
+  private verifiedWriteCommands = new Set<string>();
 
   isEnabled(): boolean { return this.enabled; }
   setEnabled(v: boolean): void { this.enabled = v; }
@@ -99,15 +102,31 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
 
   async call(input: LarkCliInput, context: ToolContext): Promise<ToolResult<unknown>> {
     const commandNeedsConfirmation = requiresWriteConfirmation(input.args);
+    const commandKey = getCommandKey(input.args);
+
     if (commandNeedsConfirmation && !input.confirmed) {
       return {
         success: false,
         output: {
           command: `lark-cli ${input.args.join(' ')}`,
           requiresConfirmation: true,
+          helpHint: commandKey ? [...commandKey.split(' '), '--help'] : ['--help'],
           dryRunHint: appendDryRun(input.args),
         },
         error: '该 lark-cli 命令可能会修改飞书数据。请先使用 --dry-run 预览，或在用户明确要求执行时设置 confirmed=true。',
+      };
+    }
+
+    if (commandNeedsConfirmation && commandKey && !this.verifiedWriteCommands.has(commandKey)) {
+      return {
+        success: false,
+        output: {
+          command: `lark-cli ${input.args.join(' ')}`,
+          requiresCliGuidance: true,
+          helpHint: [...commandKey.split(' '), '--help'],
+          dryRunHint: appendDryRun(input.args),
+        },
+        error: '执行写操作前必须先查看同一 lark-cli 命令的 --help，或成功运行一次同一命令的 --dry-run。不要猜参数。',
       };
     }
 
@@ -136,6 +155,10 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       truncated: result.truncated,
     };
 
+    if (result.exitCode === 0 && commandKey && isGuidanceCommand(input.args)) {
+      this.verifiedWriteCommands.add(commandKey);
+    }
+
     if (result.exitCode === 0 && !result.timedOut && !result.aborted) {
       return { success: true, output };
     }
@@ -149,7 +172,27 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
   }
 }
 
+export function getCommandKey(args: string[]): string | null {
+  const positional = args.filter((arg) => !arg.startsWith('-') && arg !== 'user' && arg !== 'bot');
+  if (positional.length === 0) return null;
+
+  if (positional[0] === 'api') {
+    return positional.slice(0, 3).join(' ');
+  }
+
+  if (positional[1]?.startsWith('+')) {
+    return positional.slice(0, 2).join(' ');
+  }
+
+  return positional.slice(0, Math.min(3, positional.length)).join(' ');
+}
+
+function isGuidanceCommand(args: string[]): boolean {
+  return args.includes('--help') || args.includes('-h') || args.includes('--dry-run');
+}
+
 export function requiresWriteConfirmation(args: string[]): boolean {
+  if (args.includes('--help') || args.includes('-h')) return false;
   if (args.includes('--dry-run')) return false;
   if (args.length === 0) return false;
 

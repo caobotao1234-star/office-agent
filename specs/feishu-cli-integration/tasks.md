@@ -47,3 +47,11 @@
 - 实现说明：运行 typecheck、build、unit tests、CLI smoke，确认 git diff 后提交。
 - 验证命令：`npm run typecheck && npm run build && npm test`
 - 完成标准：所有可离线验证通过并完成 git commit。
+
+## T7 修复通用 CLI 参数误猜与失败误报
+
+- 状态：DONE
+- 文件：`src/tools/LarkCliTool/index.ts`、`src/main.ts`、`src/core/query-engine.ts`
+- 实现说明：继续保持泛化 `LarkCli`，补充最新 CLI 使用规则，并把工具失败的 `error` 完整回传给模型，避免 `output=null` 时幻觉成功。
+- 验证命令：`npm test -- src/tools/LarkCliTool/index.test.ts src/core/query-engine.test.ts && npm run typecheck && npm test`
+- 完成标准：Agent 必须先通过 `--help`/`schema` 确认不熟悉的参数；工具失败时模型能看到 error、stdout、stderr。

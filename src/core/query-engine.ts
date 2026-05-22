@@ -251,7 +251,7 @@ export class QueryEngine {
           // Add tool result to message history
           llmMessages.push({
             role: 'tool',
-            content: JSON.stringify(toolResult.output),
+            content: JSON.stringify(toolResult),
             tool_call_id: tc.id,
             name: tc.function.name,
           });
