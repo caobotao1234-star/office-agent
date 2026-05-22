@@ -34,6 +34,7 @@ const MIN_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 
 export class ReminderLoop {
   private intervalId: ReturnType<typeof setInterval> | null = null;
+  private nextDueTimerId: ReturnType<typeof setTimeout> | null = null;
   private reminderEngine: ReminderEngine;
   private notificationService: NotificationService;
   private toolRegistry: ToolRegistry;
@@ -42,6 +43,10 @@ export class ReminderLoop {
   private lastLLMCheckAt: number = 0;
   private intervalMs: number;
   private recentReminderKeys = new Map<string, number>();
+  private unsubscribeReminderChanges: (() => void) | null = null;
+  private unsubscribeChannelChanges: (() => void) | null = null;
+  private tickInFlight = false;
+  private tickAgain = false;
 
   constructor(opts: {
     reminderEngine: ReminderEngine;
@@ -61,7 +66,18 @@ export class ReminderLoop {
 
   start(): void {
     if (this.intervalId) return;
+    this.unsubscribeReminderChanges = this.reminderEngine.onChange(() => {
+      this.scheduleNextDueTick();
+    });
+    this.unsubscribeChannelChanges = this.notificationService.onChannelChange(() => {
+      if (this.notificationService.hasChannels()) {
+        void this.tick();
+      } else {
+        this.clearNextDueTimer();
+      }
+    });
     this.intervalId = setInterval(() => { void this.tick(); }, this.intervalMs);
+    this.scheduleNextDueTick();
     void this.tick();
     log.info('started', { intervalMs: this.intervalMs });
   }
@@ -70,28 +86,48 @@ export class ReminderLoop {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
+      this.clearNextDueTimer();
+      this.unsubscribeReminderChanges?.();
+      this.unsubscribeReminderChanges = null;
+      this.unsubscribeChannelChanges?.();
+      this.unsubscribeChannelChanges = null;
       log.info('stopped');
     }
   }
 
   async tick(now = new Date()): Promise<void> {
-    if (!this.notificationService.hasChannels()) {
-      log.debug('skip tick: no notification channels');
+    if (this.tickInFlight) {
+      this.tickAgain = true;
       return;
     }
-    log.debug('tick', { now: now.toISOString() });
+    this.tickInFlight = true;
 
-    // 1. Always deliver user-created scheduled reminders (these are explicit, not LLM-decided)
-    await this.deliverScheduledReminders(now);
+    try {
+      if (!this.notificationService.hasChannels()) {
+        log.debug('skip tick: no notification channels');
+        return;
+      }
+      log.debug('tick', { now: now.toISOString() });
 
-    // 2. Deterministic deadline checks should not wait for the LLM.
-    await this.deliverDeadlineReminders(now);
+      // 1. Always deliver user-created scheduled reminders (these are explicit, not LLM-decided)
+      await this.deliverScheduledReminders(now);
 
-    // 3. LLM-driven smart check — throttled to avoid excessive API calls
-    const elapsed = now.getTime() - this.lastLLMCheckAt;
-    if (elapsed >= MIN_CHECK_INTERVAL_MS) {
-      await this.smartCheck(now);
-      this.lastLLMCheckAt = now.getTime();
+      // 2. Deterministic deadline checks should not wait for the LLM.
+      await this.deliverDeadlineReminders(now);
+
+      // 3. LLM-driven smart check — throttled to avoid excessive API calls
+      const elapsed = now.getTime() - this.lastLLMCheckAt;
+      if (elapsed >= MIN_CHECK_INTERVAL_MS) {
+        await this.smartCheck(now);
+        this.lastLLMCheckAt = now.getTime();
+      }
+    } finally {
+      this.tickInFlight = false;
+      this.scheduleNextDueTick();
+      if (this.tickAgain) {
+        this.tickAgain = false;
+        void this.tick();
+      }
     }
   }
 
@@ -213,6 +249,31 @@ export class ReminderLoop {
     if (lastSentAt && now.getTime() - lastSentAt < minGapMs) return false;
     this.recentReminderKeys.set(key, now.getTime());
     return true;
+  }
+
+  private scheduleNextDueTick(): void {
+    this.clearNextDueTimer();
+    if (!this.intervalId || !this.notificationService.hasChannels()) return;
+
+    const next = this.reminderEngine.getNextPendingReminderTime();
+    if (!next) return;
+
+    const now = new Date();
+    const delayMs = Math.max(0, next.getTime() - now.getTime());
+    if (delayMs > this.intervalMs) return;
+
+    this.nextDueTimerId = setTimeout(() => {
+      this.nextDueTimerId = null;
+      void this.tick();
+    }, delayMs);
+    this.nextDueTimerId.unref?.();
+    log.info('scheduled next due reminder tick', { scheduledAt: next.toISOString(), delayMs });
+  }
+
+  private clearNextDueTimer(): void {
+    if (!this.nextDueTimerId) return;
+    clearTimeout(this.nextDueTimerId);
+    this.nextDueTimerId = null;
   }
 
   private async loadTasks(): Promise<TaskItem[]> {

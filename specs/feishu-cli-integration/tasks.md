@@ -79,3 +79,11 @@
 - 实现说明：日志默认写入工程目录 `logs/agent-YYYY-MM-DD.log`，覆盖 CLI 对话、Ask、工具调用、lark-cli 子进程、提醒循环、通知通道、飞书 Bot 和收件人恢复。
 - 验证命令：`npm run typecheck && npm test`
 - 完成标准：正常运行和错误路径均能在日志中看到模块、时间、命令、失败原因，敏感字段会被脱敏。
+
+## T11 修复短周期主动提醒不触发
+
+- 状态：DONE
+- 文件：`src/services/reminder-engine.ts`、`src/services/reminder-loop.ts`、`src/services/notification-service.ts`、`src/services/reminder-loop.test.ts`
+- 实现说明：新增提醒变更和通知通道变更事件，`ReminderLoop` 按最近到期提醒设置一次性 timer，避免 1 分钟提醒必须等待 15 分钟轮询。
+- 验证命令：`npm test -- src/services/reminder-loop.test.ts src/services/reminder-engine.test.ts src/services/notification-service.test.ts && npm run typecheck`
+- 完成标准：新建短周期提醒后，会在到期时主动触发；通知通道稍后恢复时，已到期提醒会立刻补发。

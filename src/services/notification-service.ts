@@ -13,20 +13,24 @@ import { logger } from '../core/logger.js';
 const log = logger.child('Notification');
 
 export type NotifyCallback = (message: string) => void | Promise<void>;
+export type ChannelChangeCallback = () => void;
 
 export class NotificationService {
   private channels: NotifyCallback[] = [];
+  private channelChangeCallbacks = new Set<ChannelChangeCallback>();
 
   /** Register a notification channel (CLI console, Feishu message, etc.) */
   addChannel(callback: NotifyCallback): void {
     this.channels.push(callback);
     log.info('channel added', { count: this.channels.length });
+    this.emitChannelChange();
   }
 
   /** Remove a notification channel */
   removeChannel(callback: NotifyCallback): void {
     this.channels = this.channels.filter(c => c !== callback);
     log.info('channel removed', { count: this.channels.length });
+    this.emitChannelChange();
   }
 
   /** Push a notification to all registered channels */
@@ -46,5 +50,22 @@ export class NotificationService {
   /** Check if any channels are registered */
   hasChannels(): boolean {
     return this.channels.length > 0;
+  }
+
+  onChannelChange(callback: ChannelChangeCallback): () => void {
+    this.channelChangeCallbacks.add(callback);
+    return () => {
+      this.channelChangeCallbacks.delete(callback);
+    };
+  }
+
+  private emitChannelChange(): void {
+    for (const callback of this.channelChangeCallbacks) {
+      try {
+        callback();
+      } catch (err) {
+        log.error('channel change callback failed', { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
   }
 }

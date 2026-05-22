@@ -18,6 +18,8 @@ import { logger } from '../core/logger.js';
 
 const log = logger.child('ReminderEngine');
 
+export type ReminderChangeCallback = () => void;
+
 // ============================================================
 // Time helpers
 // ============================================================
@@ -83,6 +85,7 @@ export class ReminderEngine {
   private pendingReminders: Reminder[] = [];
   private cancelledTaskIds = new Set<string>();
   private storagePath: string | undefined;
+  private changeCallbacks = new Set<ReminderChangeCallback>();
 
   constructor(config: UserConfig, storagePath?: string) {
     this.config = config;
@@ -111,22 +114,43 @@ export class ReminderEngine {
     return this.pendingReminders;
   }
 
+  getNextPendingReminderTime(): Date | null {
+    let next: Date | null = null;
+    for (const reminder of this.pendingReminders) {
+      if (reminder.delivered) continue;
+      if (!next || reminder.scheduledAt.getTime() < next.getTime()) {
+        next = reminder.scheduledAt;
+      }
+    }
+    return next;
+  }
+
   addReminder(reminder: Reminder): void {
     this.pendingReminders.push(reminder);
     this.save();
+    log.info('reminder added', { reminderId: reminder.id, type: reminder.type, taskId: reminder.taskId, scheduledAt: reminder.scheduledAt.toISOString() });
+  }
+
+  onChange(callback: ReminderChangeCallback): () => void {
+    this.changeCallbacks.add(callback);
+    return () => {
+      this.changeCallbacks.delete(callback);
+    };
   }
 
   save(): void {
-    if (!this.storagePath) return;
-    try {
-      fs.mkdirSync(path.dirname(this.storagePath), { recursive: true });
-      fs.writeFileSync(this.storagePath, JSON.stringify({
-        pendingReminders: this.pendingReminders,
-        cancelledTaskIds: [...this.cancelledTaskIds],
-      }, null, 2));
-    } catch (err) {
-      log.error('save failed', { error: err instanceof Error ? err.message : String(err), storagePath: this.storagePath });
+    if (this.storagePath) {
+      try {
+        fs.mkdirSync(path.dirname(this.storagePath), { recursive: true });
+        fs.writeFileSync(this.storagePath, JSON.stringify({
+          pendingReminders: this.pendingReminders,
+          cancelledTaskIds: [...this.cancelledTaskIds],
+        }, null, 2));
+      } catch (err) {
+        log.error('save failed', { error: err instanceof Error ? err.message : String(err), storagePath: this.storagePath });
+      }
     }
+    this.emitChange();
   }
 
   /** Cancel all pending reminders for a given task. */
@@ -360,6 +384,16 @@ export class ReminderEngine {
       log.error('load failed', { error: err instanceof Error ? err.message : String(err), storagePath: this.storagePath });
       this.pendingReminders = [];
       this.cancelledTaskIds = new Set();
+    }
+  }
+
+  private emitChange(): void {
+    for (const callback of this.changeCallbacks) {
+      try {
+        callback();
+      } catch (err) {
+        log.error('change callback failed', { error: err instanceof Error ? err.message : String(err) });
+      }
     }
   }
 

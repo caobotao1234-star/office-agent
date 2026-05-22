@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ReminderLoop } from './reminder-loop.js';
 import { ReminderEngine } from './reminder-engine.js';
 import { NotificationService } from './notification-service.js';
@@ -26,13 +26,18 @@ describe('ReminderLoop', () => {
     } as LLMClient;
   });
 
-  function createLoop() {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function createLoop(intervalMs?: number) {
     return new ReminderLoop({
       reminderEngine,
       notificationService,
       toolRegistry,
       llm: mockLLM,
       getConfig: () => config,
+      intervalMs,
     });
   }
 
@@ -113,6 +118,65 @@ describe('ReminderLoop', () => {
     await loop.tick(now);
 
     expect(notifyCb).not.toHaveBeenCalled();
+  });
+
+  it('should deliver newly added reminders at their due time without waiting for polling interval', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-05-22T00:00:00.000Z');
+    vi.setSystemTime(now);
+    const loop = createLoop(15 * 60 * 1000);
+    loop.start();
+
+    reminderEngine.addReminder({
+      id: 'test-due-timer',
+      type: 'smart_followup',
+      message: '一分钟提醒',
+      reason: 'test',
+      scheduledAt: new Date(now.getTime() + 60_000),
+      delivered: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(notifyCb).not.toHaveBeenCalledWith('一分钟提醒');
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(notifyCb).toHaveBeenCalledWith('一分钟提醒');
+    loop.stop();
+  });
+
+  it('should recheck due reminders when a notification channel is added after start', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-05-22T00:00:00.000Z');
+    vi.setSystemTime(now);
+    const lateNotificationService = new NotificationService();
+    const lateNotify = vi.fn<(message: string) => void>();
+    const loop = new ReminderLoop({
+      reminderEngine,
+      notificationService: lateNotificationService,
+      toolRegistry,
+      llm: mockLLM,
+      getConfig: () => config,
+      intervalMs: 15 * 60 * 1000,
+    });
+
+    reminderEngine.addReminder({
+      id: 'test-late-channel',
+      type: 'smart_followup',
+      message: '通道恢复提醒',
+      reason: 'test',
+      scheduledAt: now,
+      delivered: false,
+    });
+    loop.start();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(lateNotify).not.toHaveBeenCalled();
+
+    lateNotificationService.addChannel(lateNotify as any);
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(lateNotify).toHaveBeenCalledWith('通道恢复提醒');
+    loop.stop();
   });
 
   it('should not deliver already-delivered reminders', async () => {
