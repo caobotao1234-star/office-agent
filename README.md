@@ -16,6 +16,11 @@ echo "DASHSCOPE_API_KEY=sk-你的key" > .env
 # FEISHU_APP_ID=cli_xxx
 # FEISHU_APP_SECRET=xxx
 
+# 2c. 配置官方飞书 CLI（推荐，用于 Agent 操作飞书）
+npm run lark -- config init
+npm run lark:auth
+npm run lark:status
+
 # 3. 启动
 npm start
 ```
@@ -24,7 +29,8 @@ npm start
 
 - Node.js >= 18
 - 阿里云百炼平台 API Key（https://bailian.console.aliyun.com/）
-- （可选）飞书自建应用 App ID + App Secret（用于飞书机器人 + 日历 + 云文档）
+- 官方飞书 CLI 授权（用于 Agent 操作飞书文档、消息、日历、表格等）
+- （可选）飞书自建应用 App ID + App Secret（仅用于飞书机器人 WebSocket 接收消息）
 
 ## 全局安装
 
@@ -57,8 +63,34 @@ npx tsx src/cli/index.ts ask "帮我列出今天的待办"
 npx tsx src/cli/index.ts tasks     # 查看任务列表
 npx tsx src/cli/index.ts config    # 查看配置
 npx tsx src/cli/index.ts usage     # 查看 token 用量
+npx tsx src/cli/index.ts feishu    # 官方 lark-cli 桥接
 npx tsx src/cli/index.ts -h        # 帮助
 ```
+
+### 飞书 CLI 桥接
+
+项目内置官方 `@larksuite/cli`，`npm install` 后即可通过 `oa feishu` 或 `npm run lark -- ...` 使用。Agent 默认通过 `LarkCli` 工具调用它，不再优先使用项目内手写的飞书 SDK/stub 工具。
+
+```bash
+# 查看配置流程
+npx tsx src/cli/index.ts feishu setup
+
+# 初始化或绑定飞书开放平台应用
+npx tsx src/cli/index.ts feishu config init
+
+# 用户身份授权，推荐先开通常用最小权限
+npx tsx src/cli/index.ts feishu login
+
+# 检查状态
+npx tsx src/cli/index.ts feishu status
+npx tsx src/cli/index.ts feishu doctor
+
+# 直接透传 lark-cli 命令
+npx tsx src/cli/index.ts feishu docs +fetch --url "https://..."
+npx tsx src/cli/index.ts feishu schema im.messages.create
+```
+
+配置完成后进入 `oa chat`，直接用自然语言说“读取这个飞书文档”“把周报写入飞书文档”“查今天日程”等，Agent 会通过 `LarkCli` 工具执行。需要访问个人日历、私有文档、私聊、邮箱时，优先使用 user 授权；机器人群发或机器人身份操作可用 bot 身份。
 
 ## 对话中的斜杠命令
 
@@ -87,7 +119,7 @@ npx tsx src/cli/index.ts -h        # 帮助
 
 每次 Agent 回复后会显示 `[本轮调用了 N 个工具]` 或 `[本轮未调用工具]`，帮你判断回答是否基于真实数据。
 
-## 11 个内置工具
+## 主要内置工具
 
 Agent 通过原生 Function Calling 调用这些工具：
 
@@ -99,8 +131,9 @@ Agent 通过原生 Function Calling 调用这些工具：
 | ReminderTool | 提醒管理 | ✅ 完整 |
 | CronTool | 定时任务（cron 表达式） | ✅ 完整 |
 | ConfigTool | 通过对话修改配置（提醒时间、工作时间等） | ✅ 完整 |
-| FeishuConnector | 飞书云文档读取、文件夹浏览、消息发送 | ✅ 真实 API |
-| CalendarTool | 飞书日历日程创建/查询/删除 | ✅ 真实 API |
+| LarkCli | 官方飞书 CLI：消息、文档、表格、日历、邮箱、任务、会议、审批等 | ✅ 推荐 |
+| FeishuConnector | 旧版飞书 SDK 连接器 | 默认关闭 |
+| CalendarTool | 旧版飞书日历 SDK 工具 | 默认关闭 |
 | EmailTool | 邮件发送 | 🔲 stub |
 | DocumentParser | 文档解析（飞书/Excel/Word/网页） | 🔲 stub |
 | BackgroundTaskTool | 后台任务管理 | ✅ 完整 |
@@ -122,6 +155,8 @@ CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。
 ## 飞书机器人（WebSocket 长连接）
 
 通过飞书机器人与 Office Agent 对话，不需要公网 IP、域名或服务器。
+
+注意：这是“让飞书里的用户给本地 Agent 发消息”的入口，和 `LarkCli` 执行飞书操作是两层能力。只在需要机器人收消息、语音消息、主动推送到飞书时启动它。
 
 ### 配置步骤
 
@@ -204,7 +239,8 @@ src/
 │       ├── ask.ts              # 单次提问
 │       ├── tasks.ts            # 任务列表
 │       ├── config.ts           # 配置查看
-│       └── usage.ts            # Token 用量
+│       ├── usage.ts            # Token 用量
+│       └── feishu.ts           # 官方 lark-cli 透传
 │
 ├── core/                       # 核心引擎
 │   ├── query-engine.ts         # 主循环（LLM 调用 + 工具执行 + 记忆注入）
@@ -228,21 +264,23 @@ src/
 │   ├── reminder-engine.ts      # 提醒引擎（定时/截止日期/智能判断）
 │   ├── reminder-loop.ts        # 提醒后台循环（30s 检查 + 推送）
 │   ├── notification-service.ts # 统一通知通道（CLI/飞书注册回调）
+│   ├── lark-cli-runner.ts      # 官方 lark-cli 进程封装
 │   ├── cron-scheduler.ts       # 定时调度器（cron 表达式 + 持久化）
 │   ├── background-task-manager.ts  # 后台任务
 │   ├── away-summary-engine.ts  # 离开摘要
 │   ├── prompt-suggestion.ts    # 主动建议
 │   └── speech-to-text.ts       # 语音转文字（DashScope Paraformer）
 │
-├── tools/                      # 11 个工具模块
+├── tools/                      # 工具模块
 │   ├── TaskManager/            # 任务管理
 │   ├── SubAgentTool/           # 项目管理
 │   ├── MemoryTool/             # 记忆操作
 │   ├── ReminderTool/           # 提醒操作
 │   ├── CronTool/               # 定时任务
 │   ├── ConfigTool/             # 配置修改（通过对话）
-│   ├── FeishuConnector/        # 飞书连接器（真实 API）
-│   ├── CalendarTool/           # 飞书日历（真实 API）
+│   ├── LarkCliTool/            # 官方 lark-cli Agent 工具（推荐）
+│   ├── FeishuConnector/        # 旧版飞书连接器（默认关闭）
+│   ├── CalendarTool/           # 旧版飞书日历（默认关闭）
 │   ├── EmailTool/              # 邮件
 │   ├── DocumentParser/         # 文档解析
 │   └── BackgroundTaskTool/     # 后台任务

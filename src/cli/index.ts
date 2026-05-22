@@ -19,6 +19,7 @@ import { ask } from './commands/ask.js';
 import { tasks } from './commands/tasks.js';
 import { config } from './commands/config.js';
 import { usage } from './commands/usage.js';
+import { feishu } from './commands/feishu.js';
 import { loadEnv } from './env.js';
 
 const VERSION = '0.1.0';
@@ -33,6 +34,7 @@ const HELP = `
   oa tasks                 查看当前任务列表
   oa config                查看当前配置
   oa usage                 查看 token 用量统计
+  oa feishu <args...>      透传官方 lark-cli（飞书 CLI）
 
 选项:
   -h, --help               显示帮助
@@ -47,6 +49,13 @@ const HELP = `
 
 async function main() {
   loadEnv();
+
+  const rawArgs = process.argv.slice(2);
+  const rawCommand = rawArgs[0];
+  if (rawCommand === 'feishu' || rawCommand === 'lark') {
+    await feishu(rawArgs.slice(1));
+    return;
+  }
 
   const { values, positionals } = parseArgs({
     allowPositionals: true,

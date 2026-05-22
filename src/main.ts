@@ -43,6 +43,7 @@ import { CalendarTool } from './tools/CalendarTool/index.js';
 import { ConfigTool } from './tools/ConfigTool/index.js';
 import { WebSearchTool } from './tools/WebSearchTool/index.js';
 import { SkillCreatorTool } from './tools/SkillCreatorTool/index.js';
+import { LarkCliTool } from './tools/LarkCliTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -95,9 +96,14 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '',
     '# Feishu Cloud Documents',
     '',
-    '- Use FeishuConnector list_folder to browse folders (folderToken="root" for root)',
-    '- Use FeishuConnector get_document_raw to read document content as text',
-    '- When user asks you to read their project docs, browse folders first, then read each doc',
+    '- Use LarkCli for ALL Feishu/Lark work: messages, docs, sheets, base, calendar, mail, tasks, wiki, contacts, meetings, approval, and raw OpenAPI calls',
+    '- Use lark-cli schema or --help through LarkCli when you are unsure about parameters',
+    '- Prefer high-level shortcut commands such as docs +fetch, docs +create, sheets +read, im +messages-send, calendar +agenda',
+    '- Prefer --as user for personal data (calendar, private docs, messages, mail) and --as bot for bot-owned actions',
+    '- Prefer --format json for machine-readable output',
+    '- For side-effect operations, run --dry-run first when unsure; set confirmed=true only when the user explicitly asked to execute',
+    '- Legacy FeishuConnector and CalendarTool are disabled by default; do not rely on SDK/stub tools unless the environment explicitly enables legacy tools',
+    '- When user asks you to read their project docs, search/fetch via LarkCli first, then read each doc',
     '- Extract key information (milestones, deadlines, decisions, plans) and store as memories',
     '- If something is unclear, ASK the user before storing as memory',
     '',
@@ -222,12 +228,18 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const notificationService = new NotificationService();
   const usageStats = new UsageStats(path.join(dataDir, 'usage-stats.json'));
+  const useLegacyFeishuTools = process.env['OFFICE_AGENT_LEGACY_FEISHU_TOOLS'] === '1';
 
   toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new DocumentParserTool());
-  toolRegistry.register(new FeishuConnectorTool());
+  toolRegistry.register(new LarkCliTool());
+  const feishuConnectorTool = new FeishuConnectorTool();
+  if (!useLegacyFeishuTools) feishuConnectorTool.setEnabled(false);
+  toolRegistry.register(feishuConnectorTool);
   toolRegistry.register(new EmailTool());
-  toolRegistry.register(new CalendarTool());
+  const calendarTool = new CalendarTool();
+  if (!useLegacyFeishuTools) calendarTool.setEnabled(false);
+  toolRegistry.register(calendarTool);
   toolRegistry.register(new ReminderTool(reminderEngine));
   toolRegistry.register(new MemoryTool(memorySystem));
   toolRegistry.register(new CronTool(cronScheduler));
@@ -247,7 +259,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   }
 
   const toolDescriptions = toolRegistry
-    .listAll()
+    .listEnabled()
     .map((t) => `- **${t.name}**: ${t.description}`)
     .join('\n');
   const systemPrompt = buildSystemPrompt(toolDescriptions);

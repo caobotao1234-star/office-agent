@@ -70,7 +70,7 @@ describe('createOfficeAgent', () => {
     expect(agent.configManager).toBeDefined();
   });
 
-  it('should register all 13 tools', () => {
+  it('should register all 14 tools', () => {
     const tools = agent.toolRegistry.listAll();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
@@ -81,6 +81,7 @@ describe('createOfficeAgent', () => {
       'DocumentParser',
       'EmailTool',
       'FeishuConnector',
+      'LarkCli',
       'MemoryTool',
       'ReminderTool',
       'SkillCreator',
@@ -88,6 +89,13 @@ describe('createOfficeAgent', () => {
       'TaskManager',
       'WebSearch',
     ]);
+  });
+
+  it('should prefer LarkCli over legacy Feishu SDK tools by default', () => {
+    const enabledNames = agent.toolRegistry.listEnabled().map((t) => t.name).sort();
+    expect(enabledNames).toContain('LarkCli');
+    expect(enabledNames).not.toContain('FeishuConnector');
+    expect(enabledNames).not.toContain('CalendarTool');
   });
 
   it('should return default config via getConfig()', () => {
