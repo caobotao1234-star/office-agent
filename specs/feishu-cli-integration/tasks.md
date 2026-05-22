@@ -55,3 +55,27 @@
 - 实现说明：继续保持泛化 `LarkCli`，补充最新 CLI 使用规则，并把工具失败的 `error` 完整回传给模型，避免 `output=null` 时幻觉成功。
 - 验证命令：`npm test -- src/tools/LarkCliTool/index.test.ts src/core/query-engine.test.ts && npm run typecheck && npm test`
 - 完成标准：Agent 必须先通过 `--help`/`schema` 确认不熟悉的参数；工具失败时模型能看到 error、stdout、stderr。
+
+## T8 飞书主动推送恢复
+
+- 状态：DONE
+- 文件：`src/server/feishu-bot.ts`、`src/services/feishu-recipient-store.ts`、`src/services/reminder-engine.test.ts`
+- 实现说明：记录飞书用户最近 `chat_id`，服务启动时恢复通知通道，让提醒循环无需等待用户再次发消息也能主动推送。
+- 验证命令：`npm test -- src/services/feishu-recipient-store.test.ts src/services/reminder-loop.test.ts src/services/reminder-engine.test.ts`
+- 完成标准：用户至少联系过一次机器人后，重启 `npm run feishu` 能恢复该用户的主动推送通道。
+
+## T9 云文档创建防空文档校验
+
+- 状态：DONE
+- 文件：`src/tools/LarkCliTool/index.ts`、`src/tools/LarkCliTool/index.test.ts`、`src/main.ts`
+- 实现说明：保留通用 CLI 工具，但对已知高风险 `docs +create --api-version v2` 参数做本地校验，阻止 `--title`、`--markdown`、缺少 `--doc-format`、Markdown 缺少 `<title>` 等会导致空文档/untitled 的命令。
+- 验证命令：`npm test -- src/tools/LarkCliTool/index.test.ts`
+- 完成标准：Agent 误猜旧参数时工具直接失败并返回可修复提示，不能再把失败当成功。
+
+## T10 全链路日志
+
+- 状态：DONE
+- 文件：`src/core/logger.ts`、`src/cli/commands/chat.ts`、`src/cli/commands/ask.ts`、`src/cli/commands/feishu.ts`、`src/services/lark-cli-runner.ts`、`src/tools/LarkCliTool/index.ts`、`src/services/reminder-loop.ts`、`src/services/reminder-engine.ts`、`src/services/notification-service.ts`、`src/server/feishu-bot.ts`
+- 实现说明：日志默认写入工程目录 `logs/agent-YYYY-MM-DD.log`，覆盖 CLI 对话、Ask、工具调用、lark-cli 子进程、提醒循环、通知通道、飞书 Bot 和收件人恢复。
+- 验证命令：`npm run typecheck && npm test`
+- 完成标准：正常运行和错误路径均能在日志中看到模块、时间、命令、失败原因，敏感字段会被脱敏。

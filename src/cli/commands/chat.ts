@@ -4,8 +4,12 @@
 import * as readline from 'node:readline';
 import type { StreamEvent } from '../../types/index.js';
 import { getAgent } from '../agent-factory.js';
+import { logger } from '../../core/logger.js';
 
 export async function chat(modelOverride?: string): Promise<void> {
+  logger.enableFileLogging();
+  logger.setLevel((process.env['LOG_LEVEL'] as any) ?? 'info');
+  const log = logger.child('CLI');
   const agent = getAgent(modelOverride);
   const model = modelOverride ?? process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus';
 
@@ -14,8 +18,10 @@ export async function chat(modelOverride?: string): Promise<void> {
   console.log('╚══════════════════════════════════════════╝');
   console.log(`  模型: ${model}`);
   console.log('  命令: /tasks /remind /daily-report /help');
+  console.log(`  日志: ${process.env['OFFICE_AGENT_LOG_DIR'] ?? 'logs/agent-YYYY-MM-DD.log'}`);
   console.log('  退出: quit 或 Ctrl+C');
   console.log();
+  log.info('chat started', { model });
 
   await agent.start();
 
@@ -60,6 +66,7 @@ export async function chat(modelOverride?: string): Promise<void> {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        log.error('chat turn failed', { error: msg });
         console.log(`\n\x1b[31m❌ ${msg}\x1b[0m`);
       }
 
@@ -89,7 +96,7 @@ function renderEvent(event: StreamEvent): void {
     case 'tool_result': {
       const r = event.result;
       const icon = r.success ? '✅' : '❌';
-      const preview = JSON.stringify(r.output).slice(0, 120);
+      const preview = JSON.stringify(r.success ? r.output : { error: r.error, output: r.output }).slice(0, 240);
       console.log(`  \x1b[90m${icon} ${preview}\x1b[0m`);
       process.stdout.write('\x1b[33mAgent>\x1b[0m ');
       break;

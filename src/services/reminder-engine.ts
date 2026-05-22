@@ -11,7 +11,12 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { Reminder, TaskItem, Message, UserConfig } from '../types/index.js';
+import { logger } from '../core/logger.js';
+
+const log = logger.child('ReminderEngine');
 
 // ============================================================
 // Time helpers
@@ -77,9 +82,12 @@ export class ReminderEngine {
   private config: UserConfig;
   private pendingReminders: Reminder[] = [];
   private cancelledTaskIds = new Set<string>();
+  private storagePath: string | undefined;
 
-  constructor(config: UserConfig) {
+  constructor(config: UserConfig, storagePath?: string) {
     this.config = config;
+    this.storagePath = storagePath;
+    this.load();
   }
 
   // ----------------------------------------------------------
@@ -103,12 +111,31 @@ export class ReminderEngine {
     return this.pendingReminders;
   }
 
+  addReminder(reminder: Reminder): void {
+    this.pendingReminders.push(reminder);
+    this.save();
+  }
+
+  save(): void {
+    if (!this.storagePath) return;
+    try {
+      fs.mkdirSync(path.dirname(this.storagePath), { recursive: true });
+      fs.writeFileSync(this.storagePath, JSON.stringify({
+        pendingReminders: this.pendingReminders,
+        cancelledTaskIds: [...this.cancelledTaskIds],
+      }, null, 2));
+    } catch (err) {
+      log.error('save failed', { error: err instanceof Error ? err.message : String(err), storagePath: this.storagePath });
+    }
+  }
+
   /** Cancel all pending reminders for a given task. */
   cancelReminder(taskId: string): void {
     this.cancelledTaskIds.add(taskId);
     this.pendingReminders = this.pendingReminders.filter(
       (r) => r.taskId !== taskId,
     );
+    this.save();
   }
 
   // ----------------------------------------------------------
@@ -164,6 +191,7 @@ export class ReminderEngine {
       delivered: false,
     };
     this.pendingReminders.push(reminder);
+    this.save();
     return reminder;
   }
 
@@ -209,6 +237,7 @@ export class ReminderEngine {
       delivered: false,
     };
     this.pendingReminders.push(reminder);
+    this.save();
     return reminder;
   }
 
@@ -275,6 +304,7 @@ export class ReminderEngine {
     }
 
     this.pendingReminders.push(...reminders);
+    if (reminders.length > 0) this.save();
     return reminders;
   }
 
@@ -309,7 +339,28 @@ export class ReminderEngine {
     reminders.push(...this.detectForgottenTasks(tasks, now));
 
     this.pendingReminders.push(...reminders);
+    if (reminders.length > 0) this.save();
     return reminders;
+  }
+
+  private load(): void {
+    if (!this.storagePath || !fs.existsSync(this.storagePath)) return;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.storagePath, 'utf-8')) as {
+        pendingReminders?: Array<Omit<Reminder, 'scheduledAt'> & { scheduledAt: string }>;
+        cancelledTaskIds?: string[];
+      };
+      this.pendingReminders = (parsed.pendingReminders ?? []).map((r) => ({
+        ...r,
+        scheduledAt: new Date(r.scheduledAt),
+      }));
+      this.cancelledTaskIds = new Set(parsed.cancelledTaskIds ?? []);
+      log.info('loaded reminders', { count: this.pendingReminders.length, storagePath: this.storagePath });
+    } catch (err) {
+      log.error('load failed', { error: err instanceof Error ? err.message : String(err), storagePath: this.storagePath });
+      this.pendingReminders = [];
+      this.cancelledTaskIds = new Set();
+    }
   }
 
   // ----------------------------------------------------------

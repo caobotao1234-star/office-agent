@@ -2,9 +2,14 @@
  * `oa ask <问题>` — 单次提问，输出后退出
  */
 import { getAgent } from '../agent-factory.js';
+import { logger } from '../../core/logger.js';
 
 export async function ask(question: string, modelOverride?: string): Promise<void> {
+  logger.enableFileLogging();
+  logger.setLevel((process.env['LOG_LEVEL'] as any) ?? 'info');
+  const log = logger.child('CLI');
   const agent = getAgent(modelOverride);
+  log.info('ask started', { modelOverride, questionLength: question.length });
   await agent.start();
 
   try {
@@ -19,6 +24,7 @@ export async function ask(question: string, modelOverride?: string): Promise<voi
         case 'tool_result':
           break;
         case 'error':
+          log.error('ask failed', { error: event.error });
           console.error(`\n❌ ${event.error}`);
           process.exit(1);
           break;

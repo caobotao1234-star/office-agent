@@ -2,6 +2,7 @@
  * `oa feishu ...` — pass-through bridge to the official lark-cli.
  */
 import { runLarkCliInteractive } from '../../services/lark-cli-runner.js';
+import { logger } from '../../core/logger.js';
 
 const HELP = `
 Office Agent 飞书 CLI 桥接
@@ -45,6 +46,9 @@ const SETUP = `
 `.trim();
 
 export async function feishu(rawArgs: string[]): Promise<void> {
+  logger.enableFileLogging();
+  logger.setLevel((process.env['LOG_LEVEL'] as any) ?? 'info');
+
   const args = expandAlias(rawArgs);
 
   if (args.length === 0 || args[0] === '-h' || args[0] === '--help' || args[0] === 'help') {

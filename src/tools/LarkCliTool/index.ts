@@ -5,6 +5,9 @@ import { z } from 'zod';
 import type { Tool, PermissionResult } from '../../core/tool-system.js';
 import type { ToolContext, ToolResult } from '../../types/index.js';
 import { runLarkCli } from '../../services/lark-cli-runner.js';
+import { logger } from '../../core/logger.js';
+
+const log = logger.child('LarkCliTool');
 
 const LarkCliInput = z.object({
   args: z.array(z.string().min(1))
@@ -103,8 +106,30 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
   async call(input: LarkCliInput, context: ToolContext): Promise<ToolResult<unknown>> {
     const commandNeedsConfirmation = requiresWriteConfirmation(input.args);
     const commandKey = getCommandKey(input.args);
+    const knownValidationError = validateKnownCommand(input.args);
+
+    log.info('call', {
+      args: input.args,
+      commandKey,
+      commandNeedsConfirmation,
+      confirmed: input.confirmed,
+      reason: input.reason,
+    });
+
+    if (knownValidationError) {
+      log.warn('known command validation failed', { args: input.args, error: knownValidationError });
+      return {
+        success: false,
+        output: {
+          command: `lark-cli ${input.args.join(' ')}`,
+          helpHint: commandKey ? [...commandKey.split(' '), '--help'] : ['--help'],
+        },
+        error: knownValidationError,
+      };
+    }
 
     if (commandNeedsConfirmation && !input.confirmed) {
+      log.warn('blocked unconfirmed write command', { args: input.args, commandKey });
       return {
         success: false,
         output: {
@@ -118,6 +143,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
     }
 
     if (commandNeedsConfirmation && commandKey && !this.verifiedWriteCommands.has(commandKey)) {
+      log.warn('blocked write command without guidance', { args: input.args, commandKey });
       return {
         success: false,
         output: {
@@ -131,6 +157,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
     }
 
     if (commandNeedsConfirmation && !input.reason?.trim()) {
+      log.warn('blocked confirmed write without reason', { args: input.args, commandKey });
       return {
         success: false,
         output: null,
@@ -157,9 +184,11 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
 
     if (result.exitCode === 0 && commandKey && isGuidanceCommand(input.args)) {
       this.verifiedWriteCommands.add(commandKey);
+      log.info('verified write command guidance', { commandKey });
     }
 
     if (result.exitCode === 0 && !result.timedOut && !result.aborted) {
+      log.info('success', { commandKey, exitCode: result.exitCode });
       return { success: true, output };
     }
 
@@ -168,6 +197,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       : result.aborted
         ? 'lark-cli 调用已中断'
         : `lark-cli 退出码 ${result.exitCode ?? 'unknown'}`;
+    log.error('failed', { commandKey, failure, output });
     return { success: false, output, error: failure };
   }
 }
@@ -189,6 +219,34 @@ export function getCommandKey(args: string[]): string | null {
 
 function isGuidanceCommand(args: string[]): boolean {
   return args.includes('--help') || args.includes('-h') || args.includes('--dry-run');
+}
+
+export function validateKnownCommand(args: string[]): string | null {
+  const commandKey = getCommandKey(args);
+  if (commandKey !== 'docs +create') return null;
+  if (getFlagValue(args, '--api-version') !== 'v2') return null;
+  if (args.includes('--help') || args.includes('-h') || args.includes('--dry-run')) return null;
+
+  const invalidFlags = ['--title', '--markdown', '--format'].filter((flag) => args.includes(flag));
+  if (invalidFlags.length > 0) {
+    return `docs +create --api-version v2 不支持 ${invalidFlags.join(', ')}。请使用 --content，并把标题写成 <title>标题</title>。`;
+  }
+
+  const content = getFlagValue(args, '--content');
+  if (!content) {
+    return 'docs +create --api-version v2 必须提供 --content。创建 Markdown 文档请使用 --doc-format markdown --content "<title>标题</title>\\n# 正文"。';
+  }
+
+  const docFormat = getFlagValue(args, '--doc-format');
+  if (!docFormat) {
+    return 'docs +create --api-version v2 必须显式提供 --doc-format markdown 或 --doc-format xml，避免创建空文档。';
+  }
+
+  if (docFormat === 'markdown' && !/<title>[^<]+<\/title>/.test(content)) {
+    return 'docs +create --api-version v2 使用 markdown 时，--content 必须包含 <title>标题</title>，否则飞书可能创建 untitled 文档。';
+  }
+
+  return null;
 }
 
 export function requiresWriteConfirmation(args: string[]): boolean {
@@ -221,4 +279,10 @@ function appendDryRun(args: string[]): string[] {
 
 function stripShortcutPrefix(arg: string): string {
   return arg.replace(/^\+/, '');
+}
+
+function getFlagValue(args: string[], flag: string): string | undefined {
+  const idx = args.indexOf(flag);
+  if (idx === -1) return undefined;
+  return args[idx + 1];
 }

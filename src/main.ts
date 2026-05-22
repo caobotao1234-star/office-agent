@@ -222,7 +222,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const contextManager = new ContextManager(contextWindowSize ?? 128_000, llm);
   const toolRegistry = new ToolRegistry();
 
-  const reminderEngine = new ReminderEngine(config);
+  const reminderEngine = new ReminderEngine(config, path.join(dataDir, 'reminders.json'));
   const cronScheduler = new CronScheduler(
     path.join(dataDir, 'cron-tasks.json'),
     (task) => { void agent.handleMessage(task.prompt); },

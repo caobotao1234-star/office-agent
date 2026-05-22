@@ -21,6 +21,9 @@ npm run lark -- config init
 npm run lark:auth
 npm run lark:status
 
+# WSL 下如果 lark-cli 走代理报 EOF/502，可在 .env 追加：
+# LARK_CLI_NO_PROXY=1
+
 # 3. 启动
 npm start
 ```
@@ -92,6 +95,10 @@ npx tsx src/cli/index.ts feishu schema im.messages.create
 
 配置完成后进入 `oa chat`，直接用自然语言说“读取这个飞书文档”“把周报写入飞书文档”“查今天日程”等，Agent 会通过 `LarkCli` 工具执行。需要访问个人日历、私有文档、私聊、邮箱时，优先使用 user 授权；机器人群发或机器人身份操作可用 bot 身份。
 
+`LARK_CLI_NO_PROXY=1` 只影响官方 `lark-cli` 子进程：它会让 CLI 不使用本机代理配置，适合 WSL 中代理导致飞书接口 EOF/502 的情况。它不是密钥；如果你的网络必须通过代理访问飞书，可以删掉这一行。
+
+日志默认写入当前工程目录 `logs/agent-YYYY-MM-DD.log`，也会同时打印到终端。可以通过 `.env` 设置 `LOG_LEVEL=debug` 和 `OFFICE_AGENT_LOG_DIR=./logs` 调整。
+
 ## 对话中的斜杠命令
 
 所有命令在 CLI 和飞书中行为一致：
@@ -148,7 +155,7 @@ Agent 会在后台自动检查并推送提醒，不需要用户主动询问：
 - 智能提醒：延迟性表述检测、承诺追踪、项目停滞、遗忘任务
 - 用户创建的定时提醒
 
-CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。
+CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。飞书主动推送需要用户先给机器人发过至少一条消息，Agent 会记录最近的 `chat_id` 并在重启后自动恢复推送通道。
 
 通过对话修改提醒配置：告诉 Agent "把每日提醒改到早上8点" 即可。
 
@@ -183,7 +190,7 @@ CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。
 - 单聊直接发消息（需开通单聊权限）
 - 支持语音消息（自动转文字，使用 DashScope Paraformer STT）
 - 每个飞书用户独立会话和数据目录，重启后自动恢复
-- 主动推送提醒（截止日期、每日待办等）
+- 主动推送提醒（截止日期、每日待办等），服务重启后会恢复最近联系过的飞书收件人
 - 读取飞书云文档内容，自动提取项目信息存入记忆
 
 ## 5 个内置技能
@@ -212,6 +219,7 @@ CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。
 ├── cron-tasks.json         # 定时任务
 ├── last-session.txt        # CLI 最近会话 ID
 ├── last-session-feishu-*.txt  # 飞书用户会话 ID（按用户隔离）
+├── feishu-recipients.json  # 飞书主动推送收件人（最近 chat_id）
 ├── memdir/                 # 记忆系统
 │   ├── MEMORY.md           # 记忆索引（自动维护）
 │   ├── auto/               # 自动提取的记忆
@@ -222,9 +230,10 @@ CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。
 ├── agents/                 # 项目（Sub-Agent）
 ├── sessions/               # 会话历史
 ├── skills/                 # 用户自定义技能
-├── logs/                   # 日志文件（JSON lines 格式）
 └── trash/                  # 回收站（/undo 可恢复）
 ```
+
+运行日志不放在 `~/.office-agent/`，默认放在工程目录 `./logs/agent-YYYY-MM-DD.log`，便于出问题时直接从项目里排查。
 
 ## 项目源码结构
 

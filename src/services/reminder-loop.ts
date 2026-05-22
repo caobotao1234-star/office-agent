@@ -22,6 +22,9 @@ import type { ReminderEngine } from './reminder-engine.js';
 import type { NotificationService } from './notification-service.js';
 import type { ToolRegistry } from '../core/tool-system.js';
 import type { TaskItem, UserConfig } from '../types/index.js';
+import { logger } from '../core/logger.js';
+
+const log = logger.child('ReminderLoop');
 
 /** Default interval: 15 minutes */
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
@@ -38,6 +41,7 @@ export class ReminderLoop {
   private getConfig: () => UserConfig;
   private lastLLMCheckAt: number = 0;
   private intervalMs: number;
+  private recentReminderKeys = new Map<string, number>();
 
   constructor(opts: {
     reminderEngine: ReminderEngine;
@@ -58,22 +62,32 @@ export class ReminderLoop {
   start(): void {
     if (this.intervalId) return;
     this.intervalId = setInterval(() => { void this.tick(); }, this.intervalMs);
+    void this.tick();
+    log.info('started', { intervalMs: this.intervalMs });
   }
 
   stop(): void {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
+      log.info('stopped');
     }
   }
 
   async tick(now = new Date()): Promise<void> {
-    if (!this.notificationService.hasChannels()) return;
+    if (!this.notificationService.hasChannels()) {
+      log.debug('skip tick: no notification channels');
+      return;
+    }
+    log.debug('tick', { now: now.toISOString() });
 
     // 1. Always deliver user-created scheduled reminders (these are explicit, not LLM-decided)
     await this.deliverScheduledReminders(now);
 
-    // 2. LLM-driven smart check — throttled to avoid excessive API calls
+    // 2. Deterministic deadline checks should not wait for the LLM.
+    await this.deliverDeadlineReminders(now);
+
+    // 3. LLM-driven smart check — throttled to avoid excessive API calls
     const elapsed = now.getTime() - this.lastLLMCheckAt;
     if (elapsed >= MIN_CHECK_INTERVAL_MS) {
       await this.smartCheck(now);
@@ -93,7 +107,29 @@ export class ReminderLoop {
       if (r.scheduledAt.getTime() <= now.getTime()) {
         await this.notificationService.notify(r.message);
         r.delivered = true;
+        this.reminderEngine.save();
+        log.info('delivered scheduled reminder', { reminderId: r.id, type: r.type, taskId: r.taskId });
       }
+    }
+  }
+
+  private async deliverDeadlineReminders(now: Date): Promise<void> {
+    const tasks = await this.loadTasks();
+    if (tasks.length === 0) return;
+
+    const reminders = this.reminderEngine.checkDeadlines(tasks, now);
+    for (const reminder of reminders) {
+      if (reminder.delivered || reminder.scheduledAt.getTime() > now.getTime()) continue;
+      const key = `${reminder.type}:${reminder.taskId ?? reminder.message}`;
+      if (!this.shouldSendReminderKey(key, now)) {
+        reminder.delivered = true;
+        this.reminderEngine.save();
+        continue;
+      }
+      await this.notificationService.notify(reminder.message);
+      reminder.delivered = true;
+      this.reminderEngine.save();
+      log.info('delivered deadline reminder', { key, reminderId: reminder.id, taskId: reminder.taskId, type: reminder.type });
     }
   }
 
@@ -158,14 +194,25 @@ export class ReminderLoop {
 
       // LLM decided no reminder needed
       if (!trimmed || trimmed === 'SKIP' || trimmed.toUpperCase().includes('SKIP')) {
+        log.debug('smart check skipped');
         return;
       }
 
       // LLM decided to remind — send it
       await this.notificationService.notify(trimmed);
+      log.info('delivered smart reminder', { length: trimmed.length });
     } catch {
+      log.warn('smart check failed');
       // LLM call failed — silently skip this cycle
     }
+  }
+
+  private shouldSendReminderKey(key: string, now: Date): boolean {
+    const lastSentAt = this.recentReminderKeys.get(key);
+    const minGapMs = 6 * 60 * 60 * 1000;
+    if (lastSentAt && now.getTime() - lastSentAt < minGapMs) return false;
+    this.recentReminderKeys.set(key, now.getTime());
+    return true;
   }
 
   private async loadTasks(): Promise<TaskItem[]> {

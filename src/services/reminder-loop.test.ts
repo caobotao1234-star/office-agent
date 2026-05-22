@@ -66,6 +66,38 @@ describe('ReminderLoop', () => {
     expect(notifyCb).toHaveBeenCalledWith('测试提醒');
   });
 
+  it('should deliver deterministic deadline reminders', async () => {
+    const now = new Date();
+    toolRegistry.register({
+      name: 'TaskManager',
+      description: 'tasks',
+      inputSchema: { safeParse: (input: unknown) => ({ success: true, data: input }) } as any,
+      isEnabled: () => true,
+      isReadOnly: () => true,
+      checkPermissions: () => ({ allowed: true }),
+      requiresUserConfirmation: () => false,
+      call: async () => ({
+        success: true,
+        output: [{
+          id: 'task-1',
+          description: '准备会议材料',
+          status: 'pending',
+          priority: 'high',
+          subtaskIds: [],
+          dueDate: new Date(now.getTime() + 60 * 60 * 1000),
+          source: 'user_input',
+          createdAt: now,
+          updatedAt: now,
+        }],
+      }),
+    });
+
+    const loop = createLoop();
+    await loop.tick(now);
+
+    expect(notifyCb).toHaveBeenCalledWith(expect.stringContaining('准备会议材料'));
+  });
+
   it('should not deliver future reminders', async () => {
     const now = new Date();
     reminderEngine.getPendingReminders().push({

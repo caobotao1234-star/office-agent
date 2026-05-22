@@ -2,6 +2,9 @@
  * ReminderEngine unit tests — deadline reminders, smart reminders, scheduling.
  * Requirements: 5.1, 6.1, 6.4, 7.1
  */
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ReminderEngine } from './reminder-engine.js';
 import type { UserConfig, TaskItem, Message } from '../types/index.js';
@@ -322,6 +325,29 @@ describe('ReminderEngine', () => {
       // Future checks should also skip this task
       const again = engine.checkDeadlines(tasks, now);
       expect(again).toHaveLength(0);
+    });
+  });
+
+  describe('persistence', () => {
+    it('persists pending reminders for proactive delivery after restart', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'office-agent-reminders-'));
+      const storagePath = path.join(dir, 'reminders.json');
+      const persistent = new ReminderEngine(makeConfig(), storagePath);
+      const now = new Date();
+
+      persistent.addReminder({
+        id: 'reminder-1',
+        type: 'smart_followup',
+        message: '测试持久化提醒',
+        reason: 'test',
+        scheduledAt: now,
+        delivered: false,
+      });
+
+      const restored = new ReminderEngine(makeConfig(), storagePath);
+      expect(restored.getPendingReminders()).toHaveLength(1);
+      expect(restored.getPendingReminders()[0]?.scheduledAt).toBeInstanceOf(Date);
+      expect(restored.getPendingReminders()[0]?.message).toBe('测试持久化提醒');
     });
   });
 });

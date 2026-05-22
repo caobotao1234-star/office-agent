@@ -80,7 +80,6 @@ export class ReminderTool implements Tool<ReminderToolInput, unknown> {
       switch (input.action) {
         case 'create': {
           // Delegate: the engine manages the pending list internally
-          const reminders = this.engine.getPendingReminders();
           const reminder: Reminder = {
             id: crypto.randomUUID(),
             type: 'smart_followup',
@@ -90,7 +89,7 @@ export class ReminderTool implements Tool<ReminderToolInput, unknown> {
             scheduledAt: input.scheduledAt,
             delivered: false,
           };
-          reminders.push(reminder);
+          this.engine.addReminder(reminder);
           return { success: true, output: reminder };
         }
         case 'cancel': {

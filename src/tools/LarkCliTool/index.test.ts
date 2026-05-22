@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCommandKey, LarkCliTool, requiresWriteConfirmation } from './index.js';
+import { getCommandKey, LarkCliTool, requiresWriteConfirmation, validateKnownCommand } from './index.js';
 
 describe('LarkCliTool', () => {
   it('allows read-only help commands', async () => {
@@ -58,6 +58,12 @@ describe('LarkCliTool', () => {
     expect(getCommandKey(['docs', '+create', '--api-version', 'v2', '--help'])).toBe('docs +create');
     expect(getCommandKey(['im', '+messages-send', '--chat-id', 'oc_x'])).toBe('im +messages-send');
     expect(getCommandKey(['api', 'POST', '/open-apis/foo', '--data', '{}'])).toBe('api POST /open-apis/foo');
+  });
+
+  it('rejects known-bad docs v2 create flags that create empty or untitled docs', () => {
+    expect(validateKnownCommand(['docs', '+create', '--api-version', 'v2', '--title', 'T', '--content', 'Body'])).toContain('--title');
+    expect(validateKnownCommand(['docs', '+create', '--api-version', 'v2', '--doc-format', 'markdown', '--content', '# Body'])).toContain('<title>');
+    expect(validateKnownCommand(['docs', '+create', '--api-version', 'v2', '--doc-format', 'markdown', '--content', '<title>T</title>\n# Body'])).toBeNull();
   });
 
   it('classifies common read and write commands', () => {

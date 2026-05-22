@@ -3,8 +3,10 @@
  */
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { logger } from '../core/logger.js';
 
 const require = createRequire(import.meta.url);
+const log = logger.child('LarkCliRunner');
 
 export interface LarkCliRunOptions {
   cwd?: string;
@@ -67,6 +69,8 @@ export async function runLarkCli(
   const spec = resolveLarkCliSpawnSpec(args);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
+  const startedAt = Date.now();
+  log.info('start', { command: spec.displayCommand, timeoutMs, maxOutputBytes });
 
   return new Promise((resolve) => {
     let stdout = '';
@@ -100,6 +104,19 @@ export async function runLarkCli(
         timedOut,
         aborted,
         truncated,
+      });
+      log.info('finish', {
+        command: spec.displayCommand,
+        exitCode,
+        signal,
+        durationMs: Date.now() - startedAt,
+        timedOut,
+        aborted,
+        truncated,
+        stdoutBytes,
+        stderrBytes,
+        stdoutTail: stdout.slice(-500),
+        stderrTail: stderr.slice(-500),
       });
     };
 
@@ -152,6 +169,7 @@ export async function runLarkCli(
 
     child.on('error', (err) => {
       stderr += stderr ? `\n${err.message}` : err.message;
+      log.error('spawn error', { command: spec.displayCommand, error: err.message });
       finish(null, null);
     });
 
@@ -166,6 +184,7 @@ export async function runLarkCli(
 
 export async function runLarkCliInteractive(args: string[]): Promise<number | null> {
   const spec = resolveLarkCliSpawnSpec(args);
+  log.info('interactive start', { command: spec.displayCommand });
   return new Promise((resolve, reject) => {
     const child = spawn(spec.command, spec.args, {
       cwd: process.cwd(),
@@ -173,8 +192,14 @@ export async function runLarkCliInteractive(args: string[]): Promise<number | nu
       shell: false,
       stdio: 'inherit',
     });
-    child.on('error', reject);
-    child.on('close', (code) => resolve(code));
+    child.on('error', (err) => {
+      log.error('interactive spawn error', { command: spec.displayCommand, error: err.message });
+      reject(err);
+    });
+    child.on('close', (code) => {
+      log.info('interactive finish', { command: spec.displayCommand, exitCode: code });
+      resolve(code);
+    });
   });
 }
 

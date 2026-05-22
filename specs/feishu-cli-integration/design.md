@@ -7,6 +7,7 @@
 1. `@larksuite/cli` 作为官方执行层，负责认证、权限、命令实现、输出格式、dry-run 与安全处理。
 2. `LarkCliRunner` 作为本项目的进程封装层，负责定位本地 CLI、超时、输出截断、AbortSignal 与非 shell 调用。
 3. `LarkCli` Agent 工具和 `oa feishu` CLI 命令作为入口，分别服务于 LLM 工具调用和人类/脚本直接调用。
+4. 飞书 Bot WebSocket 服务作为对话入口和主动推送出口，负责记录最近联系过的 `chat_id` 并恢复通知通道。
 
 ## 模块边界
 
@@ -29,6 +30,20 @@
   - 系统提示词中要求飞书操作优先使用 `LarkCli`。
   - 默认禁用 legacy `FeishuConnector` 与 `CalendarTool` 的 LLM 暴露。
 
+- `src/server/feishu-bot.ts`
+  - 接收飞书 WebSocket 消息，并把文本/语音转成 Agent 输入。
+  - 每个飞书用户独立 Agent 实例和会话通道。
+  - 记录最近 `chat_id`，启动时恢复 `NotificationService` 回调和提醒循环。
+
+- `src/services/feishu-recipient-store.ts`
+  - 只保存主动推送需要的 `senderId`、`chatId`、`updatedAt`。
+  - 不保存 App Secret、access token 或 OAuth 凭据。
+
+- `src/core/logger.ts`
+  - 控制台与文件双写。
+  - 默认日志目录为工程目录 `./logs`，支持 `OFFICE_AGENT_LOG_DIR` 覆盖。
+  - 写入前对 secret、token、password、api key、authorization 做脱敏。
+
 ## 数据结构
 
 `LarkCli` 工具输入：
@@ -48,6 +63,12 @@
 - `timedOut: boolean`
 - `truncated: boolean`
 
+飞书主动推送收件人文件：
+
+- 路径：`~/.office-agent/feishu-recipients.json`
+- 格式：`{ "recipients": [{ "senderId": "...", "chatId": "...", "updatedAt": "..." }] }`
+- 用途：启动 `npm run feishu` 后恢复曾经联系过机器人的用户通知通道。
+
 ## 外部依赖
 
 - `@larksuite/cli@^1.0.38`
@@ -61,6 +82,8 @@
 - AbortSignal 中断：终止子进程，返回中断错误。
 - 非 0 退出码：工具返回 `success: false`，保留 stdout/stderr 供 Agent 修复。
 - 写操作未确认：不调用 CLI，直接返回失败并提示使用 `--dry-run` 或 `confirmed: true`。
+- 已知高风险文档命令参数错误：在本地直接返回失败，提示当前 CLI 正确参数，避免创建空文档。
+- 主动推送失败：记录用户、chat、错误信息，继续运行，不阻塞后续提醒循环。
 
 ## 回退行为
 
@@ -70,6 +93,7 @@
 ## 测试策略
 
 - 单元测试：runner、工具确认门禁、参数构造。
+- 单元测试：飞书收件人持久化、提醒循环确定性截止提醒。
 - 集成测试：`createOfficeAgent` 工具注册列表。
 - CLI smoke：`node dist/cli/index.js feishu --help`。
 - 不用真实 App ID/App Secret，不调用真实飞书 API。
@@ -81,6 +105,7 @@
 - 输出默认限制大小，避免大文档或表格撑爆上下文。
 - 默认超时 60 秒，单次工具调用最多 5 分钟。
 - 写操作门禁不等同于完整人类确认，但能阻止未标记的副作用命令直接执行。
+- 主动推送只发送到本地记录的最近 `chat_id`，第一次推送前必须由用户先联系机器人以建立会话。
 
 ## 部署说明
 

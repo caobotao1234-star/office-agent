@@ -2,7 +2,7 @@
  * Logger — Structured logging with levels and optional file output.
  *
  * Levels: debug < info < warn < error
- * Output: console (colored) + optional file (~/.office-agent/logs/)
+ * Output: console (colored) + optional file (./logs by default)
  *
  * Usage:
  *   import { logger } from './logger.js';
@@ -42,9 +42,10 @@ class Logger {
     this.minLevel = level;
   }
 
-  /** Enable file logging to ~/.office-agent/logs/ */
+  /** Enable file logging to ./logs by default */
   enableFileLogging(baseDir?: string): void {
-    const dir = baseDir ?? path.join(os.homedir(), '.office-agent', 'logs');
+    this.fileStream?.end();
+    const dir = baseDir ?? process.env['OFFICE_AGENT_LOG_DIR'] ?? path.join(process.cwd(), 'logs');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     this.logDir = dir;
     const fileName = `agent-${new Date().toISOString().slice(0, 10)}.log`;
@@ -80,20 +81,21 @@ class Logger {
 
   private log(level: LogLevel, module: string, message: string, data?: Record<string, unknown>): void {
     if (LEVEL_ORDER[level] < LEVEL_ORDER[this.minLevel]) return;
+    const safeData = data ? redact(data) as Record<string, unknown> : undefined;
 
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
       module,
       message,
-      ...(data && Object.keys(data).length > 0 ? { data } : {}),
+      ...(safeData && Object.keys(safeData).length > 0 ? { data: safeData } : {}),
     };
 
     // Console output (colored)
     const time = entry.timestamp.slice(11, 19);
     const color = LEVEL_COLORS[level];
     const levelTag = level.toUpperCase().padEnd(5);
-    const dataStr = data ? ` ${JSON.stringify(data)}` : '';
+    const dataStr = safeData ? ` ${JSON.stringify(safeData)}` : '';
     console.log(`${color}${time} [${levelTag}] [${module}]${RESET} ${message}${dataStr}`);
 
     // File output (JSON lines)
@@ -101,6 +103,31 @@ class Logger {
       this.fileStream.write(JSON.stringify(entry) + '\n');
     }
   }
+}
+
+function redact(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') {
+    if (/^(sk-|cli_|[A-Za-z0-9_-]{24,})/.test(value)) return redactString(value);
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(redact);
+  if (typeof value !== 'object') return value;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (/secret|token|password|api[_-]?key|authorization/i.test(key)) {
+      out[key] = '***REDACTED***';
+    } else {
+      out[key] = redact(val);
+    }
+  }
+  return out;
+}
+
+function redactString(value: string): string {
+  if (value.length <= 8) return '***REDACTED***';
+  return `${value.slice(0, 4)}***${value.slice(-4)}`;
 }
 
 class ModuleLogger {

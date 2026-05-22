@@ -23,8 +23,11 @@ import { createDashScopeLLM } from '../core/dashscope-llm.js';
 import { TokenTracker } from '../core/token-tracker.js';
 import { logger } from '../core/logger.js';
 import { transcribeAudio } from '../services/speech-to-text.js';
+import { FeishuRecipientStore } from '../services/feishu-recipient-store.js';
+import type { NotifyCallback } from '../services/notification-service.js';
 
 const log = logger.child('Feishu');
+const sdkLog = logger.child('FeishuSDK');
 
 const DATA_DIR = path.join(os.homedir(), '.office-agent');
 
@@ -51,7 +54,8 @@ function loadEnv(): void {
 
 /** Each Feishu user gets their own Agent instance for session isolation */
 const userAgents = new Map<string, OfficeAgent>();
-const startedAgents = new Set<string>();
+const startedAgentChats = new Map<string, string>();
+const notificationCallbacks = new Map<string, NotifyCallback>();
 
 function getOrCreateAgent(userId: string): OfficeAgent {
   const existing = userAgents.get(userId);
@@ -135,6 +139,28 @@ function isDuplicate(messageId: string): boolean {
   return false;
 }
 
+function createLarkSdkLogger() {
+  return {
+    error: (...msg: unknown[]) => sdkLog.error('sdk error', { message: formatSdkLog(msg) }),
+    warn: (...msg: unknown[]) => sdkLog.warn('sdk warn', { message: formatSdkLog(msg) }),
+    info: (...msg: unknown[]) => sdkLog.info('sdk info', { message: formatSdkLog(msg) }),
+    debug: (...msg: unknown[]) => sdkLog.debug('sdk debug', { message: formatSdkLog(msg) }),
+    trace: (...msg: unknown[]) => sdkLog.debug('sdk trace', { message: formatSdkLog(msg) }),
+  };
+}
+
+function formatSdkLog(msg: unknown[]): string {
+  return msg.map((item) => {
+    if (item instanceof Error) return item.stack ?? item.message;
+    if (typeof item === 'string') return item;
+    try {
+      return JSON.stringify(item);
+    } catch {
+      return String(item);
+    }
+  }).join(' ');
+}
+
 // ============================================================
 // Main entry
 // ============================================================
@@ -145,6 +171,7 @@ async function main() {
   // Enable file logging
   logger.enableFileLogging();
   logger.setLevel((process.env['LOG_LEVEL'] as any) ?? 'info');
+  log.info('日志已启用', { logDir: process.env['OFFICE_AGENT_LOG_DIR'] ?? path.join(process.cwd(), 'logs') });
 
   const appId = process.env['FEISHU_APP_ID'];
   const appSecret = process.env['FEISHU_APP_SECRET'];
@@ -160,13 +187,16 @@ async function main() {
   }
 
   const baseConfig = { appId, appSecret };
+  const recipientStore = new FeishuRecipientStore(path.join(DATA_DIR, 'feishu-recipients.json'));
+  const larkSdkLogger = createLarkSdkLogger();
 
   // Lark Client for sending messages
-  const larkClient = new Lark.Client(baseConfig);
+  const larkClient = new Lark.Client({ ...baseConfig, logger: larkSdkLogger, loggerLevel: Lark.LoggerLevel.info });
 
   // WebSocket long connection client
   const wsClient = new Lark.WSClient({
     ...baseConfig,
+    logger: larkSdkLogger,
     loggerLevel: Lark.LoggerLevel.info,
   });
 
@@ -194,18 +224,27 @@ async function main() {
     lark: Lark.Client,
     chatId: string,
   ): Promise<void> {
-    if (startedAgents.has(senderId)) return;
+    const existingChatId = startedAgentChats.get(senderId);
+    if (existingChatId === chatId) return;
 
     const sessionChannel = `feishu-${senderId}`;
     agent.queryEngine.setSessionChannel(sessionChannel);
-    agent.configManager.load();
-    await agent.skillSystem.loadSkills();
-    agent.cronScheduler.start();
-    agent.cronScheduler.checkMissedTasks();
-    agent.awaySummaryEngine.recordActivity();
-    agent.queryEngine.restoreLastSession(sessionChannel);
 
-    agent.notificationService.addChannel(async (message) => {
+    if (!existingChatId) {
+      agent.configManager.load();
+      await agent.skillSystem.loadSkills();
+      agent.cronScheduler.start();
+      agent.cronScheduler.checkMissedTasks();
+      agent.awaySummaryEngine.recordActivity();
+      agent.queryEngine.restoreLastSession(sessionChannel);
+    }
+
+    const previousCallback = notificationCallbacks.get(senderId);
+    if (previousCallback) {
+      agent.notificationService.removeChannel(previousCallback);
+    }
+
+    const callback: NotifyCallback = async (message) => {
       try {
         const chunks = splitMessage(message, 3500);
         for (const chunk of chunks) {
@@ -218,13 +257,41 @@ async function main() {
             },
           });
         }
+        log.info('主动推送成功', { senderId, chatId, chunkCount: chunks.length });
       } catch (err) {
-        log.error('推送提醒失败', { error: err instanceof Error ? err.message : String(err) });
+        log.error('推送提醒失败', { senderId, chatId, error: err instanceof Error ? err.message : String(err) });
       }
-    });
+    };
 
-    agent.reminderLoop.start();
-    startedAgents.add(senderId);
+    agent.notificationService.addChannel(callback);
+    notificationCallbacks.set(senderId, callback);
+
+    if (!existingChatId) {
+      agent.reminderLoop.start();
+      log.info('用户 Agent 已启动', { senderId, chatId });
+    } else {
+      log.info('用户主动推送会话已更新', { senderId, previousChatId: existingChatId, chatId });
+    }
+
+    startedAgentChats.set(senderId, chatId);
+  }
+
+  async function bootstrapKnownRecipients(): Promise<void> {
+    const recipients = recipientStore.list();
+    log.info('恢复飞书主动推送收件人', { count: recipients.length });
+
+    for (const recipient of recipients) {
+      try {
+        const agent = getOrCreateAgent(recipient.senderId);
+        await ensureAgentStarted(agent, recipient.senderId, larkClient, recipient.chatId);
+      } catch (err) {
+        log.error('恢复飞书主动推送收件人失败', {
+          senderId: recipient.senderId,
+          chatId: recipient.chatId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
   }
 
   // Background message handler
@@ -237,6 +304,7 @@ async function main() {
     cleanText: string,
   ): Promise<void> {
     try {
+      recipientStore.upsert(senderId, chatId);
       const agent = getOrCreateAgent(senderId);
       await ensureAgentStarted(agent, senderId, lark, chatId);
 
@@ -272,7 +340,10 @@ async function main() {
   }
 
   wsClient.start({
-    eventDispatcher: new Lark.EventDispatcher({}).register({
+    eventDispatcher: new Lark.EventDispatcher({
+      logger: larkSdkLogger,
+      loggerLevel: Lark.LoggerLevel.info,
+    }).register({
       'im.message.receive_v1': async (data: any) => {
         const message = data.message;
         const messageId = message.message_id;
@@ -385,6 +456,7 @@ async function main() {
               log.info(`语音转文字: ${sttResult.text.slice(0, 80)}`);
 
               // Process transcribed text as normal message
+              recipientStore.upsert(senderId, chatId);
               const agent = getOrCreateAgent(senderId);
               await ensureAgentStarted(agent, senderId, larkClient, chatId);
               const response = await processMessage(agent, sttResult.text);
@@ -440,6 +512,7 @@ async function main() {
   });
 
   log.info('✅ 飞书 WebSocket 长连接已启动，等待消息...');
+  await bootstrapKnownRecipients();
 }
 
 /** Split long text into chunks for Feishu message limit */
