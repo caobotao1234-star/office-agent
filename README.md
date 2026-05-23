@@ -150,6 +150,23 @@ Agent 通过原生 Function Calling 调用这些工具：
 
 已移除的旧/占位工具：`EmailTool`、`DocumentParser`、`FeishuConnector`、`CalendarTool`、`BackgroundTaskTool`、`ReminderTool` 不再注册给 LLM。一次性提醒、截止日期和承诺跟进统一写入 `AgendaTool`。
 
+## 办公上下文与飞书同步
+
+Agent 现在有一层本地办公上下文库，用来长期维护人、项目、文档、会议、任务、业务流程、关系和知识：
+
+- `OfficeContextTool`：结构化保存和检索办公实体与关系，数据写入 `office-context.json`
+- `KnowledgeCaptureTool`：当对话、文档、会议或群聊里出现多条稳定信息时，批量写入上下文、记忆和提醒
+- `FeishuIngestTool`：登记并同步飞书来源，例如云文档、知识库节点、群聊消息、日历、Base、任务和通讯录搜索
+
+典型用法：
+
+- “把这个飞书文档登记成 Apollo 项目的长期关注源”
+- “同步所有关注的飞书来源”
+- “看看 Apollo 项目群和项目文档最近有什么变化”
+- “读取这个 Base，并把项目状态更新到你的上下文里”
+
+同步源记录在 `feishu-sync-sources.json`。每次同步会计算内容 hash；内容没变化时不会重复更新上下文。同步工具只负责拉取和变更检测，深度提取由 Agent 视情况调用 `KnowledgeCaptureTool` 完成。
+
 ## 主动提醒系统
 
 Agent 会在后台自动检查并推送提醒，不需要用户主动询问：
@@ -223,6 +240,8 @@ Agenda 不会每分钟调用 LLM。Agent 只在对话中认为有明确时间点
 ├── token-usage.json        # Token 用量统计
 ├── config.json             # 用户配置（可通过对话修改）
 ├── agenda.json             # 主动提醒日程（提醒/deadline/承诺/跟进）
+├── office-context.json     # 办公上下文图谱（人/项目/文档/会议/流程/关系/知识）
+├── feishu-sync-sources.json # 飞书同步关注源与内容 hash
 ├── cron-tasks.json         # 定时任务
 ├── last-session.txt        # CLI 最近会话 ID
 ├── last-session-feishu-*.txt  # 飞书用户会话 ID（按用户隔离）
@@ -282,6 +301,8 @@ src/
 │   ├── reminder-composer.ts    # 到期提醒 LLM 文案生成
 │   ├── notification-service.ts # 统一通知通道（CLI/飞书注册回调）
 │   ├── lark-cli-runner.ts      # 官方 lark-cli 进程封装
+│   ├── office-context-store.ts # 办公上下文图谱持久化
+│   ├── feishu-sync-store.ts    # 飞书同步关注源状态
 │   ├── cron-scheduler.ts       # 定时调度器（cron 表达式 + 持久化）
 │   ├── away-summary-engine.ts  # 离开摘要
 │   └── speech-to-text.ts       # 语音转文字（DashScope Paraformer）
@@ -290,6 +311,9 @@ src/
 │   ├── TaskManager/            # 任务管理
 │   ├── SubAgentTool/           # 项目管理
 │   ├── MemoryTool/             # 记忆操作
+│   ├── OfficeContextTool/      # 办公上下文图谱
+│   ├── KnowledgeCaptureTool/   # 批量知识提取
+│   ├── FeishuIngestTool/       # 飞书来源登记与同步
 │   ├── AgendaTool/             # 主动提醒日程
 │   ├── CronTool/               # 定时任务
 │   ├── ConfigTool/             # 配置修改（通过对话）
@@ -331,6 +355,7 @@ npm run build     # 编译 TypeScript
 - QueryEngine 主循环（async generator + 多轮工具调用）
 - 原生 Function Calling（非 prompt-based）
 - 三层记忆系统（MEMORY.md 索引 + LLM side query + 工具搜索）
+- 办公上下文图谱（OfficeContextStore + FeishuIngestTool + KnowledgeCaptureTool）
 - 可插拔 Tool 系统（当前只注册真实可用工具，Zod schema 自动转 JSON Schema）
 - SKILL.md 技能定义（inline/fork 两种执行模式）
 - 上下文自动压缩
