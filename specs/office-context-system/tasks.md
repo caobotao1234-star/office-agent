@@ -10,7 +10,7 @@
 
 ## T2 本地 OfficeContextStore
 
-- 状态：PENDING
+- 状态：DONE
 - 文件：`src/services/office-context-store.ts`、`src/services/office-context-store.test.ts`
 - 实现说明：新增本地 JSON store，支持 upsert/get/list/search/delete，保存来源引用和关系。
 - 验证命令：`npm test -- src/services/office-context-store.test.ts`
