@@ -31,6 +31,7 @@ import { AgendaScheduler } from './services/agenda-scheduler.js';
 import { OfficeContextStore } from './services/office-context-store.js';
 import { FeishuSyncStore } from './services/feishu-sync-store.js';
 import { FeishuSyncScheduler, type FeishuSyncTickSummary } from './services/feishu-sync-scheduler.js';
+import { ContextWikiCompiler } from './services/context-wiki-compiler.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -44,6 +45,7 @@ import { AgendaTool } from './tools/AgendaTool/index.js';
 import { OfficeContextTool } from './tools/OfficeContextTool/index.js';
 import { KnowledgeCaptureTool } from './tools/KnowledgeCaptureTool/index.js';
 import { FeishuIngestTool } from './tools/FeishuIngestTool/index.js';
+import { WikiTool } from './tools/WikiTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -103,6 +105,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- Use MemoryTool for loose facts, preferences, raw notes, and quick knowledge cards; use OfficeContextTool for durable structured entities and relationships.',
     '- Include sourceRefs when the source is known, and use stable keys such as project:<name>, person:<name>, doc:<token>, meeting:<date-topic>, process:<name>.',
     '- Use KnowledgeCaptureTool for batch extraction when a conversation, Feishu source, meeting, or tool result contains multiple durable facts, entities, commitments, or relationships.',
+    '- Use WikiTool to compile or read the human-readable local wiki generated from OfficeContextTool records.',
     '',
     '# Agenda & Proactive Reminders',
     '',
@@ -209,6 +212,7 @@ export interface OfficeAgent {
   officeContextStore: OfficeContextStore;
   feishuSyncStore: FeishuSyncStore;
   feishuSyncScheduler: FeishuSyncScheduler;
+  contextWikiCompiler: ContextWikiCompiler;
   agendaScheduler: AgendaScheduler;
   cronScheduler: CronScheduler;
   awaySummaryEngine: AwaySummaryEngine;
@@ -275,6 +279,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const agendaStore = new AgendaStore(path.join(dataDir, 'agenda.json'));
   const officeContextStore = new OfficeContextStore(path.join(dataDir, 'office-context.json'));
   const feishuSyncStore = new FeishuSyncStore(path.join(dataDir, 'feishu-sync-sources.json'));
+  const contextWikiCompiler = new ContextWikiCompiler(officeContextStore, path.join(dataDir, 'wikidir'));
   const reminderComposer = new ReminderComposer(llm);
   const cronScheduler = new CronScheduler(
     path.join(dataDir, 'cron-tasks.json'),
@@ -298,6 +303,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new OfficeContextTool(officeContextStore));
   toolRegistry.register(new KnowledgeCaptureTool(officeContextStore, memorySystem, agendaStore));
   toolRegistry.register(feishuIngestTool);
+  toolRegistry.register(new WikiTool(contextWikiCompiler));
   toolRegistry.register(new AgendaTool(agendaStore));
   toolRegistry.register(new MemoryTool(memorySystem));
   toolRegistry.register(new CronTool(cronScheduler));
@@ -342,7 +348,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
-    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, agendaScheduler, cronScheduler,
+    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, contextWikiCompiler, agendaScheduler, cronScheduler,
     awaySummaryEngine, notificationService,
     usageStats, configManager,
     dataDir,
@@ -480,6 +486,8 @@ async function* handleBuiltinCommand(
           '  /meeting            会议全流程管理',
           '  /task-breakdown     拆解大任务',
           '  /feishu-sync        同步飞书状态',
+          '  /sync               同步飞书关注源',
+          '  /wiki               编译/查看本地知识 Wiki',
           '  /dev-workflow       软件开发流程管理',
           '  /okr                OKR目标管理',
           '  /draft              起草邮件/消息',
@@ -540,6 +548,80 @@ async function* handleBuiltinCommand(
         }
       } else {
         yield { type: 'text', content: '用法: /db tasks | /db projects | /db memories' };
+      }
+      yield { type: 'done' };
+      return;
+    }
+
+    case 'sync': {
+      const sub = args.trim();
+      const result = await agent.toolRegistry.execute(
+        'FeishuIngestTool',
+        sub === 'list'
+          ? { action: 'listSources' }
+          : { action: 'syncAll', includeDisabled: false, force: sub === 'force', limit: 20 },
+        { abortSignal: new AbortController().signal, userConfig: agent.getConfig() },
+      );
+      if (!result.success) {
+        yield { type: 'text', content: `❌ 同步失败: ${result.error}` };
+        yield { type: 'done' };
+        return;
+      }
+
+      if (sub === 'list') {
+        const sources = (result.output as any[]) ?? [];
+        if (sources.length === 0) {
+          yield { type: 'text', content: '暂无飞书同步关注源。你可以说“把这个飞书文档登记为长期关注源”。' };
+        } else {
+          const lines = [`飞书同步关注源 (${sources.length}):`];
+          for (const source of sources) {
+            lines.push(`- ${source.title} (${source.type}) ${source.syncEnabled ? 'enabled' : 'disabled'}${source.lastSyncedAt ? ` last=${new Date(source.lastSyncedAt).toLocaleString('zh-CN')}` : ''}`);
+          }
+          yield { type: 'text', content: lines.join('\n') };
+        }
+      } else {
+        const output = result.output as { count?: number; changed?: number; failed?: number };
+        yield { type: 'text', content: `✅ 飞书同步完成：${output.count ?? 0} 个来源，${output.changed ?? 0} 个有变化，${output.failed ?? 0} 个失败。` };
+      }
+      yield { type: 'done' };
+      return;
+    }
+
+    case 'wiki': {
+      const [sub = 'list', ...rest] = args.trim().split(/\s+/).filter(Boolean);
+      const rawInput =
+        sub === 'compile'
+          ? { action: 'compile' }
+          : sub === 'search'
+            ? { action: 'search', keyword: rest.join(' ') }
+            : sub === 'read'
+              ? { action: 'read', path: rest.join(' ') }
+              : { action: 'list' };
+
+      const result = await agent.toolRegistry.execute(
+        'WikiTool',
+        rawInput,
+        { abortSignal: new AbortController().signal, userConfig: agent.getConfig() },
+      );
+
+      if (!result.success) {
+        yield { type: 'text', content: `❌ Wiki 操作失败: ${result.error}` };
+        yield { type: 'done' };
+        return;
+      }
+
+      if (sub === 'compile') {
+        const output = result.output as { pageCount?: number; indexPath?: string };
+        yield { type: 'text', content: `✅ Wiki 已编译：${output.pageCount ?? 0} 个页面\n${output.indexPath ?? ''}`.trim() };
+      } else if (sub === 'search') {
+        const pages = (result.output as any[]) ?? [];
+        yield { type: 'text', content: pages.length ? pages.map((p) => `- ${p.title} (${p.path})\n  ${p.excerpt}`).join('\n') : '未找到匹配的 Wiki 页面。' };
+      } else if (sub === 'read') {
+        const output = result.output as { content?: string };
+        yield { type: 'text', content: output.content ?? '' };
+      } else {
+        const pages = (result.output as any[]) ?? [];
+        yield { type: 'text', content: pages.length ? pages.map((p) => `- ${p.title} (${p.type}) ${p.path}`).join('\n') : 'Wiki 还没有页面。先运行 /wiki compile。' };
       }
       yield { type: 'done' };
       return;

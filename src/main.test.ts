@@ -66,6 +66,7 @@ describe('createOfficeAgent', () => {
     expect(agent.officeContextStore).toBeDefined();
     expect(agent.feishuSyncStore).toBeDefined();
     expect(agent.feishuSyncScheduler).toBeDefined();
+    expect(agent.contextWikiCompiler).toBeDefined();
     expect(agent.agendaScheduler).toBeDefined();
     expect(agent.cronScheduler).toBeDefined();
     expect(agent.awaySummaryEngine).toBeDefined();
@@ -89,6 +90,7 @@ describe('createOfficeAgent', () => {
       'SubAgentTool',
       'TaskManager',
       'WebSearch',
+      'WikiTool',
     ]);
   });
 
