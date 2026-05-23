@@ -107,6 +107,7 @@ npx tsx src/cli/index.ts feishu schema im.messages.create
 |------|------|
 | `/tasks` | 查看任务列表 |
 | `/remind <内容>` | 创建提醒 |
+| `/agenda` | 查看/管理主动提醒日程 |
 | `/daily-report` | 生成每日工作汇报 |
 | `/weekly-report` | 生成周报 |
 | `/meeting-notes` | 整理会议纪要 |
@@ -135,6 +136,7 @@ Agent 通过原生 Function Calling 调用这些工具：
 | TaskManager | 任务 CRUD、状态追踪、逾期检测、任务拆解 | ✅ 完整 |
 | SubAgentTool | 项目管理（创建/归档/委派） | ✅ 完整 |
 | MemoryTool | 长期记忆存储/搜索/删除 | ✅ 完整 |
+| AgendaTool | 主动提醒日程：提醒、截止日期、承诺、跟进事项 | ✅ 推荐 |
 | ReminderTool | 提醒管理 | ✅ 完整 |
 | CronTool | 定时任务（cron 表达式） | ✅ 完整 |
 | ConfigTool | 通过对话修改配置（提醒时间、工作时间等） | ✅ 完整 |
@@ -152,10 +154,13 @@ Agent 会在后台自动检查并推送提醒，不需要用户主动询问：
 - 每日待办清单（默认工作日 9:00）
 - 每周工作总结（默认周五 17:00）
 - 截止日期紧急提醒（< 24h）和预警（< 3 天）
+- Agenda 智能日程：LLM 在对话中自主创建提醒、截止日期、承诺跟进，到点后再由 LLM 生成提醒文案
 - 智能提醒：延迟性表述检测、承诺追踪、项目停滞、遗忘任务
 - 用户创建的定时提醒
 
 CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。飞书主动推送需要用户先给机器人发过至少一条消息，Agent 会记录最近的 `chat_id` 并在重启后自动恢复推送通道。
+
+Agenda 不会每分钟调用 LLM。Agent 只在对话中认为有明确时间点/跟进点时调用 `AgendaTool` 建日程；后台调度器用最近到期 timer 和本地低频扫描检测，到点后才调用 Reminder Composer 生成提醒内容。
 
 通过对话修改提醒配置：告诉 Agent "把每日提醒改到早上8点" 即可。
 
@@ -216,6 +221,7 @@ CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。�
 ├── tasks.json              # 任务数据
 ├── token-usage.json        # Token 用量统计
 ├── config.json             # 用户配置（可通过对话修改）
+├── agenda.json             # 主动提醒日程（提醒/deadline/承诺/跟进）
 ├── cron-tasks.json         # 定时任务
 ├── last-session.txt        # CLI 最近会话 ID
 ├── last-session-feishu-*.txt  # 飞书用户会话 ID（按用户隔离）
@@ -271,7 +277,10 @@ src/
 │
 ├── services/                   # 服务层
 │   ├── reminder-engine.ts      # 提醒引擎（定时/截止日期/智能判断）
-│   ├── reminder-loop.ts        # 提醒后台循环（30s 检查 + 推送）
+│   ├── reminder-loop.ts        # 提醒后台循环（15min 兜底 + 最近到期 timer）
+│   ├── agenda-store.ts         # Agenda 持久化
+│   ├── agenda-scheduler.ts     # Agenda 到期调度
+│   ├── reminder-composer.ts    # 到期提醒 LLM 文案生成
 │   ├── notification-service.ts # 统一通知通道（CLI/飞书注册回调）
 │   ├── lark-cli-runner.ts      # 官方 lark-cli 进程封装
 │   ├── cron-scheduler.ts       # 定时调度器（cron 表达式 + 持久化）
@@ -285,6 +294,7 @@ src/
 │   ├── SubAgentTool/           # 项目管理
 │   ├── MemoryTool/             # 记忆操作
 │   ├── ReminderTool/           # 提醒操作
+│   ├── AgendaTool/             # 主动提醒日程
 │   ├── CronTool/               # 定时任务
 │   ├── ConfigTool/             # 配置修改（通过对话）
 │   ├── LarkCliTool/            # 官方 lark-cli Agent 工具（推荐）

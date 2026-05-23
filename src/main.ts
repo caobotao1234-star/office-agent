@@ -29,6 +29,9 @@ import { AwaySummaryEngine } from './services/away-summary-engine.js';
 import { PromptSuggestionEngine } from './services/prompt-suggestion.js';
 import { NotificationService } from './services/notification-service.js';
 import { ReminderLoop } from './services/reminder-loop.js';
+import { AgendaStore } from './services/agenda-store.js';
+import { ReminderComposer } from './services/reminder-composer.js';
+import { AgendaScheduler } from './services/agenda-scheduler.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -44,6 +47,7 @@ import { ConfigTool } from './tools/ConfigTool/index.js';
 import { WebSearchTool } from './tools/WebSearchTool/index.js';
 import { SkillCreatorTool } from './tools/SkillCreatorTool/index.js';
 import { LarkCliTool } from './tools/LarkCliTool/index.js';
+import { AgendaTool } from './tools/AgendaTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +72,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '',
     '## For actions (user asks to create/delete/update):',
     '- CREATE task → TaskManager action "create"',
+    '- CREATE reminder/deadline/commitment/follow-up with a concrete time → AgendaTool action "create"',
     '- DELETE task → TaskManager action "delete" (use description if no ID)',
     '- UPDATE task status → TaskManager action "update" (use description if no ID)',
     '- CREATE project → SubAgentTool action "create"',
@@ -94,6 +99,16 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- Use MemoryTool to store important information',
     '- When you learn project details from Feishu docs, store key info (milestones, deadlines, decisions) as memories',
     '',
+    '# Agenda & Proactive Reminders',
+    '',
+    '- Use AgendaTool when the user states a concrete reminder time, deadline, commitment, or follow-up point.',
+    '- Do NOT run agenda extraction every turn. Call AgendaTool autonomously only when there is a clear useful trigger.',
+    '- For explicit reminders, set triggerAt to the reminder time.',
+    '- For deadlines, set deadlineAt to the actual due time and triggerAt to when the user should be reminded.',
+    '- Include sourceMessage/context so the Reminder Composer can generate a useful message at trigger time.',
+    '- Do not rely on CronTool for one-time reminders; use AgendaTool. Keep CronTool for recurring automation.',
+    '- When AgendaTool succeeds, briefly tell the user what was scheduled and when.',
+    '',
     '# Feishu Cloud Documents',
     '',
     '- Use LarkCli for ALL Feishu/Lark work: messages, docs, sheets, base, calendar, mail, tasks, wiki, contacts, meetings, approval, and raw OpenAPI calls',
@@ -116,7 +131,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '',
     '# Available Commands',
     '',
-    '/tasks /remind /report /meeting-notes /meeting',
+    '/tasks /remind /agenda /report /meeting-notes /meeting',
     '/task-breakdown /feishu-sync /dev-workflow /okr /draft',
     '/project /memory /cron /usage /usage detail /help',
     '',
@@ -160,7 +175,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '  proactively create a CronTool recurring task to automate it.',
     '  Example: user says "周报每周五下午5点" → create cron task with expression "0 17 * * 5"',
     '  and prompt "生成本周项目周报并推送给用户".',
-    '- When user mentions one-time deadlines or reminders, create a CronTool one_time task.',
+    '- When user mentions one-time deadlines or reminders, create an AgendaTool item.',
     '- Be proactive: if user discusses a project milestone, suggest creating a reminder.',
     '- Make reminders feel natural and human — vary the wording, consider context.',
     '',
@@ -182,6 +197,8 @@ export interface OfficeAgent {
   skillSystem: SkillSystem;
   subAgentManager: SubAgentManager;
   reminderEngine: ReminderEngine;
+  agendaStore: AgendaStore;
+  agendaScheduler: AgendaScheduler;
   cronScheduler: CronScheduler;
   backgroundTaskManager: BackgroundTaskManager;
   awaySummaryEngine: AwaySummaryEngine;
@@ -223,6 +240,8 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const toolRegistry = new ToolRegistry();
 
   const reminderEngine = new ReminderEngine(config, path.join(dataDir, 'reminders.json'));
+  const agendaStore = new AgendaStore(path.join(dataDir, 'agenda.json'));
+  const reminderComposer = new ReminderComposer(llm);
   const cronScheduler = new CronScheduler(
     path.join(dataDir, 'cron-tasks.json'),
     (task) => { void agent.handleMessage(task.prompt); },
@@ -240,6 +259,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new DocumentParserTool());
   toolRegistry.register(new LarkCliTool());
+  toolRegistry.register(new AgendaTool(agendaStore));
   const feishuConnectorTool = new FeishuConnectorTool();
   if (!useLegacyFeishuTools) feishuConnectorTool.setEnabled(false);
   toolRegistry.register(feishuConnectorTool);
@@ -280,6 +300,11 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     llm,
     getConfig: () => configManager.get(),
   });
+  const agendaScheduler = new AgendaScheduler(
+    agendaStore,
+    notificationService,
+    reminderComposer,
+  );
 
   const queryEngine = new QueryEngine({
     model: model ?? 'claude-sonnet-4-20250514',
@@ -293,7 +318,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
-    skillSystem, subAgentManager, reminderEngine, cronScheduler,
+    skillSystem, subAgentManager, reminderEngine, agendaStore, agendaScheduler, cronScheduler,
     backgroundTaskManager, awaySummaryEngine,
     promptSuggestionEngine, notificationService, reminderLoop,
     usageStats, configManager,
@@ -315,11 +340,13 @@ async function startAgent(agent: OfficeAgent): Promise<void> {
   agent.awaySummaryEngine.recordActivity();
   agent.queryEngine.restoreLastSession();
   agent.reminderLoop.start();
+  agent.agendaScheduler.start();
 }
 
 function stopAgent(agent: OfficeAgent): void {
   agent.cronScheduler.stop();
   agent.reminderLoop.stop();
+  agent.agendaScheduler.stop();
 }
 
 async function* handleMessage(
@@ -422,6 +449,7 @@ async function* handleBuiltinCommand(
           '可用命令:',
           '  /tasks              查看任务列表',
           '  /remind <内容>      创建提醒',
+          '  /agenda             查看/管理主动提醒日程',
           '  /report             生成报告（日报/周报/月报/季度/半年/年度/项目）',
           '  /meeting-notes      整理会议纪要（简版）',
           '  /meeting            会议全流程管理',

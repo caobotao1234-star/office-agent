@@ -268,6 +268,7 @@ async function main() {
 
     if (!existingChatId) {
       agent.reminderLoop.start();
+      agent.agendaScheduler.start();
       log.info('用户 Agent 已启动', { senderId, chatId });
     } else {
       log.info('用户主动推送会话已更新', { senderId, previousChatId: existingChatId, chatId });

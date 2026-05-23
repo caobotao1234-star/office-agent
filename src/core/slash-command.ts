@@ -26,6 +26,7 @@ export interface SlashCommandResult {
 export const COMMAND_MAP: Record<string, { type: 'tool' | 'skill' | 'builtin'; target: string }> = {
   tasks: { type: 'tool', target: 'TaskManager' },
   remind: { type: 'tool', target: 'ReminderTool' },
+  agenda: { type: 'tool', target: 'AgendaTool' },
   project: { type: 'tool', target: 'SubAgentTool' },
   memory: { type: 'tool', target: 'MemoryTool' },
   cron: { type: 'tool', target: 'CronTool' },

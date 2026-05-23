@@ -207,6 +207,31 @@ export interface Reminder {
   delivered: boolean;
 }
 
+export type AgendaItemType = 'reminder' | 'deadline' | 'commitment' | 'follow_up';
+export type AgendaItemStatus = 'pending' | 'delivered' | 'cancelled';
+export type AgendaItemPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type AgendaItemSource = 'llm' | 'user' | 'tool' | 'migration';
+
+export interface AgendaItem {
+  id: string;
+  type: AgendaItemType;
+  title: string;
+  description?: string;
+  triggerAt: Date;
+  deadlineAt?: Date;
+  timezone: string;
+  priority: AgendaItemPriority;
+  status: AgendaItemStatus;
+  source: AgendaItemSource;
+  sourceMessage?: string;
+  context?: string;
+  composePrompt?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  deliveredAt?: Date;
+  cancelledAt?: Date;
+}
+
 export interface Suggestion {
   id: string;
   text: string;
