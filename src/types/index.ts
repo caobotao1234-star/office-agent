@@ -83,6 +83,8 @@ export interface UserConfig {
     appId?: string;
     appSecret?: string;
     watchConfig?: FeishuWatchConfig;
+    syncIntervalMinutes?: number;
+    syncOnStart?: boolean;
   };
   timezone: string;
 }

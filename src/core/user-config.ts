@@ -37,6 +37,8 @@ export class UserConfigManager {
       },
       feishu: {
         enabled: false,
+        syncIntervalMinutes: 0,
+        syncOnStart: false,
       },
       timezone: 'Asia/Shanghai',
     };

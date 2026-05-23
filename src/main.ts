@@ -30,6 +30,7 @@ import { ReminderComposer } from './services/reminder-composer.js';
 import { AgendaScheduler } from './services/agenda-scheduler.js';
 import { OfficeContextStore } from './services/office-context-store.js';
 import { FeishuSyncStore } from './services/feishu-sync-store.js';
+import { FeishuSyncScheduler, type FeishuSyncTickSummary } from './services/feishu-sync-scheduler.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -207,6 +208,7 @@ export interface OfficeAgent {
   agendaStore: AgendaStore;
   officeContextStore: OfficeContextStore;
   feishuSyncStore: FeishuSyncStore;
+  feishuSyncScheduler: FeishuSyncScheduler;
   agendaScheduler: AgendaScheduler;
   cronScheduler: CronScheduler;
   awaySummaryEngine: AwaySummaryEngine;
@@ -226,6 +228,37 @@ export interface CreateOfficeAgentOptions {
   baseDir?: string;
   contextWindowSize?: number;
   model?: string;
+}
+
+function getFeishuSyncIntervalMs(config: UserConfig): number {
+  const fromEnv = Number(process.env['FEISHU_SYNC_INTERVAL_MINUTES']);
+  const minutes = Number.isFinite(fromEnv) && fromEnv > 0
+    ? fromEnv
+    : config.feishu.syncIntervalMinutes ?? 0;
+  return minutes > 0 ? minutes * 60_000 : 0;
+}
+
+async function runFeishuSyncTick(
+  tool: FeishuIngestTool,
+  signal: AbortSignal,
+  userConfig: UserConfig,
+): Promise<FeishuSyncTickSummary> {
+  const result = await tool.call(
+    tool.inputSchema.parse({
+      action: 'syncAll',
+      includeDisabled: false,
+      force: false,
+      limit: 20,
+    }),
+    { abortSignal: signal, userConfig },
+  );
+
+  const output = result.output as { count?: number; changed?: number; failed?: number } | null;
+  return {
+    count: output?.count ?? 0,
+    changed: output?.changed ?? 0,
+    failed: output?.failed ?? (result.success ? 0 : 1),
+  };
 }
 
 export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgent {
@@ -253,12 +286,18 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const notificationService = new NotificationService();
   const usageStats = new UsageStats(path.join(dataDir, 'usage-stats.json'));
+  const feishuIngestTool = new FeishuIngestTool(feishuSyncStore, officeContextStore);
+  const feishuSyncScheduler = new FeishuSyncScheduler(
+    async (signal) => runFeishuSyncTick(feishuIngestTool, signal, configManager.get()),
+    notificationService,
+    getFeishuSyncIntervalMs(config),
+  );
 
   toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new LarkCliTool());
   toolRegistry.register(new OfficeContextTool(officeContextStore));
   toolRegistry.register(new KnowledgeCaptureTool(officeContextStore, memorySystem, agendaStore));
-  toolRegistry.register(new FeishuIngestTool(feishuSyncStore, officeContextStore));
+  toolRegistry.register(feishuIngestTool);
   toolRegistry.register(new AgendaTool(agendaStore));
   toolRegistry.register(new MemoryTool(memorySystem));
   toolRegistry.register(new CronTool(cronScheduler));
@@ -303,7 +342,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
-    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, agendaScheduler, cronScheduler,
+    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, agendaScheduler, cronScheduler,
     awaySummaryEngine, notificationService,
     usageStats, configManager,
     dataDir,
@@ -323,11 +362,17 @@ async function startAgent(agent: OfficeAgent): Promise<void> {
   agent.awaySummaryEngine.recordActivity();
   agent.queryEngine.restoreLastSession();
   agent.agendaScheduler.start();
+  agent.feishuSyncScheduler.start();
+  const config = agent.configManager.get();
+  if (config.feishu.syncOnStart && agent.feishuSyncScheduler.isEnabled()) {
+    void agent.feishuSyncScheduler.tick();
+  }
 }
 
 function stopAgent(agent: OfficeAgent): void {
   agent.cronScheduler.stop();
   agent.agendaScheduler.stop();
+  agent.feishuSyncScheduler.stop();
 }
 
 async function* handleMessage(

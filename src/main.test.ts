@@ -65,6 +65,7 @@ describe('createOfficeAgent', () => {
     expect(agent.agendaStore).toBeDefined();
     expect(agent.officeContextStore).toBeDefined();
     expect(agent.feishuSyncStore).toBeDefined();
+    expect(agent.feishuSyncScheduler).toBeDefined();
     expect(agent.agendaScheduler).toBeDefined();
     expect(agent.cronScheduler).toBeDefined();
     expect(agent.awaySummaryEngine).toBeDefined();
