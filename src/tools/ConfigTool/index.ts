@@ -2,7 +2,7 @@
  * ConfigTool — View and modify user configuration via tool calls.
  *
  * Allows Agent to read and update config.json through natural language.
- * e.g. "把每日提醒改到早上8点" → Agent calls update with the right path.
+ * e.g. "把工作时间改到早上8点半" → Agent calls update with the right path.
  *
  * Requirements: 12.1-12.4
  */
@@ -17,7 +17,7 @@ const GetConfigInput = z.object({
 
 const UpdateConfigInput = z.object({
   action: z.literal('update'),
-  path: z.string().min(1).describe('Dot-separated config path, e.g. "reminder.dailyBriefingTime" or "workingHours.start"'),
+  path: z.string().min(1).describe('Dot-separated config path, e.g. "workingHours.start" or "timezone"'),
   value: z.union([z.string(), z.number(), z.boolean(), z.array(z.number())]).describe('New value for the config field'),
 });
 
@@ -35,9 +35,7 @@ export class ConfigTool implements Tool<ConfigToolInput, unknown> {
     'get: show current config. ' +
     'update: change a setting by dot-path. ' +
     'Paths: workingHours.start, workingHours.end, workingHours.workDays, ' +
-    'reminder.dailyBriefingTime (HH:MM), reminder.weeklySummaryDay (0=Sun..6=Sat), ' +
-    'reminder.weeklySummaryTime (HH:MM), reminder.intensity (low/standard/high), ' +
-    'awaySummary.thresholdMinutes, smartReminder.staleProjectDays, timezone.';
+    'awaySummary.thresholdMinutes, timezone.';
   readonly inputSchema = ConfigToolInput;
 
   private configManager: UserConfigManager;

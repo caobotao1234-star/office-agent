@@ -137,32 +137,26 @@ Agent 通过原生 Function Calling 调用这些工具：
 | SubAgentTool | 项目管理（创建/归档/委派） | ✅ 完整 |
 | MemoryTool | 长期记忆存储/搜索/删除 | ✅ 完整 |
 | AgendaTool | 主动提醒日程：提醒、截止日期、承诺、跟进事项 | ✅ 推荐 |
-| ReminderTool | 提醒管理 | ✅ 完整 |
 | CronTool | 定时任务（cron 表达式） | ✅ 完整 |
 | ConfigTool | 通过对话修改配置（提醒时间、工作时间等） | ✅ 完整 |
 | LarkCli | 官方飞书 CLI：消息、文档、表格、日历、邮箱、任务、会议、审批等 | ✅ 推荐 |
-| FeishuConnector | 旧版飞书 SDK 连接器 | 默认关闭 |
-| CalendarTool | 旧版飞书日历 SDK 工具 | 默认关闭 |
-| EmailTool | 邮件发送 | 🔲 stub |
-| DocumentParser | 文档解析（飞书/Excel/Word/网页） | 🔲 stub |
-| BackgroundTaskTool | 后台任务管理 | ✅ 完整 |
+| SkillCreator | 创建自定义技能 | ✅ 完整 |
+| WebSearch | 联网搜索（qwen 模型默认关闭，优先使用模型内置搜索） | 可选 |
+
+已移除的旧/占位工具：`EmailTool`、`DocumentParser`、`FeishuConnector`、`CalendarTool`、`BackgroundTaskTool`、`ReminderTool` 不再注册给 LLM。一次性提醒、截止日期和承诺跟进统一写入 `AgendaTool`。
 
 ## 主动提醒系统
 
 Agent 会在后台自动检查并推送提醒，不需要用户主动询问：
 
-- 每日待办清单（默认工作日 9:00）
-- 每周工作总结（默认周五 17:00）
-- 截止日期紧急提醒（< 24h）和预警（< 3 天）
 - Agenda 智能日程：LLM 在对话中自主创建提醒、截止日期、承诺跟进，到点后再由 LLM 生成提醒文案
-- 智能提醒：延迟性表述检测、承诺追踪、项目停滞、遗忘任务
-- 用户创建的定时提醒
+- 周期自动化：用 `CronTool` 处理日报、周报等周期任务
 
 CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。飞书主动推送需要用户先给机器人发过至少一条消息，Agent 会记录最近的 `chat_id` 并在重启后自动恢复推送通道。
 
 Agenda 不会每分钟调用 LLM。Agent 只在对话中认为有明确时间点/跟进点时调用 `AgendaTool` 建日程；后台调度器用最近到期 timer 和本地低频扫描检测，到点后才调用 Reminder Composer 生成提醒内容。
 
-通过对话修改提醒配置：告诉 Agent "把每日提醒改到早上8点" 即可。
+一次性提醒时间由 `AgendaTool` 的 `triggerAt` 决定；周期任务由 `CronTool` 的 cron 表达式决定。
 
 ## 飞书机器人（WebSocket 长连接）
 
@@ -195,10 +189,10 @@ Agenda 不会每分钟调用 LLM。Agent 只在对话中认为有明确时间点
 - 单聊直接发消息（需开通单聊权限）
 - 支持语音消息（自动转文字，使用 DashScope Paraformer STT）
 - 每个飞书用户独立会话和数据目录，重启后自动恢复
-- 主动推送提醒（截止日期、每日待办等），服务重启后会恢复最近联系过的飞书收件人
+- 主动推送提醒（Agenda 到期、任务截止日期等），服务重启后会恢复最近联系过的飞书收件人
 - 读取飞书云文档内容，自动提取项目信息存入记忆
 
-## 5 个内置技能
+## 内置技能
 
 通过斜杠命令触发，定义在 `src/skills/bundled/` 下：
 
@@ -276,35 +270,27 @@ src/
 │   └── errors.ts               # 统一错误类型（AppError + Errors 工厂）
 │
 ├── services/                   # 服务层
-│   ├── reminder-engine.ts      # 提醒引擎（定时/截止日期/智能判断）
-│   ├── reminder-loop.ts        # 提醒后台循环（15min 兜底 + 最近到期 timer）
 │   ├── agenda-store.ts         # Agenda 持久化
 │   ├── agenda-scheduler.ts     # Agenda 到期调度
 │   ├── reminder-composer.ts    # 到期提醒 LLM 文案生成
 │   ├── notification-service.ts # 统一通知通道（CLI/飞书注册回调）
 │   ├── lark-cli-runner.ts      # 官方 lark-cli 进程封装
 │   ├── cron-scheduler.ts       # 定时调度器（cron 表达式 + 持久化）
-│   ├── background-task-manager.ts  # 后台任务
 │   ├── away-summary-engine.ts  # 离开摘要
-│   ├── prompt-suggestion.ts    # 主动建议
 │   └── speech-to-text.ts       # 语音转文字（DashScope Paraformer）
 │
 ├── tools/                      # 工具模块
 │   ├── TaskManager/            # 任务管理
 │   ├── SubAgentTool/           # 项目管理
 │   ├── MemoryTool/             # 记忆操作
-│   ├── ReminderTool/           # 提醒操作
 │   ├── AgendaTool/             # 主动提醒日程
 │   ├── CronTool/               # 定时任务
 │   ├── ConfigTool/             # 配置修改（通过对话）
 │   ├── LarkCliTool/            # 官方 lark-cli Agent 工具（推荐）
-│   ├── FeishuConnector/        # 旧版飞书连接器（默认关闭）
-│   ├── CalendarTool/           # 旧版飞书日历（默认关闭）
-│   ├── EmailTool/              # 邮件
-│   ├── DocumentParser/         # 文档解析
-│   └── BackgroundTaskTool/     # 后台任务
+│   ├── SkillCreatorTool/       # 自定义技能创建
+│   └── WebSearchTool/          # 可选联网搜索
 │
-├── skills/bundled/             # 5 个内置技能
+├── skills/bundled/             # 内置技能
 ├── types/index.ts              # 核心类型定义
 ├── main.ts                     # 组件装配 + 消息处理流程
 │
@@ -327,7 +313,7 @@ src/
 ## 开发
 
 ```bash
-npm test          # 运行测试（84 个）
+npm test          # 运行测试
 npm run typecheck # 类型检查
 npm run build     # 编译 TypeScript
 ```
@@ -338,10 +324,10 @@ npm run build     # 编译 TypeScript
 - QueryEngine 主循环（async generator + 多轮工具调用）
 - 原生 Function Calling（非 prompt-based）
 - 三层记忆系统（MEMORY.md 索引 + LLM side query + 工具搜索）
-- 可插拔 Tool 系统（11 个工具，Zod schema 自动转 JSON Schema）
+- 可插拔 Tool 系统（当前只注册真实可用工具，Zod schema 自动转 JSON Schema）
 - SKILL.md 技能定义（inline/fork 两种执行模式）
 - 上下文自动压缩
 - 会话持久化（多通道隔离：CLI / 飞书各用户独立）
-- 统一通知架构（NotificationService + ReminderLoop）
+- 统一通知架构（NotificationService + AgendaScheduler）
 - 统一命令路由（slash-command.ts，CLI/飞书/Web 行为一致）
 - 结构化日志 + 统一错误处理

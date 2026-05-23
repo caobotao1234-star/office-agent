@@ -62,29 +62,23 @@ describe('createOfficeAgent', () => {
     expect(agent.contextManager).toBeDefined();
     expect(agent.skillSystem).toBeDefined();
     expect(agent.subAgentManager).toBeDefined();
-    expect(agent.reminderEngine).toBeDefined();
+    expect(agent.agendaStore).toBeDefined();
+    expect(agent.agendaScheduler).toBeDefined();
     expect(agent.cronScheduler).toBeDefined();
-    expect(agent.backgroundTaskManager).toBeDefined();
     expect(agent.awaySummaryEngine).toBeDefined();
-    expect(agent.promptSuggestionEngine).toBeDefined();
+    expect(agent.notificationService).toBeDefined();
     expect(agent.configManager).toBeDefined();
   });
 
-  it('should register all 15 tools', () => {
+  it('should register only active, non-stub tools', () => {
     const tools = agent.toolRegistry.listAll();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       'AgendaTool',
-      'BackgroundTaskTool',
-      'CalendarTool',
       'ConfigTool',
       'CronTool',
-      'DocumentParser',
-      'EmailTool',
-      'FeishuConnector',
       'LarkCli',
       'MemoryTool',
-      'ReminderTool',
       'SkillCreator',
       'SubAgentTool',
       'TaskManager',
@@ -92,18 +86,21 @@ describe('createOfficeAgent', () => {
     ]);
   });
 
-  it('should prefer LarkCli over legacy Feishu SDK tools by default', () => {
+  it('should expose LarkCli and remove legacy/stub tool surfaces', () => {
+    const allNames = agent.toolRegistry.listAll().map((t) => t.name);
     const enabledNames = agent.toolRegistry.listEnabled().map((t) => t.name).sort();
     expect(enabledNames).toContain('LarkCli');
-    expect(enabledNames).not.toContain('FeishuConnector');
-    expect(enabledNames).not.toContain('CalendarTool');
+    expect(allNames).not.toContain('FeishuConnector');
+    expect(allNames).not.toContain('CalendarTool');
+    expect(allNames).not.toContain('EmailTool');
+    expect(allNames).not.toContain('DocumentParser');
+    expect(allNames).not.toContain('ReminderTool');
   });
 
   it('should return default config via getConfig()', () => {
     const config = agent.getConfig();
     expect(config.workingHours.start).toBe('09:00');
     expect(config.timezone).toBe('Asia/Shanghai');
-    expect(config.reminder.intensity).toBe('standard');
   });
 });
 
@@ -181,9 +178,6 @@ describe('handleMessage — normal text', () => {
 
   it('should include done event at the end', async () => {
     const events = await collectEvents(agent.handleMessage('帮我查看今天的任务'));
-    const lastNonSuggestion = events.filter(
-      (e) => e.type !== 'text' || !(e as { content: string }).content.includes('建议'),
-    );
     // Should have at least a text event from QueryEngine
     expect(events.some((e) => e.type === 'done')).toBe(true);
   });

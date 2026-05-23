@@ -2,7 +2,7 @@
 name: report
 description: 统一报告生成：日报、周报、月报、季度总结、半年总结、年度总结、项目报告，自动判断类型和时间范围
 when_to_use: 当用户提到日报、周报、月报、季度总结、半年总结、年度总结、项目报告、工作汇报、进展报告时
-allowed_tools: [TaskManager, MemoryTool, SubAgentTool, FeishuConnector]
+allowed_tools: [TaskManager, MemoryTool, SubAgentTool, LarkCli]
 execution_mode: inline
 ---
 
@@ -36,7 +36,7 @@ execution_mode: inline
 
 - 用 TaskManager 查询时间范围内的任务（已完成、进行中、新增、逾期）
 - 用 MemoryTool 搜索时间范围内的项目记忆（决策、里程碑、关键事件）
-- 如果用户提供了飞书文档链接，用 FeishuConnector 读取补充信息
+- 如果用户提供了飞书文档链接，用 LarkCli 读取补充信息
 
 ## 4. 生成报告
 

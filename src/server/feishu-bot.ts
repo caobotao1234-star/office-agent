@@ -234,7 +234,6 @@ async function main() {
       agent.configManager.load();
       await agent.skillSystem.loadSkills();
       agent.cronScheduler.start();
-      agent.cronScheduler.checkMissedTasks();
       agent.awaySummaryEngine.recordActivity();
       agent.queryEngine.restoreLastSession(sessionChannel);
     }
@@ -267,7 +266,6 @@ async function main() {
     notificationCallbacks.set(senderId, callback);
 
     if (!existingChatId) {
-      agent.reminderLoop.start();
       agent.agendaScheduler.start();
       log.info('用户 Agent 已启动', { senderId, chatId });
     } else {

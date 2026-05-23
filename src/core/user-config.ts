@@ -12,7 +12,6 @@ import * as os from 'node:os';
 import type { UserConfig } from '../types/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
-const CONFIG_FILE = path.join(BASE_DIR, 'config.json');
 
 export class UserConfigManager {
   private configPath: string;
@@ -33,27 +32,11 @@ export class UserConfigManager {
         end: '18:00',
         workDays: [1, 2, 3, 4, 5],
       },
-      reminder: {
-        dailyBriefingTime: '09:00',
-        weeklySummaryDay: 5,
-        weeklySummaryTime: '17:00',
-        intensity: 'standard',
-      },
       awaySummary: {
         thresholdMinutes: 15,
       },
       feishu: {
         enabled: false,
-      },
-      enabledTools: [
-        'TaskManager',
-        'ReminderTool',
-        'MemoryTool',
-        'CronTool',
-        'BackgroundTaskTool',
-      ],
-      smartReminder: {
-        staleProjectDays: 7,
       },
       timezone: 'Asia/Shanghai',
     };
@@ -65,7 +48,7 @@ export class UserConfigManager {
       if (fs.existsSync(this.configPath)) {
         const raw = fs.readFileSync(this.configPath, 'utf-8');
         const parsed = JSON.parse(raw) as Partial<UserConfig>;
-        this.config = { ...UserConfigManager.getDefault(), ...parsed };
+        this.config = deepMerge(UserConfigManager.getDefault(), parsed);
       }
     } catch {
       // Corrupted config — use defaults

@@ -28,7 +28,7 @@
 - `src/main.ts`
   - 注册 `LarkCli`。
   - 系统提示词中要求飞书操作优先使用 `LarkCli`。
-  - 默认禁用 legacy `FeishuConnector` 与 `CalendarTool` 的 LLM 暴露。
+  - 移除 legacy `FeishuConnector` 与 `CalendarTool` 的 LLM 暴露。
 
 - `src/server/feishu-bot.ts`
   - 接收飞书 WebSocket 消息，并把文本/语音转成 Agent 输入。
@@ -39,9 +39,9 @@
   - 只保存主动推送需要的 `senderId`、`chatId`、`updatedAt`。
   - 不保存 App Secret、access token 或 OAuth 凭据。
 
-- `src/services/reminder-engine.ts` / `src/services/reminder-loop.ts`
-  - `ReminderEngine` 持久化提醒并在提醒状态变化时发出变更事件。
-  - `ReminderLoop` 保留 15 分钟全量轮询，同时为最近到期提醒设置一次性 timer，短周期提醒不依赖轮询。
+- `src/services/agenda-store.ts` / `src/services/agenda-scheduler.ts`
+  - `AgendaStore` 持久化主动提醒日程。
+  - `AgendaScheduler` 按最近到期 agenda 设置一次性 timer，并用低频扫描兜底。
   - 通知通道恢复后会立即重新检查已到期提醒。
 
 - `src/core/logger.ts`

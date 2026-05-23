@@ -59,9 +59,9 @@
 ## T8 飞书主动推送恢复
 
 - 状态：DONE
-- 文件：`src/server/feishu-bot.ts`、`src/services/feishu-recipient-store.ts`、`src/services/reminder-engine.test.ts`
+- 文件：`src/server/feishu-bot.ts`、`src/services/feishu-recipient-store.ts`、`src/services/agenda-scheduler.test.ts`
 - 实现说明：记录飞书用户最近 `chat_id`，服务启动时恢复通知通道，让提醒循环无需等待用户再次发消息也能主动推送。
-- 验证命令：`npm test -- src/services/feishu-recipient-store.test.ts src/services/reminder-loop.test.ts src/services/reminder-engine.test.ts`
+- 验证命令：`npm test -- src/services/feishu-recipient-store.test.ts src/services/agenda-scheduler.test.ts`
 - 完成标准：用户至少联系过一次机器人后，重启 `npm run feishu` 能恢复该用户的主动推送通道。
 
 ## T9 云文档创建防空文档校验
@@ -75,7 +75,7 @@
 ## T10 全链路日志
 
 - 状态：DONE
-- 文件：`src/core/logger.ts`、`src/cli/commands/chat.ts`、`src/cli/commands/ask.ts`、`src/cli/commands/feishu.ts`、`src/services/lark-cli-runner.ts`、`src/tools/LarkCliTool/index.ts`、`src/services/reminder-loop.ts`、`src/services/reminder-engine.ts`、`src/services/notification-service.ts`、`src/server/feishu-bot.ts`
+- 文件：`src/core/logger.ts`、`src/cli/commands/chat.ts`、`src/cli/commands/ask.ts`、`src/cli/commands/feishu.ts`、`src/services/lark-cli-runner.ts`、`src/tools/LarkCliTool/index.ts`、`src/services/agenda-scheduler.ts`、`src/services/notification-service.ts`、`src/server/feishu-bot.ts`
 - 实现说明：日志默认写入工程目录 `logs/agent-YYYY-MM-DD.log`，覆盖 CLI 对话、Ask、工具调用、lark-cli 子进程、提醒循环、通知通道、飞书 Bot 和收件人恢复。
 - 验证命令：`npm run typecheck && npm test`
 - 完成标准：正常运行和错误路径均能在日志中看到模块、时间、命令、失败原因，敏感字段会被脱敏。
@@ -83,7 +83,7 @@
 ## T11 修复短周期主动提醒不触发
 
 - 状态：DONE
-- 文件：`src/services/reminder-engine.ts`、`src/services/reminder-loop.ts`、`src/services/notification-service.ts`、`src/services/reminder-loop.test.ts`
-- 实现说明：新增提醒变更和通知通道变更事件，`ReminderLoop` 按最近到期提醒设置一次性 timer，避免 1 分钟提醒必须等待 15 分钟轮询。
-- 验证命令：`npm test -- src/services/reminder-loop.test.ts src/services/reminder-engine.test.ts src/services/notification-service.test.ts && npm run typecheck`
+- 文件：`src/services/agenda-store.ts`、`src/services/agenda-scheduler.ts`、`src/services/notification-service.ts`、`src/services/agenda-scheduler.test.ts`
+- 实现说明：Agenda 变更和通知通道变更会触发最近到期 timer 重排，避免 1 分钟提醒必须等待轮询。
+- 验证命令：`npm test -- src/services/agenda-scheduler.test.ts src/services/agenda-store.test.ts src/services/notification-service.test.ts && npm run typecheck`
 - 完成标准：新建短周期提醒后，会在到期时主动触发；通知通道稍后恢复时，已到期提醒会立刻补发。

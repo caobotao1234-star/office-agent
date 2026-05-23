@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import { zodToJsonSchema } from './schema-utils.js';
 import { logger } from './logger.js';
-import type { Message, StreamEvent } from '../types/index.js';
+import type { Message, StreamEvent, UserConfig } from '../types/index.js';
 import type { LLMClient, LLMMessage, LLMToolDef } from './llm-client.js';
 import type { MemorySystem } from './memory-system.js';
 import type { ContextManager } from './context-manager.js';
@@ -25,6 +25,7 @@ export interface QueryEngineConfig {
   llm: LLMClient;
   maxToolRounds?: number;
   sessionStore?: SessionStore;
+  getUserConfig?: () => UserConfig;
 }
 
 export class QueryEngine {
@@ -243,7 +244,7 @@ export class QueryEngine {
           const toolResult = await this.config.tools.execute(
             tc.function.name,
             parsedInput,
-            { abortSignal: signal, userConfig: {} as never },
+            { abortSignal: signal, userConfig: this.config.getUserConfig?.() ?? ({} as UserConfig) },
           );
 
           yield { type: 'tool_result', toolName: tc.function.name, result: toolResult };

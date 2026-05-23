@@ -2,7 +2,7 @@
 name: dev-workflow
 description: 软件开发项目管理，追踪需求→设计→开发→测试→发版的完整流程
 when_to_use: 当用户讨论软件版本迭代、发版计划、开发流程、测试进度时
-allowed_tools: [TaskManager, SubAgentTool, MemoryTool, CronTool]
+allowed_tools: [TaskManager, SubAgentTool, MemoryTool, AgendaTool, CronTool]
 execution_mode: inline
 ---
 
@@ -38,7 +38,7 @@ execution_mode: inline
 - 用 SubAgentTool 管理项目
 - 用 TaskManager 创建和追踪各阶段任务（用 parentTaskId 建立层级）
 - 用 MemoryTool 存储版本计划、技术决策、发版记录
-- 用 CronTool 创建关键节点的提醒
+- 用 AgendaTool 创建一次性关键节点提醒；只有周期性自动化才用 CronTool
 
 ## 注意事项
 

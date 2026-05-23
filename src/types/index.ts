@@ -21,46 +21,12 @@ export const TaskItemSchema = z.object({
   subtaskIds: z.array(z.string()),
   dueDate: z.coerce.date().optional(),
   source: z.enum(['user_input', 'feishu_message', 'feishu_doc', 'auto_detect']),
-  reminderAdvance: z.number().optional(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   completedAt: z.coerce.date().optional(),
 });
 
 export type TaskItem = z.infer<typeof TaskItemSchema>;
-
-// ============================================================
-// Information Management
-// ============================================================
-
-export type InformationType = 'meeting_note' | 'decision' | 'action_item' | 'reference' | 'contact' | 'general';
-export type InformationSource = 'user_input' | 'feishu_doc' | 'feishu_message' | 'excel' | 'word' | 'webpage';
-
-export interface ExtractedEntity {
-  type: 'person' | 'date' | 'task' | 'deadline' | 'commitment';
-  value: string;
-  confidence: number;
-}
-
-export const ExtractedEntitySchema = z.object({
-  type: z.enum(['person', 'date', 'task', 'deadline', 'commitment']),
-  value: z.string(),
-  confidence: z.number().min(0).max(1),
-});
-
-export const InformationEntrySchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  content: z.string(),
-  type: z.enum(['meeting_note', 'decision', 'action_item', 'reference', 'contact', 'general']),
-  source: z.enum(['user_input', 'feishu_doc', 'feishu_message', 'excel', 'word', 'webpage']),
-  tags: z.array(z.string()),
-  extractedEntities: z.array(ExtractedEntitySchema),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
-});
-
-export type InformationEntry = z.infer<typeof InformationEntrySchema>;
 
 // ============================================================
 // Memory System
@@ -109,12 +75,6 @@ export interface UserConfig {
     end: string;
     workDays: number[];
   };
-  reminder: {
-    dailyBriefingTime: string;
-    weeklySummaryDay: number;
-    weeklySummaryTime: string;
-    intensity: 'low' | 'standard' | 'high';
-  };
   awaySummary: {
     thresholdMinutes: number;
   };
@@ -123,10 +83,6 @@ export interface UserConfig {
     appId?: string;
     appSecret?: string;
     watchConfig?: FeishuWatchConfig;
-  };
-  enabledTools: string[];
-  smartReminder: {
-    staleProjectDays: number;
   };
   timezone: string;
 }
@@ -163,48 +119,17 @@ export interface ToolContext {
 }
 
 // ============================================================
-// Scheduling & Background Tasks
+// Scheduling & Reminders
 // ============================================================
 
 export interface CronTask {
   id: string;
-  type: 'one_time' | 'recurring';
-  cronExpression?: string;
-  scheduledAt?: Date;
+  cronExpression: string;
   prompt: string;
   description: string;
   timezone: string;
-  durable: boolean;
   lastRunAt?: Date;
   createdAt: Date;
-}
-
-export type BackgroundTaskType = 'document_sync' | 'report_generation' | 'feishu_batch_sync' | 'data_export' | 'sub_agent';
-export type BackgroundTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-
-export interface BackgroundTaskState {
-  id: string;
-  type: BackgroundTaskType;
-  status: BackgroundTaskStatus;
-  description: string;
-  startTime: number;
-  endTime?: number;
-  result?: string;
-  error?: string;
-}
-
-// ============================================================
-// Reminders & Suggestions
-// ============================================================
-
-export interface Reminder {
-  id: string;
-  type: 'daily_briefing' | 'weekly_summary' | 'deadline_urgent' | 'deadline_warning' | 'smart_followup' | 'smart_commitment' | 'smart_stale_project';
-  taskId?: string;
-  message: string;
-  reason: string;
-  scheduledAt: Date;
-  delivered: boolean;
 }
 
 export type AgendaItemType = 'reminder' | 'deadline' | 'commitment' | 'follow_up';
@@ -230,11 +155,4 @@ export interface AgendaItem {
   updatedAt: Date;
   deliveredAt?: Date;
   cancelledAt?: Date;
-}
-
-export interface Suggestion {
-  id: string;
-  text: string;
-  reason: string;
-  priority: 'high' | 'medium' | 'low';
 }

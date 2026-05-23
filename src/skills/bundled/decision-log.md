@@ -2,7 +2,7 @@
 name: decision-log
 description: 决策日志：记录重要决策的背景、选项、理由、结果，支持30天后自动回顾
 when_to_use: 当用户做出重要决策、选型、方案确定，或说"记录一下这个决定"、"为什么当时选了这个"时
-allowed_tools: [MemoryTool, TaskManager, CronTool]
+allowed_tools: [MemoryTool, TaskManager, AgendaTool]
 execution_mode: inline
 ---
 
@@ -36,8 +36,9 @@ execution_mode: inline
 
 ### 3. 设置回顾提醒
 
-用 CronTool 创建一个 30 天后的一次性任务：
-- prompt: "30天前你做了一个决策：{主题}。请回顾这个决策的执行情况，结果如何？是否需要调整？"
+用 AgendaTool 创建一个 30 天后的一次性回顾提醒：
+- title: "回顾决策：{主题}"
+- composePrompt: "提醒用户回顾这个决策的执行情况，结果如何，是否需要调整"
 - 这样 30 天后 Agent 会主动提醒用户回顾
 
 ## 回顾决策

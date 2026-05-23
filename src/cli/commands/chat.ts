@@ -17,7 +17,7 @@ export async function chat(modelOverride?: string): Promise<void> {
   console.log('║   🤖 Office Agent — 交互式对话           ║');
   console.log('╚══════════════════════════════════════════╝');
   console.log(`  模型: ${model}`);
-  console.log('  命令: /tasks /remind /daily-report /help');
+  console.log('  命令: /tasks /remind /agenda /report /help');
   console.log(`  日志: ${process.env['OFFICE_AGENT_LOG_DIR'] ?? 'logs/agent-YYYY-MM-DD.log'}`);
   console.log('  退出: quit 或 Ctrl+C');
   console.log();

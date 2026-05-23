@@ -27,7 +27,6 @@ const CreateTaskInput = z.object({
   parentTaskId: z.string().optional(),
   dueDate: z.coerce.date().optional(),
   source: z.enum(['user_input', 'feishu_message', 'feishu_doc', 'auto_detect']).default('user_input'),
-  reminderAdvance: z.number().optional(),
 });
 
 const UpdateTaskInput = z.object({
@@ -38,7 +37,6 @@ const UpdateTaskInput = z.object({
   projectId: z.string().optional(),
   dueDate: z.coerce.date().optional(),
   status: z.enum(['pending', 'in_progress', 'completed', 'overdue', 'cancelled']).optional(),
-  reminderAdvance: z.number().optional(),
 });
 
 const DeleteTaskInput = z.object({
@@ -172,7 +170,6 @@ export function createTask(
     subtaskIds: [],
     dueDate: input.dueDate,
     source: input.source,
-    reminderAdvance: input.reminderAdvance,
     createdAt: now,
     updatedAt: now,
   };
@@ -217,7 +214,6 @@ export function updateTask(
   if (input.priority !== undefined) task.priority = input.priority;
   if (input.projectId !== undefined) task.projectId = input.projectId;
   if (input.dueDate !== undefined) task.dueDate = input.dueDate;
-  if (input.reminderAdvance !== undefined) task.reminderAdvance = input.reminderAdvance;
   task.updatedAt = now;
 
   return task;

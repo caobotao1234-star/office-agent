@@ -74,7 +74,7 @@ describe('parseSlashCommand', () => {
 describe('resolveCommand', () => {
   it('resolves known tool commands', () => {
     expect(resolveCommand('tasks')).toEqual({ type: 'tool', target: 'TaskManager' });
-    expect(resolveCommand('remind')).toEqual({ type: 'tool', target: 'ReminderTool' });
+    expect(resolveCommand('remind')).toEqual({ type: 'tool', target: 'AgendaTool' });
     expect(resolveCommand('agenda')).toEqual({ type: 'tool', target: 'AgendaTool' });
   });
 

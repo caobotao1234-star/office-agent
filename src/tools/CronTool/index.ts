@@ -1,7 +1,7 @@
 /**
  * CronTool — Tool interface wrapper for CronScheduler.
  *
- * Operations: create, delete, list
+ * Operations: create recurring task, delete, list
  * Delegates to CronScheduler for actual logic.
  *
  * Requirements: 17.6
@@ -17,13 +17,10 @@ import type { CronScheduler } from '../../services/cron-scheduler.js';
 
 const CreateCronInput = z.object({
   action: z.literal('create'),
-  type: z.enum(['one_time', 'recurring']),
-  cronExpression: z.string().optional(),
-  scheduledAt: z.coerce.date().optional(),
+  cronExpression: z.string().min(1),
   prompt: z.string().min(1),
   description: z.string().min(1),
   timezone: z.string().default('Asia/Shanghai'),
-  durable: z.boolean().default(true),
 });
 
 const DeleteCronInput = z.object({
@@ -49,7 +46,7 @@ export type CronToolInput = z.infer<typeof CronToolInput>;
 
 export class CronTool implements Tool<CronToolInput, unknown> {
   readonly name = 'CronTool';
-  readonly description = 'Manage scheduled cron tasks: create, delete, and list.';
+  readonly description = 'Manage recurring cron tasks: create, delete, and list. Use AgendaTool for one-time reminders or deadlines.';
   readonly inputSchema = CronToolInput;
 
   private scheduler: CronScheduler;
@@ -84,13 +81,10 @@ export class CronTool implements Tool<CronToolInput, unknown> {
       switch (input.action) {
         case 'create': {
           const task = this.scheduler.create({
-            type: input.type,
             cronExpression: input.cronExpression,
-            scheduledAt: input.scheduledAt,
             prompt: input.prompt,
             description: input.description,
             timezone: input.timezone,
-            durable: input.durable,
           });
           return { success: true, output: task };
         }

@@ -18,7 +18,7 @@
 - 项目依赖中固定包含 `@larksuite/cli`，`npm install` 后可使用本地 `lark-cli`。
 - CLI 支持 `oa feishu ...` 和 `oa lark ...` 透传到官方 `lark-cli`。
 - Agent 注册 `LarkCli` 工具，并在系统提示词中明确飞书操作默认使用该工具。
-- 旧的 `FeishuConnector` 和 `CalendarTool` 默认不再暴露给 LLM，避免与官方 CLI 路径冲突。
+- 旧的 `FeishuConnector` 和 `CalendarTool` 已从运行时移除，避免与官方 CLI 路径冲突。
 - 写入、删除、发送等副作用操作必须具备显式确认字段或使用 `--dry-run`。
 - `docs +create --api-version v2` 必须使用当前 CLI 认可的参数，不能创建空文档或 untitled 文档后谎称成功。
 - 飞书 Bot 需要记录用户最近的 `chat_id`，服务重启后恢复主动推送通道。
@@ -53,5 +53,5 @@
 - 新增 runner 单元测试，验证本地 `lark-cli --help` 可调用。
 - 新增工具单元测试，验证写操作未确认会被阻止。
 - 新增收件人存储与提醒循环测试，验证主动推送恢复所需的本地状态可持久化。
-- 保留现有 84 个测试，并扩展期望的工具注册列表。
+- 保留现有离线测试，并扩展期望的工具注册列表。
 - 构建后运行 `oa feishu --help` 做 CLI smoke test。

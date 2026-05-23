@@ -28,12 +28,12 @@ describe('ConfigTool', () => {
   it('should update a config value by dot-path', async () => {
     const result = await tool.call({
       action: 'update',
-      path: 'reminder.dailyBriefingTime',
-      value: '08:00',
+      path: 'awaySummary.thresholdMinutes',
+      value: 30,
     }, ctx);
     expect(result.success).toBe(true);
-    expect((result.output as any).newValue).toBe('08:00');
-    expect(configManager.get().reminder.dailyBriefingTime).toBe('08:00');
+    expect((result.output as any).newValue).toBe(30);
+    expect(configManager.get().awaySummary.thresholdMinutes).toBe(30);
   });
 
   it('should update nested config', async () => {

@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import type { LLMClient } from './core/llm-client.js';
-import type { StreamEvent, Message, Suggestion, UserConfig } from './types/index.js';
+import type { StreamEvent, UserConfig } from './types/index.js';
 
 import { QueryEngine } from './core/query-engine.js';
 import { ToolRegistry } from './core/tool-system.js';
@@ -22,27 +22,17 @@ import { isSlashCommand, parseSlashCommand, resolveCommand } from './core/slash-
 import { TokenTracker } from './core/token-tracker.js';
 import { UsageStats } from './core/usage-stats.js';
 
-import { ReminderEngine } from './services/reminder-engine.js';
 import { CronScheduler } from './services/cron-scheduler.js';
-import { BackgroundTaskManager } from './services/background-task-manager.js';
 import { AwaySummaryEngine } from './services/away-summary-engine.js';
-import { PromptSuggestionEngine } from './services/prompt-suggestion.js';
 import { NotificationService } from './services/notification-service.js';
-import { ReminderLoop } from './services/reminder-loop.js';
 import { AgendaStore } from './services/agenda-store.js';
 import { ReminderComposer } from './services/reminder-composer.js';
 import { AgendaScheduler } from './services/agenda-scheduler.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
-import { DocumentParserTool } from './tools/DocumentParser/index.js';
-import { FeishuConnectorTool } from './tools/FeishuConnector/index.js';
-import { ReminderTool } from './tools/ReminderTool/index.js';
 import { MemoryTool } from './tools/MemoryTool/index.js';
 import { CronTool } from './tools/CronTool/index.js';
-import { BackgroundTaskTool } from './tools/BackgroundTaskTool/index.js';
-import { EmailTool } from './tools/EmailTool/index.js';
-import { CalendarTool } from './tools/CalendarTool/index.js';
 import { ConfigTool } from './tools/ConfigTool/index.js';
 import { WebSearchTool } from './tools/WebSearchTool/index.js';
 import { SkillCreatorTool } from './tools/SkillCreatorTool/index.js';
@@ -124,7 +114,6 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- Prefer --as user for personal data (calendar, private docs, messages, mail) and --as bot for bot-owned actions',
     '- Prefer --format json for machine-readable output',
     '- For side-effect operations, run --dry-run first when unsure; set confirmed=true only when the user explicitly asked to execute',
-    '- Legacy FeishuConnector and CalendarTool are disabled by default; do not rely on SDK/stub tools unless the environment explicitly enables legacy tools',
     '- When user asks you to read their project docs, search/fetch via LarkCli first, then read each doc',
     '- Extract key information (milestones, deadlines, decisions, plans) and store as memories',
     '- If something is unclear, ASK the user before storing as memory',
@@ -148,7 +137,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- When user asks about time, use the injected current time.',
     '- When deleting/updating tasks, use description if you do not know the ID.',
     '- For token usage, tell user to type /usage.',
-    '- When user asks to change settings (reminder time, working hours, etc.), use ConfigTool.',
+    '- When user asks to change settings (working hours, away summary threshold, timezone, etc.), use ConfigTool.',
     '',
     '# Knowledge Capture (知识卡片)',
     '',
@@ -196,15 +185,11 @@ export interface OfficeAgent {
   contextManager: ContextManager;
   skillSystem: SkillSystem;
   subAgentManager: SubAgentManager;
-  reminderEngine: ReminderEngine;
   agendaStore: AgendaStore;
   agendaScheduler: AgendaScheduler;
   cronScheduler: CronScheduler;
-  backgroundTaskManager: BackgroundTaskManager;
   awaySummaryEngine: AwaySummaryEngine;
-  promptSuggestionEngine: PromptSuggestionEngine;
   notificationService: NotificationService;
-  reminderLoop: ReminderLoop;
   usageStats: UsageStats;
   configManager: UserConfigManager;
   dataDir: string;
@@ -213,12 +198,6 @@ export interface OfficeAgent {
   start(): Promise<void>;
   stop(): void;
   getConfig(): UserConfig;
-}
-
-export interface HandleMessageResult {
-  events: AsyncGenerator<StreamEvent>;
-  suggestions?: Suggestion[];
-  awaySummary?: string | null;
 }
 
 export interface CreateOfficeAgentOptions {
@@ -239,38 +218,24 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const contextManager = new ContextManager(contextWindowSize ?? 128_000, llm);
   const toolRegistry = new ToolRegistry();
 
-  const reminderEngine = new ReminderEngine(config, path.join(dataDir, 'reminders.json'));
   const agendaStore = new AgendaStore(path.join(dataDir, 'agenda.json'));
   const reminderComposer = new ReminderComposer(llm);
   const cronScheduler = new CronScheduler(
     path.join(dataDir, 'cron-tasks.json'),
     (task) => { void agent.handleMessage(task.prompt); },
   );
-  const backgroundTaskManager = new BackgroundTaskManager();
   const awaySummaryEngine = new AwaySummaryEngine(llm, config.awaySummary.thresholdMinutes);
-  const promptSuggestionEngine = new PromptSuggestionEngine(llm);
   const skillSystem = new SkillSystem(BUNDLED_SKILLS_DIR, USER_SKILLS_DIR, llm);
   const subAgentManager = new SubAgentManager(llm, path.join(dataDir, 'agents'));
 
   const notificationService = new NotificationService();
   const usageStats = new UsageStats(path.join(dataDir, 'usage-stats.json'));
-  const useLegacyFeishuTools = process.env['OFFICE_AGENT_LEGACY_FEISHU_TOOLS'] === '1';
 
   toolRegistry.register(new TaskManagerTool(dataDir));
-  toolRegistry.register(new DocumentParserTool());
   toolRegistry.register(new LarkCliTool());
   toolRegistry.register(new AgendaTool(agendaStore));
-  const feishuConnectorTool = new FeishuConnectorTool();
-  if (!useLegacyFeishuTools) feishuConnectorTool.setEnabled(false);
-  toolRegistry.register(feishuConnectorTool);
-  toolRegistry.register(new EmailTool());
-  const calendarTool = new CalendarTool();
-  if (!useLegacyFeishuTools) calendarTool.setEnabled(false);
-  toolRegistry.register(calendarTool);
-  toolRegistry.register(new ReminderTool(reminderEngine));
   toolRegistry.register(new MemoryTool(memorySystem));
   toolRegistry.register(new CronTool(cronScheduler));
-  toolRegistry.register(new BackgroundTaskTool(backgroundTaskManager));
   toolRegistry.register(new SubAgentTool(subAgentManager));
   toolRegistry.register(new ConfigTool(configManager));
   toolRegistry.register(new WebSearchTool());
@@ -293,13 +258,6 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const sessionStore = new SessionStore(dataDir);
 
-  const reminderLoop = new ReminderLoop({
-    reminderEngine,
-    notificationService,
-    toolRegistry,
-    llm,
-    getConfig: () => configManager.get(),
-  });
   const agendaScheduler = new AgendaScheduler(
     agendaStore,
     notificationService,
@@ -314,13 +272,13 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     contextManager,
     llm,
     sessionStore,
+    getUserConfig: () => configManager.get(),
   });
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
-    skillSystem, subAgentManager, reminderEngine, agendaStore, agendaScheduler, cronScheduler,
-    backgroundTaskManager, awaySummaryEngine,
-    promptSuggestionEngine, notificationService, reminderLoop,
+    skillSystem, subAgentManager, agendaStore, agendaScheduler, cronScheduler,
+    awaySummaryEngine, notificationService,
     usageStats, configManager,
     dataDir,
     handleMessage: (input: string) => handleMessage(agent, input),
@@ -336,16 +294,13 @@ async function startAgent(agent: OfficeAgent): Promise<void> {
   agent.configManager.load();
   await agent.skillSystem.loadSkills();
   agent.cronScheduler.start();
-  agent.cronScheduler.checkMissedTasks();
   agent.awaySummaryEngine.recordActivity();
   agent.queryEngine.restoreLastSession();
-  agent.reminderLoop.start();
   agent.agendaScheduler.start();
 }
 
 function stopAgent(agent: OfficeAgent): void {
   agent.cronScheduler.stop();
-  agent.reminderLoop.stop();
   agent.agendaScheduler.stop();
 }
 
@@ -382,7 +337,6 @@ async function* handleMessage(
     yield event;
   }
 
-  // Suggestions disabled — LLM was already appending its own, causing duplication
 }
 
 async function* handleSlashCommand(
@@ -614,38 +568,6 @@ export async function tryDelegateToSubAgent(
     }
   }
   return null;
-}
-
-async function generateSuggestions(agent: OfficeAgent): Promise<Suggestion[]> {
-  const taskResult = await agent.toolRegistry.execute(
-    'TaskManager',
-    { action: 'list' },
-    { abortSignal: new AbortController().signal, userConfig: agent.getConfig() },
-  );
-
-  const tasks = taskResult.success && Array.isArray(taskResult.output)
-    ? taskResult.output
-    : [];
-
-  const now = new Date();
-  const threeDaysLater = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
-
-  const upcomingDeadlines = tasks.filter(
-    (t: { dueDate?: Date; status: string }) =>
-      t.dueDate &&
-      new Date(t.dueDate).getTime() <= threeDaysLater.getTime() &&
-      t.status !== 'completed' &&
-      t.status !== 'cancelled',
-  );
-
-  const recentMessages = agent.queryEngine.getMessages().slice(-10) as Message[];
-
-  return agent.promptSuggestionEngine.generateSuggestions({
-    currentTasks: tasks,
-    recentMessages,
-    upcomingDeadlines,
-    userActivityPattern: { peakHour: 10, avgCompletedPerDay: 3 },
-  });
 }
 
 function buildNaturalLanguageFromCommand(command: string, args: string): string {

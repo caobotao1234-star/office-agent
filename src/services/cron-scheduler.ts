@@ -1,10 +1,7 @@
 /**
- * CronScheduler — Durable cron-based task scheduler.
+ * CronScheduler — Durable recurring cron-based task scheduler.
  *
- * Task 11.1: create/update/delete/list cron tasks, start/stop scheduling loop,
- *            durable persistence to JSON, missed-task recovery.
- *
- * Requirements: 17.1-17.7
+ * Creates, deletes, lists, and runs recurring cron tasks.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -32,18 +29,7 @@ export class CronScheduler {
   // ----------------------------------------------------------
 
   create(input: Omit<CronTask, 'id' | 'createdAt'>): CronTask {
-    // Validate cron expression for recurring tasks
-    if (input.type === 'recurring') {
-      if (!input.cronExpression) {
-        throw new Error('Recurring tasks require a cronExpression');
-      }
-      CronExpressionParser.parse(input.cronExpression, { tz: input.timezone });
-    }
-
-    // Validate one-time tasks have scheduledAt
-    if (input.type === 'one_time' && !input.scheduledAt) {
-      throw new Error('One-time tasks require a scheduledAt date');
-    }
+    CronExpressionParser.parse(input.cronExpression, { tz: input.timezone });
 
     const task: CronTask = {
       ...input,
@@ -59,7 +45,6 @@ export class CronScheduler {
     const existing = this.tasks.get(id);
     if (!existing) throw new Error(`CronTask not found: ${id}`);
 
-    // Validate new cron expression if provided
     if (updates.cronExpression) {
       const tz = updates.timezone ?? existing.timezone;
       CronExpressionParser.parse(updates.cronExpression, { tz });
@@ -107,44 +92,10 @@ export class CronScheduler {
   }
 
   // ----------------------------------------------------------
-  // Missed-task recovery
-  // ----------------------------------------------------------
-
-  /**
-   * Check for one-time tasks that should have fired while the system was offline.
-   * Returns the list of tasks that were retroactively fired.
-   */
-  checkMissedTasks(now = new Date()): CronTask[] {
-    const fired: CronTask[] = [];
-
-    for (const task of this.tasks.values()) {
-      if (task.type !== 'one_time') continue;
-      if (task.lastRunAt) continue; // already executed
-      if (!task.scheduledAt) continue;
-
-      if (task.scheduledAt.getTime() <= now.getTime()) {
-        fired.push({ ...task });
-        this.fire(task, now);
-      }
-    }
-
-    return fired;
-  }
-
-  // ----------------------------------------------------------
   // Internal helpers
   // ----------------------------------------------------------
 
   private shouldFire(task: CronTask, now: Date): boolean {
-    if (task.type === 'one_time') {
-      if (task.lastRunAt) return false; // already fired
-      if (!task.scheduledAt) return false;
-      return task.scheduledAt.getTime() <= now.getTime();
-    }
-
-    // Recurring: check if current minute matches cron expression
-    if (!task.cronExpression) return false;
-
     try {
       const expr = CronExpressionParser.parse(task.cronExpression, {
         tz: task.timezone,
@@ -171,16 +122,11 @@ export class CronScheduler {
     // Invoke callback
     this.onFire(task);
 
-    // Auto-delete one-time tasks after execution
-    if (task.type === 'one_time') {
-      this.tasks.delete(task.id);
-    }
-
     this.saveToDisk();
   }
 
   // ----------------------------------------------------------
-  // Persistence (durable mode)
+  // Persistence
   // ----------------------------------------------------------
 
   private saveToDisk(): void {
@@ -191,7 +137,6 @@ export class CronScheduler {
 
     const data = [...this.tasks.values()].map((t) => ({
       ...t,
-      scheduledAt: t.scheduledAt?.toISOString() ?? null,
       lastRunAt: t.lastRunAt?.toISOString() ?? null,
       createdAt: t.createdAt.toISOString(),
     }));
@@ -207,15 +152,13 @@ export class CronScheduler {
       const arr = JSON.parse(raw) as Array<Record<string, unknown>>;
 
       for (const item of arr) {
+        if (typeof item.cronExpression !== 'string' || !item.cronExpression) continue;
         const task: CronTask = {
           id: item.id as string,
-          type: item.type as CronTask['type'],
-          cronExpression: (item.cronExpression as string) ?? undefined,
-          scheduledAt: item.scheduledAt ? new Date(item.scheduledAt as string) : undefined,
+          cronExpression: item.cronExpression as string,
           prompt: item.prompt as string,
           description: item.description as string,
           timezone: item.timezone as string,
-          durable: (item.durable as boolean) ?? true,
           lastRunAt: item.lastRunAt ? new Date(item.lastRunAt as string) : undefined,
           createdAt: new Date(item.createdAt as string),
         };

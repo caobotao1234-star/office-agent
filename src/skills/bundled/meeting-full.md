@@ -2,7 +2,7 @@
 name: meeting-full
 description: 会议全流程管理：会前准备（议程+背景）、会中记录（决策+待办）、会后追踪（分发+跟进）
 when_to_use: 当用户提到会议准备、会议记录、会议纪要、会议跟进、action items追踪时
-allowed_tools: [TaskManager, MemoryTool, CalendarTool, SubAgentTool]
+allowed_tools: [TaskManager, MemoryTool, LarkCli, AgendaTool, SubAgentTool]
 execution_mode: inline
 ---
 
@@ -14,7 +14,7 @@ execution_mode: inline
 
 当用户说"帮我准备XX会议"或即将到来的会议需要准备时：
 
-1. 用 CalendarTool 查询会议详情（时间、参会人）
+1. 用 LarkCli 查询飞书日历会议详情（时间、参会人）
 2. 用 MemoryTool 搜索与该会议主题相关的历史记忆：
    - 上次同主题会议的决策和遗留问题
    - 相关项目的最新进展
@@ -45,7 +45,7 @@ execution_mode: inline
    - 分歧记录（谁持什么观点，最终如何处理）
 2. 用 TaskManager 为每个待办事项创建任务
 3. 用 MemoryTool 存储会议纪要（标签含会议主题和日期）
-4. 如果有下次会议时间，用 CronTool 创建会前准备提醒
+4. 如果有下次会议时间，用 AgendaTool 创建一次性会前准备提醒
 
 ## 跟进追踪
 

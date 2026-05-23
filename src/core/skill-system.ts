@@ -174,7 +174,7 @@ export class SkillSystem {
   }
 
   // ----------------------------------------------------------
-  // Suggestion
+  // Skill matching
   // ----------------------------------------------------------
 
   /** Suggest a skill based on conversation context (simple keyword match on whenToUse). */

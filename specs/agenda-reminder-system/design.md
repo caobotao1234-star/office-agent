@@ -88,4 +88,4 @@ Agenda 系统分四层：
 ## 部署说明
 
 - 现有用户不需要迁移即可使用新 Agenda。
-- 旧 `ReminderTool` 和 `ReminderLoop` 保留兼容；系统提示词改为优先使用 `AgendaTool` 管理新提醒。
+- 旧 `ReminderTool`、`ReminderEngine`、`ReminderLoop` 已移除，新提醒统一用 `AgendaTool` 管理。

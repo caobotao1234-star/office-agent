@@ -2,7 +2,7 @@
 name: draft-message
 description: 起草专业邮件、飞书消息、会议邀请、状态更新等职场沟通内容
 when_to_use: 当用户要求起草邮件、写消息、准备沟通内容、翻译技术术语给非技术人员时
-allowed_tools: [MemoryTool, FeishuConnector]
+allowed_tools: [MemoryTool, LarkCli]
 execution_mode: inline
 ---
 
@@ -25,7 +25,7 @@ execution_mode: inline
 3. 确认语气：正式？半正式？轻松？
 4. 用 MemoryTool 搜索相关背景信息（如项目进展、之前的沟通记录）
 5. 生成初稿，让用户确认或修改
-6. 如果用户确认，可通过 FeishuConnector 直接发送
+6. 如果用户确认，可通过 LarkCli 直接发送飞书消息；不确定参数时先查 `lark-cli --help` 或 schema
 
 ## 写作原则
 
