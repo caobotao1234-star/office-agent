@@ -34,7 +34,7 @@
 
 ## T5 FeishuIngestTool
 
-- 状态：PENDING
+- 状态：DONE
 - 文件：`src/services/feishu-sync-store.ts`、`src/services/feishu-sync-store.test.ts`、`src/tools/FeishuIngestTool/index.ts`、`src/tools/FeishuIngestTool/index.test.ts`、`src/main.ts`
 - 实现说明：通过 `LarkCli` 按需读取或同步飞书文档、知识库、群聊、日历、Base、任务、通讯录内容；记录关注源和内容 hash，发现变更后更新办公上下文，后续由 `KnowledgeCaptureTool` 继续深提取。
 - 验证命令：`npm test -- src/tools/FeishuIngestTool/index.test.ts && npm run typecheck`

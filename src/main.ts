@@ -29,6 +29,7 @@ import { AgendaStore } from './services/agenda-store.js';
 import { ReminderComposer } from './services/reminder-composer.js';
 import { AgendaScheduler } from './services/agenda-scheduler.js';
 import { OfficeContextStore } from './services/office-context-store.js';
+import { FeishuSyncStore } from './services/feishu-sync-store.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -41,6 +42,7 @@ import { LarkCliTool } from './tools/LarkCliTool/index.js';
 import { AgendaTool } from './tools/AgendaTool/index.js';
 import { OfficeContextTool } from './tools/OfficeContextTool/index.js';
 import { KnowledgeCaptureTool } from './tools/KnowledgeCaptureTool/index.js';
+import { FeishuIngestTool } from './tools/FeishuIngestTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -114,6 +116,8 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '# Feishu Cloud Documents',
     '',
     '- Use LarkCli for ALL Feishu/Lark work: messages, docs, sheets, base, calendar, tasks, wiki, contacts, meetings, and raw OpenAPI calls',
+    '- Use FeishuIngestTool when you need to fetch, register, or sync Feishu docs, wiki nodes, chat messages, message search, calendar agenda, Base records, tasks, or contacts into the agent context.',
+    '- If the user asks to keep a doc/group/base/project up to date, register it with FeishuIngestTool addSource, then use syncSource/syncAll when refreshing context.',
     '- The user has granted high-trust standing authorization for all operations available to the current Feishu credentials and OAuth scopes.',
     '- Do not ask for permission before executing Feishu side effects. Ask only when the target, content, or intent is ambiguous.',
     '- Use lark-cli schema or --help through LarkCli when you are unsure about parameters. Never guess flags',
@@ -202,6 +206,7 @@ export interface OfficeAgent {
   subAgentManager: SubAgentManager;
   agendaStore: AgendaStore;
   officeContextStore: OfficeContextStore;
+  feishuSyncStore: FeishuSyncStore;
   agendaScheduler: AgendaScheduler;
   cronScheduler: CronScheduler;
   awaySummaryEngine: AwaySummaryEngine;
@@ -236,6 +241,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const agendaStore = new AgendaStore(path.join(dataDir, 'agenda.json'));
   const officeContextStore = new OfficeContextStore(path.join(dataDir, 'office-context.json'));
+  const feishuSyncStore = new FeishuSyncStore(path.join(dataDir, 'feishu-sync-sources.json'));
   const reminderComposer = new ReminderComposer(llm);
   const cronScheduler = new CronScheduler(
     path.join(dataDir, 'cron-tasks.json'),
@@ -252,6 +258,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new LarkCliTool());
   toolRegistry.register(new OfficeContextTool(officeContextStore));
   toolRegistry.register(new KnowledgeCaptureTool(officeContextStore, memorySystem, agendaStore));
+  toolRegistry.register(new FeishuIngestTool(feishuSyncStore, officeContextStore));
   toolRegistry.register(new AgendaTool(agendaStore));
   toolRegistry.register(new MemoryTool(memorySystem));
   toolRegistry.register(new CronTool(cronScheduler));
@@ -296,7 +303,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
-    skillSystem, subAgentManager, agendaStore, officeContextStore, agendaScheduler, cronScheduler,
+    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, agendaScheduler, cronScheduler,
     awaySummaryEngine, notificationService,
     usageStats, configManager,
     dataDir,

@@ -64,6 +64,7 @@ describe('createOfficeAgent', () => {
     expect(agent.subAgentManager).toBeDefined();
     expect(agent.agendaStore).toBeDefined();
     expect(agent.officeContextStore).toBeDefined();
+    expect(agent.feishuSyncStore).toBeDefined();
     expect(agent.agendaScheduler).toBeDefined();
     expect(agent.cronScheduler).toBeDefined();
     expect(agent.awaySummaryEngine).toBeDefined();
@@ -78,6 +79,7 @@ describe('createOfficeAgent', () => {
       'AgendaTool',
       'ConfigTool',
       'CronTool',
+      'FeishuIngestTool',
       'KnowledgeCaptureTool',
       'LarkCli',
       'MemoryTool',
