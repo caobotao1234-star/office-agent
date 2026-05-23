@@ -224,6 +224,92 @@ describe('QueryEngine', () => {
     const events = await collectEvents(engine.submitMessage('loop'));
     const toolUseCount = events.filter((e) => e.type === 'tool_use').length;
     expect(toolUseCount).toBe(3);
+    const errorEv = events.find((e) => e.type === 'error') as Extract<StreamEvent, { type: 'error' }>;
+    expect(errorEv.error).toContain('工具调用上限');
+  });
+
+  it('blocks repeated identical tool calls after the retry limit', async () => {
+    let actualToolExecutions = 0;
+
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools() {
+        return {
+          content: null,
+          toolCalls: [{ id: 'tc', function: { name: 'RepeatTool', arguments: '{"same":true}' } }],
+        };
+      },
+    };
+
+    const repeatedTool: Tool = {
+      name: 'RepeatTool',
+      description: 'Repeat test',
+      inputSchema: z.object({}).passthrough(),
+      isEnabled: () => true,
+      isReadOnly: () => true,
+      checkPermissions: () => ({ allowed: true }),
+      call: async () => {
+        actualToolExecutions++;
+        return { success: true, output: 'ok' };
+      },
+    };
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(repeatedTool);
+
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+      maxToolRounds: 3,
+      maxRepeatedToolCalls: 2,
+    });
+
+    const events = await collectEvents(engine.submitMessage('repeat'));
+    const repeatedGuardResult = events
+      .filter((e): e is Extract<StreamEvent, { type: 'tool_result' }> => e.type === 'tool_result')
+      .at(-1)?.result;
+
+    expect(actualToolExecutions).toBe(2);
+    expect(repeatedGuardResult?.success).toBe(false);
+    expect(repeatedGuardResult?.error).toContain('重复调用');
+  });
+
+  it('emits an error when tools ran but the LLM produced no final answer', async () => {
+    let callCount = 0;
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools() {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: null,
+            toolCalls: [{ id: 'tc', function: { name: 'WorkTool', arguments: '{}' } }],
+          };
+        }
+        return { content: null, toolCalls: null };
+      },
+    };
+
+    const tool = createDummyTool('WorkTool', 'ok');
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(tool);
+
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+      maxToolRounds: 5,
+    });
+
+    const events = await collectEvents(engine.submitMessage('work'));
+    const errorEv = events.find((e) => e.type === 'error') as Extract<StreamEvent, { type: 'error' }>;
+    expect(errorEv.error).toContain('任务状态不应视为完成');
   });
 
   it('yields error event when LLM throws', async () => {

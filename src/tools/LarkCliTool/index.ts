@@ -195,11 +195,20 @@ function isGuidanceCommand(args: string[]): boolean {
 
 export function validateKnownCommand(args: string[]): string | null {
   const commandKey = getCommandKey(args);
+  if (args.includes('--help') || args.includes('-h')) {
+    if (commandKey === 'base +create') {
+      return 'base 没有 +create 子命令。创建多维表格请先运行 base +base-create --help，然后使用 base +base-create --name "名称" --as user。';
+    }
+    return null;
+  }
+
+  const baseValidation = validateKnownBaseCommand(args, commandKey);
+  if (baseValidation) return baseValidation;
+
   if (commandKey !== 'docs +create') return null;
   if (getFlagValue(args, '--api-version') !== 'v2') return null;
-  if (args.includes('--help') || args.includes('-h') || args.includes('--dry-run')) return null;
 
-  const invalidFlags = ['--title', '--markdown', '--format'].filter((flag) => args.includes(flag));
+  const invalidFlags = ['--title', '--markdown', '--format'].filter((flag) => hasFlag(args, flag));
   if (invalidFlags.length > 0) {
     return `docs +create --api-version v2 不支持 ${invalidFlags.join(', ')}。请使用 --content，并把标题写成 <title>标题</title>。`;
   }
@@ -216,6 +225,59 @@ export function validateKnownCommand(args: string[]): string | null {
 
   if (docFormat === 'markdown' && !/<title>[^<]+<\/title>/.test(content)) {
     return 'docs +create --api-version v2 使用 markdown 时，--content 必须包含 <title>标题</title>，否则飞书可能创建 untitled 文档。';
+  }
+
+  return null;
+}
+
+function validateKnownBaseCommand(args: string[], commandKey: string | null): string | null {
+  if (!commandKey?.startsWith('base ')) return null;
+
+  if (commandKey === 'base +create') {
+    return 'base 没有 +create 子命令。创建多维表格请使用 base +base-create --name "名称" --as user；创建表请使用 base +table-create --base-token BASE --name "表名" --as user。';
+  }
+
+  if (commandKey === 'base +base-create') {
+    const invalidFlags = ['--title', '--format'].filter((flag) => hasFlag(args, flag));
+    if (invalidFlags.length > 0) {
+      return `base +base-create 不支持 ${invalidFlags.join(', ')}。请使用 --name 设置多维表格名称；该命令默认输出 JSON，可用 -q 过滤。`;
+    }
+    if (!getFlagValue(args, '--name')) {
+      return 'base +base-create 必须提供 --name，例如：base +base-create --name "Office Agent 能力全景表" --as user。';
+    }
+  }
+
+  if (commandKey === 'base +table-create') {
+    const invalidFlags = ['--base', '--format'].filter((flag) => hasFlag(args, flag));
+    if (invalidFlags.length > 0) {
+      return `base +table-create 不支持 ${invalidFlags.join(', ')}。请使用 --base-token 指定多维表格 token；该命令默认输出 JSON，可用 -q 过滤。`;
+    }
+    const missing = requiredFlags(args, ['--base-token', '--name']);
+    if (missing.length > 0) {
+      return `base +table-create 缺少 ${missing.join(', ')}。示例：base +table-create --base-token BASE --name "能力清单" --as user。`;
+    }
+  }
+
+  if (commandKey === 'base +field-create') {
+    const invalidFlags = ['--base', '--field', '--format'].filter((flag) => hasFlag(args, flag));
+    if (invalidFlags.length > 0) {
+      return `base +field-create 不支持 ${invalidFlags.join(', ')}。请使用 --base-token、--table-id 和 --json。`;
+    }
+    const missing = requiredFlags(args, ['--base-token', '--table-id', '--json']);
+    if (missing.length > 0) {
+      return `base +field-create 缺少 ${missing.join(', ')}。示例：base +field-create --base-token BASE --table-id TABLE --json '{"name":"类别","type":"text"}' --as user。`;
+    }
+  }
+
+  if (commandKey === 'base +record-batch-create') {
+    const invalidFlags = ['--base', '--records', '--fields', '--format'].filter((flag) => hasFlag(args, flag));
+    if (invalidFlags.length > 0) {
+      return `base +record-batch-create 不支持 ${invalidFlags.join(', ')}。请使用 --base-token、--table-id 和 --json。`;
+    }
+    const missing = requiredFlags(args, ['--base-token', '--table-id', '--json']);
+    if (missing.length > 0) {
+      return `base +record-batch-create 缺少 ${missing.join(', ')}。示例：base +record-batch-create --base-token BASE --table-id TABLE --json '{"fields":["能力","怎么用"],"rows":[["任务管理","直接说待办"]]}' --as user。`;
+    }
   }
 
   return null;
@@ -254,7 +316,17 @@ function stripShortcutPrefix(arg: string): string {
 }
 
 function getFlagValue(args: string[], flag: string): string | undefined {
+  const prefixed = args.find((arg) => arg.startsWith(`${flag}=`));
+  if (prefixed) return prefixed.slice(flag.length + 1);
   const idx = args.indexOf(flag);
   if (idx === -1) return undefined;
   return args[idx + 1];
+}
+
+function requiredFlags(args: string[], flags: string[]): string[] {
+  return flags.filter((flag) => !getFlagValue(args, flag));
+}
+
+function hasFlag(args: string[], flag: string): boolean {
+  return args.some((arg) => arg === flag || arg.startsWith(`${flag}=`));
 }

@@ -65,6 +65,16 @@ describe('LarkCliTool', () => {
     expect(validateKnownCommand(['docs', '+create', '--api-version', 'v2', '--doc-format', 'markdown', '--content', '<title>T</title>\n# Body'])).toBeNull();
   });
 
+  it('rejects known-bad Base shortcut flags before running lark-cli', () => {
+    expect(validateKnownCommand(['base', '+create', '--title', 'T', '--dry-run'])).toContain('+base-create');
+    expect(validateKnownCommand(['base', '+base-create', '--title', 'T', '--as', 'user', '--dry-run'])).toContain('--name');
+    expect(validateKnownCommand(['base', '+base-create', '--name', 'T', '--format', 'json', '--dry-run'])).toContain('--format');
+    expect(validateKnownCommand(['base', '+base-create', '--name', 'T', '--format=json', '--dry-run'])).toContain('--format');
+    expect(validateKnownCommand(['base', '+table-create', '--base', 'base_x', '--name', 'T', '--dry-run'])).toContain('--base-token');
+    expect(validateKnownCommand(['base', '+table-create', '--base-token', 'base_x', '--name', 'T', '--as', 'user', '--dry-run'])).toBeNull();
+    expect(validateKnownCommand(['base', '+record-batch-create', '--base-token', 'base_x', '--table-id', 'tbl_x', '--records', '[]', '--dry-run'])).toContain('--json');
+  });
+
   it('classifies common read and write commands', () => {
     expect(requiresWriteGuidance(['docs', '+fetch', '--url', 'https://example.com'])).toBe(false);
     expect(requiresWriteGuidance(['schema', 'im.messages.create'])).toBe(false);

@@ -97,9 +97,22 @@ npx tsx src/cli/index.ts feishu schema im.messages.create
 
 当前 Agent 采用高信任模式：在本地飞书 CLI 已登录、开放平台应用已授权的范围内，Agent 不再为每个写操作单独询问权限。真实边界由飞书应用权限、应用可用范围、user/bot 身份、以及官方 CLI 当前登录态共同决定。`LarkCli` 仍会要求写操作先查看对应命令 `--help` 或完成 `--dry-run`，这是为了防止模型猜错参数，不是二次授权。
 
+多维表格 Base 常用命令：
+
+```bash
+lark-cli base +base-create --name "Office Agent 能力全景表" --as user
+lark-cli base +table-create --base-token BASE --name "能力清单" --fields '[...]' --as user
+lark-cli base +field-create --base-token BASE --table-id TABLE --json '{"name":"类别","type":"text"}' --as user
+lark-cli base +record-batch-create --base-token BASE --table-id TABLE --json '{"fields":["能力","怎么用"],"rows":[["任务管理","直接说待办"]]}' --as user
+```
+
+Base 命令通常不支持 `--format json`，创建 Base 用 `--name`，不是 `--title`；创建表用 `--base-token`，不是 `--base`。
+
 `LARK_CLI_NO_PROXY=1` 只影响官方 `lark-cli` 子进程：它会让 CLI 不使用本机代理配置，适合 WSL 中代理导致飞书接口 EOF/502 的情况。它不是密钥；如果你的网络必须通过代理访问飞书，可以删掉这一行。
 
 日志默认写入当前工程目录 `logs/agent-YYYY-MM-DD.log`，也会同时打印到终端。可以通过 `.env` 设置 `LOG_LEVEL=debug` 和 `OFFICE_AGENT_LOG_DIR=./logs` 调整。
+
+工具调用默认最多 30 轮，避免复杂办公任务因为旧的 10 轮预算过早中断；如果确实需要更长任务，可以设置 `OFFICE_AGENT_MAX_TOOL_ROUNDS=50`。系统会阻止重复调用完全相同工具和参数，达到上限时会明确告诉你任务未完成，而不是假装成功。
 
 ## 对话中的斜杠命令
 

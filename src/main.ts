@@ -135,6 +135,13 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- Prefer high-level shortcut commands such as sheets +read, im +messages-send, calendar +agenda',
     '- Prefer --as user for personal data (calendar, private docs, messages) and --as bot for bot-owned actions',
     '- Prefer --format json for machine-readable output',
+    '- Base quick reference:',
+    '  - Create Base: lark-cli base +base-create --name "Name" --as user',
+    '  - Create table: lark-cli base +table-create --base-token BASE --name "Table" --fields "[...]" --as user',
+    '  - Create field: lark-cli base +field-create --base-token BASE --table-id TABLE --json "{...}" --as user',
+    '  - Batch create records: lark-cli base +record-batch-create --base-token BASE --table-id TABLE --json "{\\"fields\\":[...],\\"rows\\":[...]}" --as user',
+    '  - Base commands usually do NOT support --format json; use -q only when --help shows it.',
+    '  - Do NOT use base +create, --title, or --base for Base creation/table creation.',
     '- For side-effect operations, run --dry-run first when unsure, then execute directly if the command and target are clear',
     '- When user asks you to read their project docs, search/fetch via LarkCli first, then read each doc',
     '- Extract key information (milestones, deadlines, decisions, plans) and store as memories',
@@ -248,6 +255,12 @@ function shouldFeishuSyncOnStart(config: UserConfig): boolean {
   return config.feishu.syncOnStart ?? false;
 }
 
+function getMaxToolRounds(): number {
+  const fromEnv = Number(process.env['OFFICE_AGENT_MAX_TOOL_ROUNDS']);
+  if (!Number.isFinite(fromEnv) || fromEnv <= 0) return 30;
+  return Math.min(80, Math.max(5, Math.floor(fromEnv)));
+}
+
 async function runFeishuSyncTick(
   tool: FeishuIngestTool,
   signal: AbortSignal,
@@ -350,6 +363,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     llm,
     sessionStore,
     getUserConfig: () => configManager.get(),
+    maxToolRounds: getMaxToolRounds(),
   });
 
   const agent: OfficeAgent = {

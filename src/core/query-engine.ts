@@ -16,6 +16,9 @@ import type { ToolRegistry } from './tool-system.js';
 
 import type { SessionStore } from './session-store.js';
 
+const DEFAULT_MAX_TOOL_ROUNDS = 30;
+const DEFAULT_MAX_REPEATED_TOOL_CALLS = 2;
+
 export interface QueryEngineConfig {
   model: string;
   systemPrompt: string;
@@ -24,6 +27,7 @@ export interface QueryEngineConfig {
   contextManager: ContextManager;
   llm: LLMClient;
   maxToolRounds?: number;
+  maxRepeatedToolCalls?: number;
   sessionStore?: SessionStore;
   getUserConfig?: () => UserConfig;
 }
@@ -34,13 +38,15 @@ export class QueryEngine {
   private sessionId: string;
   private abortController: AbortController | null = null;
   private maxToolRounds: number;
+  private maxRepeatedToolCalls: number;
   private sessionStore: SessionStore | undefined;
   private sessionChannel: string | undefined;
 
   constructor(config: QueryEngineConfig) {
     this.config = config;
     this.sessionId = randomUUID();
-    this.maxToolRounds = config.maxToolRounds ?? 10;
+    this.maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
+    this.maxRepeatedToolCalls = config.maxRepeatedToolCalls ?? DEFAULT_MAX_REPEATED_TOOL_CALLS;
     this.sessionStore = config.sessionStore;
   }
 
@@ -206,6 +212,9 @@ export class QueryEngine {
 
     let rounds = 0;
     let nudged = false;
+    let emittedFinalResponse = false;
+    let lastToolSummary = '';
+    const repeatedToolCalls = new Map<string, number>();
 
     while (rounds < this.maxToolRounds) {
       if (signal.aborted) { yield { type: 'error', error: 'Request interrupted' }; return; }
@@ -241,13 +250,32 @@ export class QueryEngine {
           yield { type: 'tool_use', toolName: tc.function.name, input: parsedInput };
           logger.debug(`tool call: ${tc.function.name}`, { args: JSON.stringify(parsedInput).slice(0, 200) }, 'QueryEngine');
 
-          const toolResult = await this.config.tools.execute(
-            tc.function.name,
-            parsedInput,
-            { abortSignal: signal, userConfig: this.config.getUserConfig?.() ?? ({} as UserConfig) },
-          );
+          const signature = `${tc.function.name}:${stableStringify(parsedInput)}`;
+          const repeatedCount = (repeatedToolCalls.get(signature) ?? 0) + 1;
+          repeatedToolCalls.set(signature, repeatedCount);
+
+          const toolResult = repeatedCount > this.maxRepeatedToolCalls
+            ? {
+                success: false,
+                output: null,
+                error: `检测到重复调用相同工具和参数已超过 ${this.maxRepeatedToolCalls} 次。请换一个命令/参数，或向用户说明当前无法继续，避免无限循环和重复写操作。`,
+              }
+            : await this.config.tools.execute(
+                tc.function.name,
+                parsedInput,
+                { abortSignal: signal, userConfig: this.config.getUserConfig?.() ?? ({} as UserConfig) },
+              );
+
+          if (repeatedCount > this.maxRepeatedToolCalls) {
+            logger.warn('blocked repeated identical tool call', {
+              toolName: tc.function.name,
+              repeatedCount,
+              maxRepeatedToolCalls: this.maxRepeatedToolCalls,
+            }, 'QueryEngine');
+          }
 
           yield { type: 'tool_result', toolName: tc.function.name, result: toolResult };
+          lastToolSummary = summarizeToolResult(tc.function.name, toolResult);
 
           // Add tool result to message history
           llmMessages.push({
@@ -302,14 +330,37 @@ export class QueryEngine {
           await new Promise(r => setTimeout(r, 15));
         }
         this.messages.push({ role: 'assistant', content, timestamp: new Date() });
+        emittedFinalResponse = true;
       } else {
         const content = result.content ?? '';
         if (content) {
           yield { type: 'text', content };
           this.messages.push({ role: 'assistant', content, timestamp: new Date() });
+          emittedFinalResponse = true;
         }
       }
       break;
+    }
+
+    if (!emittedFinalResponse && lastToolSummary) {
+      const hitRoundLimit = rounds >= this.maxToolRounds;
+      const message = hitRoundLimit
+        ? [
+            `本轮已达到工具调用上限（${this.maxToolRounds} 轮），任务可能尚未完成。`,
+            `最后工具状态：${lastToolSummary}。`,
+            '我已停止继续调用工具以避免循环或重复写操作；你可以回复“继续完成上一步”，我会基于当前会话继续。',
+          ].join('')
+        : [
+            '工具已经执行，但模型没有生成最终回复，任务状态不应视为完成。',
+            `最后工具状态：${lastToolSummary}。`,
+            '你可以回复“继续完成上一步”，我会基于当前会话继续。',
+          ].join('');
+      logger.warn('tool run ended without final response', {
+        hitRoundLimit,
+        maxToolRounds: this.maxToolRounds,
+        lastToolSummary,
+      }, 'QueryEngine');
+      yield { type: 'error', error: message };
     }
   }
 
@@ -368,4 +419,26 @@ export class QueryEngine {
   interrupt(): void { this.abortController?.abort(); }
   getMessages(): readonly Message[] { return this.messages; }
   getSessionId(): string { return this.sessionId; }
+}
+
+function summarizeToolResult(toolName: string, result: { success: boolean; error?: string }): string {
+  return result.success
+    ? `${toolName} 成功`
+    : `${toolName} 失败${result.error ? `：${result.error}` : ''}`;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortForStableStringify(value));
+}
+
+function sortForStableStringify(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortForStableStringify);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, val]) => [key, sortForStableStringify(val)]),
+    );
+  }
+  return value;
 }
