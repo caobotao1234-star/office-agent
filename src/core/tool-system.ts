@@ -33,8 +33,6 @@ export interface Tool<Input = unknown, Output = unknown> {
   checkPermissions(input: Input): PermissionResult;
   /** Execute the tool */
   call(input: Input, context: ToolContext): Promise<ToolResult<Output>>;
-  /** Whether this operation requires user confirmation before execution */
-  requiresUserConfirmation(input: Input): boolean;
 }
 
 // ============================================================
@@ -70,13 +68,6 @@ export class ToolRegistry {
   /** List only enabled tools. */
   listEnabled(): Tool[] {
     return [...this.tools.values()].filter((t) => t.isEnabled());
-  }
-
-  /** Check if a tool requires user confirmation for the given input. */
-  needsConfirmation(name: string, input: unknown): boolean {
-    const tool = this.tools.get(name);
-    if (!tool) return true; // unknown tool → require confirmation as safety default
-    return tool.requiresUserConfirmation(input);
   }
 
   /** Validate input, check permissions, and execute a tool. */

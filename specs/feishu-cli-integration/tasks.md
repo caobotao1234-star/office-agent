@@ -20,9 +20,9 @@
 
 - 状态：DONE
 - 文件：`src/tools/LarkCliTool/index.ts`
-- 实现说明：新增通用 `LarkCli` 工具，要求 argv 数组并拦截未确认写操作。
+- 实现说明：新增通用 `LarkCli` 工具，要求 argv 数组；写操作不做逐次权限确认，但在执行前必须先通过同一命令 `--help` 或 `--dry-run` 校验命令。
 - 验证命令：`npm test -- src/tools/LarkCliTool/index.test.ts`
-- 完成标准：读命令可执行，写命令未确认会被阻止。
+- 完成标准：读命令可执行，写命令未完成命令校验会被阻止。
 
 ## T4 CLI 透传
 
@@ -54,7 +54,7 @@
 - 文件：`src/tools/LarkCliTool/index.ts`、`src/main.ts`、`src/core/query-engine.ts`
 - 实现说明：继续保持泛化 `LarkCli`，补充最新 CLI 使用规则，并把工具失败的 `error` 完整回传给模型，避免 `output=null` 时幻觉成功。
 - 验证命令：`npm test -- src/tools/LarkCliTool/index.test.ts src/core/query-engine.test.ts && npm run typecheck && npm test`
-- 完成标准：Agent 必须先通过 `--help`/`schema` 确认不熟悉的参数；工具失败时模型能看到 error、stdout、stderr。
+- 完成标准：Agent 必须先通过 `--help`/`schema` 理解不熟悉的参数；写操作执行前必须满足同一命令 `--help` 或 `--dry-run` 门禁。工具失败时模型能看到 error、stdout、stderr。
 
 ## T8 飞书主动推送恢复
 

@@ -72,10 +72,6 @@ export class CronTool implements Tool<CronToolInput, unknown> {
     return { allowed: true };
   }
 
-  requiresUserConfirmation(input: CronToolInput): boolean {
-    return !this.isReadOnly(input);
-  }
-
   async call(input: CronToolInput, _context: ToolContext): Promise<ToolResult<unknown>> {
     try {
       switch (input.action) {

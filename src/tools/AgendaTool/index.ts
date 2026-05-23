@@ -75,10 +75,6 @@ export class AgendaTool implements Tool<AgendaToolInput, unknown> {
     return { allowed: true };
   }
 
-  requiresUserConfirmation(input: AgendaToolInput): boolean {
-    return !this.isReadOnly(input);
-  }
-
   async call(input: AgendaToolInput, _context: ToolContext): Promise<ToolResult<unknown>> {
     try {
       switch (input.action) {

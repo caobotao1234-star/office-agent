@@ -344,11 +344,6 @@ export class TaskManagerTool implements Tool<TaskManagerInput, unknown> {
     return { allowed: true };
   }
 
-  requiresUserConfirmation(input: TaskManagerInput): boolean {
-    // Write operations require confirmation; reads do not
-    return !this.isReadOnly(input);
-  }
-
   async call(input: TaskManagerInput, _context: ToolContext): Promise<ToolResult<unknown>> {
     try {
       const tasks = loadTasksFromFile(this.dataFile);

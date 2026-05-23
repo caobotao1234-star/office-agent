@@ -55,3 +55,11 @@
 - 实现说明：彻底删除 `ReminderEngine/ReminderLoop` 和对应测试；删除 `TaskItem.reminderAdvance`；`CronTool/CronScheduler` 只保留 recurring，one-time 统一交给 Agenda。
 - 验证命令：`npm run typecheck && npm test && npm run build && node dist/cli/index.js --help`
 - 完成标准：运行时代码不再引用旧提醒兼容层，验证通过。
+
+## T8 高信任工具执行模式
+
+- 状态：DONE
+- 文件：`src/core/tool-system.ts`、`src/tools/*/index.ts`、`src/main.ts`、`README.md`、`specs/*`
+- 实现说明：删除 `requiresUserConfirmation()` 和 `ToolRegistry.needsConfirmation()`，不再设计项目内 TrustPolicy；Agent 在已授权工具和飞书 CLI 登录态内自动执行。`LarkCliTool` 保留写操作命令校验，要求先查同一命令 `--help` 或完成 `--dry-run`。
+- 验证命令：`npm run typecheck && npm test && npm run build && node dist/cli/index.js --help`
+- 完成标准：代码和文档不再要求 `confirmed` 字段或逐次权限确认，验证通过。

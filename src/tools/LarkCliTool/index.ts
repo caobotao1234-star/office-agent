@@ -15,8 +15,7 @@ const LarkCliInput = z.object({
     .describe('Arguments passed after lark-cli. Do not include "lark-cli" itself. Example: ["docs","+fetch","--url","https://...","--format","json"].'),
   stdin: z.string().optional().describe('Optional stdin for commands that explicitly read from stdin.'),
   timeoutMs: z.coerce.number().min(1_000).max(300_000).default(60_000),
-  confirmed: z.boolean().default(false).describe('Set true only when the user explicitly asked to execute this side-effect operation. Use --dry-run first when unsure.'),
-  reason: z.string().optional().describe('Short reason why this command is being executed. Required for confirmed write operations.'),
+  reason: z.string().optional().describe('Optional audit note for why this command is being executed.'),
 });
 
 export type LarkCliInput = z.infer<typeof LarkCliInput>;
@@ -73,14 +72,15 @@ const READ_ONLY_PATTERNS = [
 export class LarkCliTool implements Tool<LarkCliInput, unknown> {
   readonly name = 'LarkCli';
   readonly description = [
-    'Run the official lark-cli for Feishu/Lark operations: messages, docs, sheets, base, calendar, mail, tasks, wiki, contacts, meetings, approval, and raw OpenAPI calls.',
+    'Run the official lark-cli for Feishu/Lark operations: messages, docs, sheets, base, calendar, tasks, wiki, contacts, meetings, and raw OpenAPI calls.',
     'Pass args as an argv array after lark-cli, never as a shell string.',
     'Use lark-cli schema or --help to inspect parameters when unsure. Do not guess flags.',
-    'Before any confirmed write command, inspect the command with --help or run a successful --dry-run for that same command first.',
+    'The user has granted high-trust standing authorization for Feishu operations available to the current credentials and scopes.',
+    'Do not ask for per-action permission. Before write commands, inspect the command with --help or run a successful --dry-run for that same command first.',
     'Docs v2 create/update/fetch flags are version-specific: docs +create --api-version v2 uses --content and --doc-format, not --title or --markdown.',
     'Prefer --as user for personal data and --as bot for bot-owned actions.',
     'Prefer --format json for machine-readable output when --help shows the command supports it.',
-    'For side-effect commands, run --dry-run first when unsure; set confirmed=true only when the user explicitly asked to execute.',
+    'Ask the user only when the target, content, or intent is ambiguous.',
   ].join(' ');
   readonly inputSchema = LarkCliInput;
 
@@ -91,7 +91,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
   setEnabled(v: boolean): void { this.enabled = v; }
 
   isReadOnly(input: LarkCliInput): boolean {
-    return !requiresWriteConfirmation(input.args);
+    return !requiresWriteGuidance(input.args);
   }
 
   checkPermissions(_input: LarkCliInput): PermissionResult {
@@ -99,20 +99,15 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
     return { allowed: true };
   }
 
-  requiresUserConfirmation(input: LarkCliInput): boolean {
-    return requiresWriteConfirmation(input.args);
-  }
-
   async call(input: LarkCliInput, context: ToolContext): Promise<ToolResult<unknown>> {
-    const commandNeedsConfirmation = requiresWriteConfirmation(input.args);
+    const commandNeedsGuidance = requiresWriteGuidance(input.args);
     const commandKey = getCommandKey(input.args);
     const knownValidationError = validateKnownCommand(input.args);
 
     log.info('call', {
       args: input.args,
       commandKey,
-      commandNeedsConfirmation,
-      confirmed: input.confirmed,
+      commandNeedsGuidance,
       reason: input.reason,
     });
 
@@ -128,21 +123,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       };
     }
 
-    if (commandNeedsConfirmation && !input.confirmed) {
-      log.warn('blocked unconfirmed write command', { args: input.args, commandKey });
-      return {
-        success: false,
-        output: {
-          command: `lark-cli ${input.args.join(' ')}`,
-          requiresConfirmation: true,
-          helpHint: commandKey ? [...commandKey.split(' '), '--help'] : ['--help'],
-          dryRunHint: appendDryRun(input.args),
-        },
-        error: '该 lark-cli 命令可能会修改飞书数据。请先使用 --dry-run 预览，或在用户明确要求执行时设置 confirmed=true。',
-      };
-    }
-
-    if (commandNeedsConfirmation && commandKey && !this.verifiedWriteCommands.has(commandKey)) {
+    if (commandNeedsGuidance && commandKey && !this.verifiedWriteCommands.has(commandKey)) {
       log.warn('blocked write command without guidance', { args: input.args, commandKey });
       return {
         success: false,
@@ -153,15 +134,6 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
           dryRunHint: appendDryRun(input.args),
         },
         error: '执行写操作前必须先查看同一 lark-cli 命令的 --help，或成功运行一次同一命令的 --dry-run。不要猜参数。',
-      };
-    }
-
-    if (commandNeedsConfirmation && !input.reason?.trim()) {
-      log.warn('blocked confirmed write without reason', { args: input.args, commandKey });
-      return {
-        success: false,
-        output: null,
-        error: 'confirmed=true 的写操作必须提供 reason，说明用户为何授权执行。',
       };
     }
 
@@ -249,7 +221,7 @@ export function validateKnownCommand(args: string[]): string | null {
   return null;
 }
 
-export function requiresWriteConfirmation(args: string[]): boolean {
+export function requiresWriteGuidance(args: string[]): boolean {
   if (args.includes('--help') || args.includes('-h')) return false;
   if (args.includes('--dry-run')) return false;
   if (args.length === 0) return false;

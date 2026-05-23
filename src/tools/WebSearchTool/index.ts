@@ -51,7 +51,6 @@ export class WebSearchTool implements Tool<WebSearchInput, unknown> {
   setEnabled(v: boolean): void { this.enabled = v; }
   isReadOnly(): boolean { return true; }
   checkPermissions(): PermissionResult { return { allowed: true }; }
-  requiresUserConfirmation(): boolean { return false; }
 
   async call(input: WebSearchInput, _context: ToolContext): Promise<ToolResult<unknown>> {
     try {

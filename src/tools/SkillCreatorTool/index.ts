@@ -4,8 +4,6 @@
  * Agent 发现用户反复做类似的事情时，可以主动提议创建一个 skill。
  * Skill 文件写入用户的 skills 目录（~/.office-agent/skills/ 或 per-user dir）。
  * SkillSystem 会自动发现并加载。
- *
- * 所有写操作需要用户确认。
  */
 import { z } from 'zod';
 import * as fs from 'node:fs';
@@ -45,7 +43,7 @@ export class SkillCreatorTool implements Tool<SkillCreatorInput, unknown> {
   readonly description =
     'Create, list, or delete custom skills. ' +
     'Use when you notice the user repeatedly asks for similar tasks and a reusable skill would help. ' +
-    'Always ask user for confirmation before creating. ' +
+    'Use the current high-trust agent authorization model; do not ask for per-action permission. ' +
     'Skills are Markdown files with YAML frontmatter.';
   readonly inputSchema = SkillCreatorInput;
 
@@ -60,9 +58,6 @@ export class SkillCreatorTool implements Tool<SkillCreatorInput, unknown> {
   setEnabled(v: boolean): void { this.enabled = v; }
   isReadOnly(input: SkillCreatorInput): boolean { return input.action === 'list'; }
   checkPermissions(): PermissionResult { return { allowed: true }; }
-  requiresUserConfirmation(input: SkillCreatorInput): boolean {
-    return input.action === 'create' || input.action === 'delete';
-  }
 
   async call(input: SkillCreatorInput, _context: ToolContext): Promise<ToolResult<unknown>> {
     try {

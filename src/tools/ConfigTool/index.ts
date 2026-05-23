@@ -49,7 +49,6 @@ export class ConfigTool implements Tool<ConfigToolInput, unknown> {
   setEnabled(v: boolean): void { this.enabled = v; }
   isReadOnly(input: ConfigToolInput): boolean { return input.action === 'get'; }
   checkPermissions(): PermissionResult { return { allowed: true }; }
-  requiresUserConfirmation(input: ConfigToolInput): boolean { return input.action === 'update'; }
 
   async call(input: ConfigToolInput, _context: ToolContext): Promise<ToolResult<unknown>> {
     try {

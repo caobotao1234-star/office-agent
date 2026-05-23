@@ -79,11 +79,6 @@ export class SubAgentTool implements Tool<SubAgentInput, unknown> {
     return { allowed: true };
   }
 
-  requiresUserConfirmation(input: SubAgentInput): boolean {
-    // create and archive are write operations that need user confirmation
-    return input.action === 'create' || input.action === 'archive';
-  }
-
   async call(input: SubAgentInput, _context: ToolContext): Promise<ToolResult<unknown>> {
     try {
       switch (input.action) {

@@ -19,7 +19,7 @@
 - `src/tools/LarkCliTool/index.ts`
   - 向 Agent 暴露结构化工具 schema。
   - 接收 argv 数组，而不是 shell 命令字符串。
-  - 对疑似写操作执行确认门禁。
+  - 对疑似写操作执行命令正确性门禁：先查看同一命令 `--help` 或完成 `--dry-run`，不做逐次权限确认。
 
 - `src/cli/commands/feishu.ts`
   - 提供 `oa feishu ...` 和 `oa lark ...` 透传。
@@ -56,8 +56,7 @@
 - `args: string[]`：传给 `lark-cli` 的参数，不包含二进制名。
 - `stdin?: string`：可选标准输入。
 - `timeoutMs?: number`：调用超时。
-- `confirmed?: boolean`：是否确认执行副作用命令。
-- `reason?: string`：确认原因，便于日志和调试。
+- `reason?: string`：可选审计说明，便于日志和调试。
 
 工具输出：
 
@@ -86,7 +85,7 @@
 - 超时：终止子进程并返回 `timedOut: true`。
 - AbortSignal 中断：终止子进程，返回中断错误。
 - 非 0 退出码：工具返回 `success: false`，保留 stdout/stderr 供 Agent 修复。
-- 写操作未确认：不调用 CLI，直接返回失败并提示使用 `--dry-run` 或 `confirmed: true`。
+- 写操作未完成命令校验：不调用 CLI，直接返回失败并提示先查看同一命令 `--help` 或使用 `--dry-run`。
 - 已知高风险文档命令参数错误：在本地直接返回失败，提示当前 CLI 正确参数，避免创建空文档。
 - 主动推送失败：记录用户、chat、错误信息，继续运行，不阻塞后续提醒循环。
 
@@ -97,7 +96,7 @@
 
 ## 测试策略
 
-- 单元测试：runner、工具确认门禁、参数构造。
+- 单元测试：runner、写操作命令校验门禁、参数构造。
 - 单元测试：飞书收件人持久化、提醒循环确定性截止提醒。
 - 集成测试：`createOfficeAgent` 工具注册列表。
 - CLI smoke：`node dist/cli/index.js feishu --help`。
@@ -109,7 +108,8 @@
 - 参数必须是数组，Agent 不传整段命令字符串。
 - 输出默认限制大小，避免大文档或表格撑爆上下文。
 - 默认超时 60 秒，单次工具调用最多 5 分钟。
-- 写操作门禁不等同于完整人类确认，但能阻止未标记的副作用命令直接执行。
+- Agent 采用高信任执行模式，不做项目内 TrustPolicy 或逐次人类确认；真实权限边界是飞书应用权限、应用可用范围、user/bot 身份和官方 CLI 登录态。
+- 写操作命令校验门禁只用于阻止模型在未确认 CLI 参数时直接执行副作用命令。
 - 主动推送只发送到本地记录的最近 `chat_id`，第一次推送前必须由用户先联系机器人以建立会话。
 
 ## 部署说明

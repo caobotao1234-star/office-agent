@@ -38,7 +38,6 @@ function createDummyTool(name: string, result: unknown): Tool {
     isEnabled: () => true,
     isReadOnly: () => true,
     checkPermissions: () => ({ allowed: true }),
-    requiresUserConfirmation: () => false,
     call: async () => ({ success: true, output: result }),
   };
 }
@@ -173,7 +172,6 @@ describe('QueryEngine', () => {
       isEnabled: () => true,
       isReadOnly: () => true,
       checkPermissions: () => ({ allowed: true }),
-      requiresUserConfirmation: () => false,
       call: async () => ({ success: false, output: null, error: 'boom' }),
     };
 

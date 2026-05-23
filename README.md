@@ -81,7 +81,7 @@ npx tsx src/cli/index.ts feishu setup
 # 初始化或绑定飞书开放平台应用
 npx tsx src/cli/index.ts feishu config init
 
-# 用户身份授权，推荐先开通常用最小权限
+# 用户身份授权；需要秘书式能力时，按计划使用范围开通对应读写权限
 npx tsx src/cli/index.ts feishu login
 
 # 检查状态
@@ -93,7 +93,9 @@ npx tsx src/cli/index.ts feishu docs +fetch --url "https://..."
 npx tsx src/cli/index.ts feishu schema im.messages.create
 ```
 
-配置完成后进入 `oa chat`，直接用自然语言说“读取这个飞书文档”“把周报写入飞书文档”“查今天日程”等，Agent 会通过 `LarkCli` 工具执行。需要访问个人日历、私有文档、私聊、邮箱时，优先使用 user 授权；机器人群发或机器人身份操作可用 bot 身份。
+配置完成后进入 `oa chat`，直接用自然语言说“读取这个飞书文档”“把周报写入飞书文档”“查今天日程”等，Agent 会通过 `LarkCli` 工具执行。需要访问个人日历、私有文档、私聊、通讯录、任务、多维表格等个人可见资源时，优先使用 user 授权；机器人群发或机器人身份操作可用 bot 身份。
+
+当前 Agent 采用高信任模式：在本地飞书 CLI 已登录、开放平台应用已授权的范围内，Agent 不再为每个写操作单独询问权限。真实边界由飞书应用权限、应用可用范围、user/bot 身份、以及官方 CLI 当前登录态共同决定。`LarkCli` 仍会要求写操作先查看对应命令 `--help` 或完成 `--dry-run`，这是为了防止模型猜错参数，不是二次授权。
 
 `LARK_CLI_NO_PROXY=1` 只影响官方 `lark-cli` 子进程：它会让 CLI 不使用本机代理配置，适合 WSL 中代理导致飞书接口 EOF/502 的情况。它不是密钥；如果你的网络必须通过代理访问飞书，可以删掉这一行。
 
@@ -139,7 +141,7 @@ Agent 通过原生 Function Calling 调用这些工具：
 | AgendaTool | 主动提醒日程：提醒、截止日期、承诺、跟进事项 | ✅ 推荐 |
 | CronTool | 定时任务（cron 表达式） | ✅ 完整 |
 | ConfigTool | 通过对话修改配置（提醒时间、工作时间等） | ✅ 完整 |
-| LarkCli | 官方飞书 CLI：消息、文档、表格、日历、邮箱、任务、会议、审批等 | ✅ 推荐 |
+| LarkCli | 官方飞书 CLI：消息、云文档、表格、多维表格、知识库、日历、任务、会议、通讯录、OpenAPI 等 | ✅ 推荐 |
 | SkillCreator | 创建自定义技能 | ✅ 完整 |
 | WebSearch | 联网搜索（qwen 模型默认关闭，优先使用模型内置搜索） | 可选 |
 
@@ -169,15 +171,17 @@ Agenda 不会每分钟调用 LLM。Agent 只在对话中认为有明确时间点
 1. 登录 [飞书开放平台](https://open.feishu.cn/)，创建「企业自建应用」
 2. 开启「机器人」能力
 3. 事件订阅 → 选择「长连接」→ 添加 `im.message.receive_v1`
-4. 权限管理中申请（按需）：
+4. 权限管理中按计划使用范围申请对应读写权限：
 
 | 权限 | 用途 |
 |------|------|
 | `im:message` | 收发消息（必需） |
 | `docx:document:readonly` | 读取新版云文档 |
+| 云文档/云空间写入权限 | 创建、更新云文档和云空间文件 |
 | `drive:drive:readonly` | 浏览云空间文件夹 |
 | `calendar:calendar` | 读写日历日程 |
 | `task:task` | 读写飞书任务 |
+| 多维表格/Base 读写权限 | 读取和维护业务表格、项目库、知识库索引 |
 | `contact:user.base:readonly` | 读取用户基本信息 |
 
 5. 在 `.env` 中添加 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`

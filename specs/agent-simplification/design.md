@@ -81,7 +81,8 @@
 ## 安全考虑
 
 - 移除虚假 side-effect 工具是本次最重要的安全改进。
-- `requiresUserConfirmation()` 目前仍是工具接口字段，但 `QueryEngine` 没有统一确认 UI；本次不扩大改动范围，后续应单独设计成真正的执行门禁。
+- 移除 `requiresUserConfirmation()` 和项目内 TrustPolicy 思路，统一采用高信任模式：本地 Agent 在已配置的工具、飞书应用权限、应用可用范围和 CLI 登录身份内自动执行。
+- `LarkCliTool` 保留写操作命令校验门禁：执行前必须先查看同一命令 `--help` 或成功 `--dry-run`，防止模型猜错 CLI 参数。
 
 ## 迁移说明
 

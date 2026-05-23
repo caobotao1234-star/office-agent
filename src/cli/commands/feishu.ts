@@ -11,7 +11,7 @@ Office Agent 飞书 CLI 桥接
   oa feishu setup                 查看首次配置流程
   oa feishu doctor                运行 lark-cli doctor
   oa feishu status                查看授权状态
-  oa feishu login                 以推荐权限登录用户身份
+  oa feishu login                 登录用户身份（权限由开放平台应用授权决定）
   oa feishu <lark-cli args...>    透传任意 lark-cli 命令
 
 示例:
@@ -30,7 +30,7 @@ const SETUP = `
 1. 初始化或绑定飞书开放平台应用:
    oa feishu config init
 
-2. 用推荐权限登录用户身份:
+2. 登录用户身份:
    oa feishu login
 
 3. 检查授权状态:
