@@ -4,8 +4,8 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createOfficeAgent, type OfficeAgent } from '../main.js';
-import { createDashScopeLLM } from '../core/dashscope-llm.js';
 import { TokenTracker } from '../core/token-tracker.js';
+import { createConfiguredLLM } from '../core/llm-provider.js';
 
 const DATA_DIR = path.join(os.homedir(), '.office-agent');
 
@@ -20,24 +20,15 @@ export function getTokenTracker(): TokenTracker {
 }
 
 export function getAgent(modelOverride?: string): OfficeAgent {
-  const apiKey = process.env['DASHSCOPE_API_KEY'];
-  if (!apiKey) {
-    console.error('❌ 缺少 DASHSCOPE_API_KEY');
-    console.error('   请在项目根目录创建 .env 文件：');
-    console.error('   DASHSCOPE_API_KEY=sk-xxx');
+  const tokenTracker = getTokenTracker();
+  let configured;
+  try {
+    configured = createConfiguredLLM({ modelOverride, tokenTracker });
+  } catch (err) {
+    console.error('❌', err instanceof Error ? err.message : String(err));
+    console.error('   请检查 .env 中的 OFFICE_AGENT_LLM_PROVIDER、DASHSCOPE_API_KEY 或 DEEPSEEK_API_KEY。');
     process.exit(1);
   }
 
-  const model = modelOverride ?? process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus';
-  const tokenTracker = getTokenTracker();
-
-  const llm = createDashScopeLLM({
-    apiKey,
-    model,
-    maxTokens: 4096,
-    temperature: 0.7,
-    tokenTracker,
-  });
-
-  return createOfficeAgent({ llm, baseDir: DATA_DIR, model });
+  return createOfficeAgent({ llm: configured.llm, baseDir: DATA_DIR, model: configured.model });
 }

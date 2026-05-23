@@ -5,23 +5,24 @@ import * as readline from 'node:readline';
 import type { StreamEvent } from '../../types/index.js';
 import { getAgent } from '../agent-factory.js';
 import { logger } from '../../core/logger.js';
+import { resolveLLMProvider } from '../../core/llm-provider.js';
 
 export async function chat(modelOverride?: string): Promise<void> {
   logger.enableFileLogging();
   logger.setLevel((process.env['LOG_LEVEL'] as any) ?? 'info');
   const log = logger.child('CLI');
+  const llmConfig = resolveLLMProvider(modelOverride);
   const agent = getAgent(modelOverride);
-  const model = modelOverride ?? process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus';
 
   console.log('╔══════════════════════════════════════════╗');
   console.log('║   🤖 Office Agent — 交互式对话           ║');
   console.log('╚══════════════════════════════════════════╝');
-  console.log(`  模型: ${model}`);
+  console.log(`  模型: ${llmConfig.provider}/${llmConfig.model}`);
   console.log('  命令: /tasks /remind /agenda /report /help');
   console.log(`  日志: ${process.env['OFFICE_AGENT_LOG_DIR'] ?? 'logs/agent-YYYY-MM-DD.log'}`);
   console.log('  退出: quit 或 Ctrl+C');
   console.log();
-  log.info('chat started', { model });
+  log.info('chat started', { provider: llmConfig.provider, model: llmConfig.model });
 
   await agent.start();
 

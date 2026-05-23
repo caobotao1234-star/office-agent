@@ -19,13 +19,13 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import { createOfficeAgent, type OfficeAgent } from '../main.js';
-import { createDashScopeLLM } from '../core/dashscope-llm.js';
 import { TokenTracker } from '../core/token-tracker.js';
 import { logger } from '../core/logger.js';
 import { transcribeAudio } from '../services/speech-to-text.js';
 import { FeishuRecipientStore } from '../services/feishu-recipient-store.js';
 import type { NotifyCallback } from '../services/notification-service.js';
 import { SerialMessageQueue } from '../services/serial-message-queue.js';
+import { createConfiguredLLM, resolveLLMProvider } from '../core/llm-provider.js';
 
 const log = logger.child('Feishu');
 const sdkLog = logger.child('FeishuSDK');
@@ -63,13 +63,11 @@ function getOrCreateAgent(userId: string): OfficeAgent {
   const existing = userAgents.get(userId);
   if (existing) return existing;
 
-  const apiKey = process.env['DASHSCOPE_API_KEY'] ?? '';
-  const model = process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus';
   // Per-user data directory for complete isolation
   const userDataDir = path.join(DATA_DIR, 'users', userId);
   const tokenTracker = new TokenTracker(path.join(userDataDir, 'token-usage.json'));
-  const llm = createDashScopeLLM({ apiKey, model, tokenTracker });
-  const agent = createOfficeAgent({ llm, baseDir: userDataDir, model });
+  const configured = createConfiguredLLM({ tokenTracker });
+  const agent = createOfficeAgent({ llm: configured.llm, baseDir: userDataDir, model: configured.model });
 
   userAgents.set(userId, agent);
   return agent;
@@ -192,8 +190,21 @@ async function main() {
     process.exit(1);
   }
 
-  if (!process.env['DASHSCOPE_API_KEY']) {
-    log.error('缺少 DASHSCOPE_API_KEY，请在 .env 中配置');
+  let llmConfig;
+  try {
+    llmConfig = resolveLLMProvider();
+  } catch (err) {
+    log.error('LLM provider 配置错误', { error: err instanceof Error ? err.message : String(err) });
+    process.exit(1);
+  }
+
+  if (llmConfig.provider === 'dashscope' && !process.env['DASHSCOPE_API_KEY']) {
+    log.error('缺少 DASHSCOPE_API_KEY，请在 .env 中配置，或设置 OFFICE_AGENT_LLM_PROVIDER=deepseek');
+    process.exit(1);
+  }
+
+  if (llmConfig.provider === 'deepseek' && !process.env['DEEPSEEK_API_KEY']) {
+    log.error('缺少 DEEPSEEK_API_KEY，请在 .env 中配置，或设置 OFFICE_AGENT_LLM_PROVIDER=dashscope');
     process.exit(1);
   }
 
@@ -214,7 +225,7 @@ async function main() {
   log.info('╔══════════════════════════════════════════╗');
   log.info('║   🤖 Office Agent — 飞书机器人           ║');
   log.info('╚══════════════════════════════════════════╝');
-  log.info(`模型: ${process.env['DASHSCOPE_MODEL'] ?? 'qwen-plus'}`);
+  log.info(`模型: ${llmConfig.provider}/${llmConfig.model}`);
   log.info('模式: WebSocket 长连接（无需公网 IP）');
 
   // Helper: get tenant token for direct API calls
@@ -477,6 +488,17 @@ async function main() {
 
               const audioBuffer = Buffer.concat(chunks);
               const apiKey = process.env['DASHSCOPE_API_KEY'] ?? '';
+              if (!apiKey) {
+                await larkClient.im.v1.message.create({
+                  params: { receive_id_type: 'chat_id' },
+                  data: {
+                    receive_id: chatId,
+                    content: JSON.stringify({ text: '❌ 语音识别需要配置 DASHSCOPE_API_KEY。当前 LLM 可以使用 DeepSeek，但语音转文字仍走 DashScope STT。' }),
+                    msg_type: 'text',
+                  },
+                });
+                return;
+              }
               const sttResult = await transcribeAudio(audioBuffer, apiKey, 'audio.ogg');
 
               if (!sttResult.success || !sttResult.text.trim()) {

@@ -8,8 +8,13 @@ AI 办公助理，专为容易遗忘工作事项的用户设计。通过对话�
 # 1. 安装依赖
 npm install
 
-# 2. 配置 API Key（阿里云百炼平台）
+# 2. 配置 API Key（默认阿里云百炼平台）
 echo "DASHSCOPE_API_KEY=sk-你的key" > .env
+
+# 也可以切到 DeepSeek V4
+# OFFICE_AGENT_LLM_PROVIDER=deepseek
+# DEEPSEEK_API_KEY=sk-你的deepseek-key
+# DEEPSEEK_MODEL=deepseek-v4-pro
 
 # 2b.（可选）配置飞书机器人
 # 在 .env 中追加：
@@ -31,7 +36,8 @@ npm start
 ## 前置条件
 
 - Node.js >= 18
-- 阿里云百炼平台 API Key（https://bailian.console.aliyun.com/）
+- 阿里云百炼平台 API Key（默认 LLM provider，https://bailian.console.aliyun.com/）
+- 或 DeepSeek API Key（可选 LLM provider，https://api-docs.deepseek.com/）
 - 官方飞书 CLI 授权（用于 Agent 操作飞书文档、消息、日历、表格等）
 - （可选）飞书自建应用 App ID + App Secret（仅用于飞书机器人 WebSocket 接收消息）
 
@@ -306,6 +312,8 @@ src/
 │   ├── skill-system.ts         # 技能系统（SKILL.md 加载 + 执行）
 │   ├── sub-agent-manager.ts    # 动态子 Agent（项目级隔离）
 │   ├── dashscope-llm.ts        # 百炼 LLM 客户端（流式 + Function Calling）
+│   ├── deepseek-llm.ts         # DeepSeek OpenAI-compatible LLM 客户端
+│   ├── llm-provider.ts         # LLM provider 选择（DashScope / DeepSeek）
 │   ├── llm-client.ts           # LLM 接口定义
 │   ├── schema-utils.ts         # Zod v4 → JSON Schema 转换
 │   ├── token-tracker.ts        # Token 用量统计（按模型/环节/天）
@@ -358,7 +366,9 @@ src/
 
 ## 支持的模型
 
-通过 `.env` 中的 `DASHSCOPE_MODEL` 配置：
+通过 `.env` 中的 `OFFICE_AGENT_LLM_PROVIDER` 选择 provider。
+
+### DashScope / Qwen
 
 | 模型 | 说明 |
 |------|------|
@@ -367,6 +377,44 @@ src/
 | `qwen-turbo` | 更快更便宜 |
 
 运行时指定：`npx tsx src/cli/index.ts chat -m qwen-max`
+
+### DeepSeek V4
+
+官方 DeepSeek API 当前公开的 V4 文本模型：
+
+| 模型 | 说明 |
+|------|------|
+| `deepseek-v4-pro` | 默认 DeepSeek 模型，能力更强 |
+| `deepseek-v4-flash` | 更快更便宜 |
+
+配置示例：
+
+```bash
+OFFICE_AGENT_LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-你的deepseek-key
+DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_THINKING=enabled
+DEEPSEEK_REASONING_EFFORT=high
+```
+
+也可以临时指定：
+
+```bash
+npx tsx src/cli/index.ts chat -m deepseek-v4-pro
+```
+
+DeepSeek 官方 Chat API 当前消息 `content` 是文本 string，能力表列出 JSON Output、Tool Calls、Prefix/FIM 等，没有公开图片输入/vision API。因此本项目目前只适配 DeepSeek 文本和工具调用。
+
+## 多模态现状
+
+当前 Agent 主链路不是图片多模态：
+
+- 飞书文本消息：直接进入 LLM。
+- 飞书语音消息：先用 DashScope STT 转文字，再进入 LLM。
+- 飞书图片/文件消息：当前直接回复“不支持”，不会发送给 LLM。
+
+如果接入纯文本 LLM，例如 DeepSeek V4，文本和语音转文字后的内容可以正常处理；图片必须先经过独立 OCR/视觉模型转成文本，再交给 Agent。未来如果 DeepSeek 官方开放图片输入，应新增独立 `VisionClient` 或图片预处理层，而不是把图片直接塞进当前纯文本 `LLMClient`。
 
 ## 开发
 
