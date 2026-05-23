@@ -142,6 +142,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '  - Batch create records: lark-cli base +record-batch-create --base-token BASE --table-id TABLE --json "{\\"fields\\":[...],\\"rows\\":[...]}" --as user',
     '  - Base commands usually do NOT support --format json; use -q only when --help shows it.',
     '  - Do NOT use base +create, --title, or --base for Base creation/table creation.',
+    '  - Function arguments MUST be strict JSON. If args contains --json/--fields, escape the nested JSON as a string inside the args array.',
     '- For side-effect operations, run --dry-run first when unsure, then execute directly if the command and target are clear',
     '- When user asks you to read their project docs, search/fetch via LarkCli first, then read each doc',
     '- Extract key information (milestones, deadlines, decisions, plans) and store as memories',

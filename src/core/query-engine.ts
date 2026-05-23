@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { zodToJsonSchema } from './schema-utils.js';
 import { logger } from './logger.js';
 import type { Message, StreamEvent, UserConfig } from '../types/index.js';
-import type { LLMClient, LLMMessage, LLMToolDef } from './llm-client.js';
+import type { LLMClient, LLMMessage, LLMToolCall, LLMToolDef } from './llm-client.js';
 import type { MemorySystem } from './memory-system.js';
 import type { ContextManager } from './context-manager.js';
 import type { ToolRegistry } from './tool-system.js';
@@ -229,11 +229,16 @@ export class QueryEngine {
 
       // LLM returned tool calls
       if (result.toolCalls && result.toolCalls.length > 0) {
-        // Add assistant message with tool_calls to LLM history
+        const preparedToolCalls = result.toolCalls.map(prepareToolCall);
+
+        // Add assistant message with sanitized tool_calls to LLM history.
+        // Some models may emit malformed JSON in function.arguments; if we send
+        // that malformed assistant history back, OpenAI-compatible APIs reject
+        // the next request before the model can recover.
         llmMessages.push({
           role: 'assistant',
           content: result.content,
-          tool_calls: result.toolCalls,
+          tool_calls: preparedToolCalls.map((prepared) => prepared.toolCall),
         });
 
         // Record assistant message with tool_calls
@@ -243,9 +248,9 @@ export class QueryEngine {
           timestamp: new Date(),
         });
 
-        for (const tc of result.toolCalls) {
-          let parsedInput: unknown;
-          try { parsedInput = JSON.parse(tc.function.arguments); } catch { parsedInput = {}; }
+        for (const prepared of preparedToolCalls) {
+          const tc = prepared.toolCall;
+          const parsedInput = prepared.parsedInput;
 
           yield { type: 'tool_use', toolName: tc.function.name, input: parsedInput };
           logger.debug(`tool call: ${tc.function.name}`, { args: JSON.stringify(parsedInput).slice(0, 200) }, 'QueryEngine');
@@ -254,7 +259,15 @@ export class QueryEngine {
           const repeatedCount = (repeatedToolCalls.get(signature) ?? 0) + 1;
           repeatedToolCalls.set(signature, repeatedCount);
 
-          const toolResult = repeatedCount > this.maxRepeatedToolCalls
+          const toolResult = prepared.parseError
+            ? {
+                success: false,
+                output: {
+                  rawArgumentsPreview: prepared.rawArguments.slice(0, 500),
+                },
+                error: `工具参数不是合法 JSON：${prepared.parseError}。请重新生成严格 JSON 格式的 function.arguments；如果 args 里要传 --json，请把内层 JSON 当作字符串并正确转义。`,
+              }
+            : repeatedCount > this.maxRepeatedToolCalls
             ? {
                 success: false,
                 output: null,
@@ -271,6 +284,13 @@ export class QueryEngine {
               toolName: tc.function.name,
               repeatedCount,
               maxRepeatedToolCalls: this.maxRepeatedToolCalls,
+            }, 'QueryEngine');
+          }
+          if (prepared.parseError) {
+            logger.warn('blocked malformed tool arguments', {
+              toolName: tc.function.name,
+              error: prepared.parseError,
+              rawArgumentsPreview: prepared.rawArguments.slice(0, 200),
             }, 'QueryEngine');
           }
 
@@ -425,6 +445,47 @@ function summarizeToolResult(toolName: string, result: { success: boolean; error
   return result.success
     ? `${toolName} 成功`
     : `${toolName} 失败${result.error ? `：${result.error}` : ''}`;
+}
+
+interface PreparedToolCall {
+  toolCall: LLMToolCall;
+  parsedInput: unknown;
+  rawArguments: string;
+  parseError?: string;
+}
+
+function prepareToolCall(toolCall: LLMToolCall): PreparedToolCall {
+  const rawArguments = typeof toolCall.function.arguments === 'string'
+    ? toolCall.function.arguments
+    : JSON.stringify(toolCall.function.arguments ?? {});
+
+  try {
+    const parsedInput = JSON.parse(rawArguments) as unknown;
+    return {
+      toolCall: {
+        ...toolCall,
+        function: {
+          ...toolCall.function,
+          arguments: JSON.stringify(parsedInput ?? {}),
+        },
+      },
+      parsedInput,
+      rawArguments,
+    };
+  } catch (error) {
+    return {
+      toolCall: {
+        ...toolCall,
+        function: {
+          ...toolCall.function,
+          arguments: '{}',
+        },
+      },
+      parsedInput: {},
+      rawArguments,
+      parseError: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function stableStringify(value: unknown): string {

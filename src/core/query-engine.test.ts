@@ -312,6 +312,60 @@ describe('QueryEngine', () => {
     expect(errorEv.error).toContain('任务状态不应视为完成');
   });
 
+  it('sanitizes malformed tool call arguments before sending the next LLM request', async () => {
+    let callCount = 0;
+    let historicalArguments = '';
+    let toolMessageContent = '';
+
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools(msgs) {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: null,
+            toolCalls: [
+              {
+                id: 'tc-bad-json',
+                function: {
+                  name: 'LarkCli',
+                  arguments: '{"args":["base","+field-create","--json","{"name":"能力","type":"text"}"]}',
+                },
+              },
+            ],
+          };
+        }
+
+        const assistantWithToolCall = msgs.find((m) => m.role === 'assistant' && m.tool_calls?.length);
+        historicalArguments = assistantWithToolCall?.tool_calls?.[0]?.function.arguments ?? '';
+        JSON.parse(historicalArguments);
+
+        const lastToolMsg = [...msgs].reverse().find((m) => m.role === 'tool');
+        toolMessageContent = lastToolMsg?.content ?? '';
+        return { content: '参数错误已上报，等待重试。', toolCalls: null };
+      },
+    };
+
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(createDummyTool('LarkCli', 'should not run'));
+
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+    });
+
+    const events = await collectEvents(engine.submitMessage('create field'));
+    const textEv = events.find((e) => e.type === 'text') as Extract<StreamEvent, { type: 'text' }>;
+
+    expect(historicalArguments).toBe('{}');
+    expect(toolMessageContent).toContain('工具参数不是合法 JSON');
+    expect(textEv.content).toBe('参数错误已上报，等待重试。');
+  });
+
   it('yields error event when LLM throws', async () => {
     const llm: LLMClient = {
       async query() { throw new Error('LLM failure'); },

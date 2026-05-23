@@ -31,3 +31,11 @@
 - 实现说明：运行全量测试、类型检查、构建、CLI smoke、ReplayEval，并提交。
 - 验证命令：`npm test && npm run typecheck && npm run build && node dist/cli/index.js --help && npm run eval:replay`
 - 完成标准：验证通过并完成提交。
+
+## T5 非法 tool arguments 恢复
+
+- 状态：DONE
+- 文件：`src/core/query-engine.ts`、`src/core/query-engine.test.ts`、`src/main.ts`
+- 实现说明：当模型生成非法 JSON 的 `function.arguments` 时，不把坏 arguments 原样写回下一轮 LLM 历史；改为写入合法 `{}`，并把解析错误作为 tool_result 反馈给模型自修复。
+- 验证命令：`npm test -- src/core/query-engine.test.ts src/main.test.ts && npm run typecheck`
+- 完成标准：DashScope 不会因为历史 tool_calls 中的非法 JSON 直接 400；测试覆盖坏 JSON sanitize。
