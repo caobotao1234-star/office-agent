@@ -42,9 +42,9 @@
 
 ## T6 ReplayEval 回放测试
 
-- 状态：PENDING
-- 文件：`src/evals/*`、`evals/fixtures/*`、`package.json`
-- 实现说明：增加关键对话回放，断言必须调用的工具和失败处理行为。
+- 状态：DONE
+- 文件：`src/evals/replay.ts`、`package.json`、`README.md`
+- 实现说明：增加离线关键对话回放，断言必须调用的工具、工具失败回传、最终回复和 done 事件。
 - 验证命令：`npm run eval:replay`
 - 完成标准：不依赖真实 LLM/飞书的回放测试通过。
 

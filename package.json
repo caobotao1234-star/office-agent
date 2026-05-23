@@ -17,6 +17,7 @@
     "lark:auth": "lark-cli auth login --recommend --domain all",
     "lark:status": "lark-cli auth status",
     "lark:doctor": "lark-cli doctor",
+    "eval:replay": "tsx src/evals/replay.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

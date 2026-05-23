@@ -334,6 +334,8 @@ src/
 │   └── WebSearchTool/          # 可选联网搜索
 │
 ├── skills/bundled/             # 内置技能
+├── evals/                      # 离线回放评测
+│   └── replay.ts               # 工具调用/失败处理/最终回复回放
 ├── types/index.ts              # 核心类型定义
 ├── main.ts                     # 组件装配 + 消息处理流程
 │
@@ -359,6 +361,7 @@ src/
 npm test          # 运行测试
 npm run typecheck # 类型检查
 npm run build     # 编译 TypeScript
+npm run eval:replay # 离线回放评测，不依赖真实 LLM/飞书
 ```
 
 ## 架构参考
@@ -374,6 +377,7 @@ npm run build     # 编译 TypeScript
 - 可插拔 Tool 系统（当前只注册真实可用工具，Zod schema 自动转 JSON Schema）
 - SKILL.md 技能定义（inline/fork 两种执行模式）
 - 上下文自动压缩
+- 离线回放评测（ReplayEval，覆盖工具调用和失败回传）
 - 会话持久化（多通道隔离：CLI / 飞书各用户独立）
 - 统一通知架构（NotificationService + AgendaScheduler）
 - 统一命令路由（slash-command.ts，CLI/飞书/Web 行为一致）
