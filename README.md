@@ -139,6 +139,7 @@ Agent 通过原生 Function Calling 调用这些工具：
 | SubAgentTool | 项目管理（创建/归档/委派） | ✅ 完整 |
 | MemoryTool | 长期记忆存储/搜索/删除 | ✅ 完整 |
 | OfficeContextTool | 办公上下文图谱：人、项目、文档、会议、流程、关系、知识 | ✅ 推荐 |
+| KnowledgeCaptureTool | 从对话/文档/会议等来源批量提取上下文、记忆和提醒 | ✅ 推荐 |
 | AgendaTool | 主动提醒日程：提醒、截止日期、承诺、跟进事项 | ✅ 推荐 |
 | CronTool | 定时任务（cron 表达式） | ✅ 完整 |
 | ConfigTool | 通过对话修改配置（提醒时间、工作时间等） | ✅ 完整 |

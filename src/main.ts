@@ -40,6 +40,7 @@ import { SkillCreatorTool } from './tools/SkillCreatorTool/index.js';
 import { LarkCliTool } from './tools/LarkCliTool/index.js';
 import { AgendaTool } from './tools/AgendaTool/index.js';
 import { OfficeContextTool } from './tools/OfficeContextTool/index.js';
+import { KnowledgeCaptureTool } from './tools/KnowledgeCaptureTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -98,6 +99,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- Upsert OfficeContextTool records when you learn stable context from conversation, Feishu docs/messages/calendar/base, meetings, or tool results.',
     '- Use MemoryTool for loose facts, preferences, raw notes, and quick knowledge cards; use OfficeContextTool for durable structured entities and relationships.',
     '- Include sourceRefs when the source is known, and use stable keys such as project:<name>, person:<name>, doc:<token>, meeting:<date-topic>, process:<name>.',
+    '- Use KnowledgeCaptureTool for batch extraction when a conversation, Feishu source, meeting, or tool result contains multiple durable facts, entities, commitments, or relationships.',
     '',
     '# Agenda & Proactive Reminders',
     '',
@@ -157,6 +159,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- Use OfficeContextTool for structured durable entities: people, projects, documents, meetings, responsibilities, business processes, relationships, and project status.',
     '- Use MemoryTool for loose facts, preferences, raw notes, credentials/accounts, and quick knowledge cards.',
     '- Use AgendaTool for concrete reminder times, deadlines, commitments, and follow-up points.',
+    '- Use KnowledgeCaptureTool when one source contains several items that should be saved across OfficeContextTool, MemoryTool, and AgendaTool.',
     '- Examples:',
     '  - "张三负责 Apollo 前端" → OfficeContextTool person/project relationship',
     '  - "项目预算200万" → OfficeContextTool project or MemoryTool project_context',
@@ -248,6 +251,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new LarkCliTool());
   toolRegistry.register(new OfficeContextTool(officeContextStore));
+  toolRegistry.register(new KnowledgeCaptureTool(officeContextStore, memorySystem, agendaStore));
   toolRegistry.register(new AgendaTool(agendaStore));
   toolRegistry.register(new MemoryTool(memorySystem));
   toolRegistry.register(new CronTool(cronScheduler));

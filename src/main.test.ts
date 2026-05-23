@@ -78,6 +78,7 @@ describe('createOfficeAgent', () => {
       'AgendaTool',
       'ConfigTool',
       'CronTool',
+      'KnowledgeCaptureTool',
       'LarkCli',
       'MemoryTool',
       'OfficeContextTool',

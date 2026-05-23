@@ -26,7 +26,7 @@
 
 ## T4 KnowledgeCaptureTool
 
-- 状态：PENDING
+- 状态：DONE
 - 文件：`src/tools/KnowledgeCaptureTool/index.ts`、`src/tools/KnowledgeCaptureTool/index.test.ts`
 - 实现说明：由 LLM 自主调用，从对话/文档/群聊/会议内容中提取项目、人、决策、流程、承诺等记录，写入上下文库和必要的 Agenda/Memory。
 - 验证命令：`npm test -- src/tools/KnowledgeCaptureTool/index.test.ts && npm run typecheck`
