@@ -6,7 +6,7 @@
 
 1. `OfficeContextStore` + `OfficeContextTool`：本地结构化上下文库，供 Agent 自主保存和检索。
 2. `KnowledgeCaptureTool`：从对话、文档、群聊、会议内容中提取上下文，写入 `OfficeContextStore`、`AgendaTool`、`MemoryTool`。
-3. `FeishuIngestTool`：通过 `LarkCli` 按需读取飞书文档、群聊、日历、Base、任务、通讯录，并交给提取工具处理。
+3. `FeishuIngestTool`：通过 `LarkCli` 按需读取或同步飞书文档、群聊、日历、Base、任务、通讯录，并把变更写入上下文库，供后续提取工具处理。
 4. `ReplayEval`：回放关键对话，验证工具调用、失败处理、提醒和飞书写操作门禁。
 
 本次先实现第 1 步。它不调用 LLM，也不访问飞书，只提供稳定、可测试的数据底座。
@@ -27,6 +27,17 @@
   - 初始化 `OfficeContextStore`。
   - 注册 `OfficeContextTool`。
   - 系统提示词加入办公上下文使用规则。
+
+- `src/services/feishu-sync-store.ts`
+  - 保存 Agent 关注的飞书来源。
+  - 保存每个来源的 `args`、项目标签、同步开关、最近同步时间、内容 hash 和错误。
+  - 不保存飞书凭证。
+
+- `src/tools/FeishuIngestTool/index.ts`
+  - 支持 `addSource/listSources/removeSource/syncSource/syncAll/fetchOnce`。
+  - 对已知只读来源构造官方 `lark-cli` 命令；不熟悉的来源允许传入显式 `args`。
+  - 同步成功后按内容 hash 判断是否变化，并把原始同步结果作为 `document/meeting/knowledge` 等上下文记录写入 `OfficeContextStore`。
+  - 深层结构化提取继续由 `KnowledgeCaptureTool` 在需要时自主调用，不在同步工具内跑 LLM。
 
 ## 数据模型
 
@@ -100,5 +111,6 @@
 新增文件路径：
 
 - `<baseDir>/office-context.json`
+- `<baseDir>/feishu-sync-sources.json`
 
 现有 `memories/`、`tasks.json`、`agenda.json` 不迁移。未来可做一次性索引器，把已有任务、记忆、agenda 以来源引用方式写入上下文库。
