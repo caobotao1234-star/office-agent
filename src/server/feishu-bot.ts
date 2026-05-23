@@ -25,6 +25,7 @@ import { logger } from '../core/logger.js';
 import { transcribeAudio } from '../services/speech-to-text.js';
 import { FeishuRecipientStore } from '../services/feishu-recipient-store.js';
 import type { NotifyCallback } from '../services/notification-service.js';
+import { SerialMessageQueue } from '../services/serial-message-queue.js';
 
 const log = logger.child('Feishu');
 const sdkLog = logger.child('FeishuSDK');
@@ -56,6 +57,7 @@ function loadEnv(): void {
 const userAgents = new Map<string, OfficeAgent>();
 const startedAgentChats = new Map<string, string>();
 const notificationCallbacks = new Map<string, NotifyCallback>();
+const userMessageQueues = new Map<string, SerialMessageQueue>();
 
 function getOrCreateAgent(userId: string): OfficeAgent {
   const existing = userAgents.get(userId);
@@ -71,6 +73,15 @@ function getOrCreateAgent(userId: string): OfficeAgent {
 
   userAgents.set(userId, agent);
   return agent;
+}
+
+function getOrCreateMessageQueue(userId: string): SerialMessageQueue {
+  let queue = userMessageQueues.get(userId);
+  if (!queue) {
+    queue = new SerialMessageQueue();
+    userMessageQueues.set(userId, queue);
+  }
+  return queue;
 }
 
 // ============================================================
@@ -338,6 +349,34 @@ async function main() {
     }
   }
 
+  function enqueueFeishuMessage(
+    lark: Lark.Client,
+    chatId: string,
+    senderId: string,
+    cleanText: string,
+  ): void {
+    const queue = getOrCreateMessageQueue(senderId);
+    const queuedBefore = queue.pendingCount();
+
+    if (queuedBefore > 0) {
+      void lark.im.v1.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          content: JSON.stringify({ text: `收到，前面还有 ${queuedBefore} 条消息/任务在处理。我会按顺序处理这条。` }),
+          msg_type: 'text',
+        },
+      }).catch((err) => {
+        log.warn('发送排队提示失败', { senderId, chatId, error: err instanceof Error ? err.message : String(err) });
+      });
+    }
+
+    const { promise } = queue.enqueue(() => handleFeishuMessage(lark, chatId, senderId, cleanText));
+    void promise.catch((err) => {
+      log.error('队列消息处理失败', { senderId, chatId, error: err instanceof Error ? err.message : String(err) });
+    });
+  }
+
   wsClient.start({
     eventDispatcher: new Lark.EventDispatcher({
       logger: larkSdkLogger,
@@ -454,19 +493,8 @@ async function main() {
 
               log.info(`语音转文字: ${sttResult.text.slice(0, 80)}`);
 
-              // Process transcribed text as normal message
-              recipientStore.upsert(senderId, chatId);
-              const agent = getOrCreateAgent(senderId);
-              await ensureAgentStarted(agent, senderId, larkClient, chatId);
-              const response = await processMessage(agent, sttResult.text);
-              log.info(`回复 to ${senderId}: ${response.slice(0, 80)}`);
-              const respChunks = splitMessage(response, 3500);
-              for (const chunk of respChunks) {
-                await larkClient.im.v1.message.create({
-                  params: { receive_id_type: 'chat_id' },
-                  data: { receive_id: chatId, content: JSON.stringify({ text: chunk }), msg_type: 'text' },
-                });
-              }
+              // Process transcribed text through the same per-user queue as text messages.
+              enqueueFeishuMessage(larkClient, chatId, senderId, sttResult.text);
             } catch (err) {
               log.error('语音处理失败', { error: err instanceof Error ? err.message : String(err) });
               try {
@@ -505,7 +533,7 @@ async function main() {
         // Feishu requires the event handler to complete within 3 seconds.
         // Our Agent processing (LLM API + tools) takes much longer.
         // If we block here, Feishu will stop pushing subsequent messages.
-        void handleFeishuMessage(larkClient, chatId, senderId, cleanText);
+        enqueueFeishuMessage(larkClient, chatId, senderId, cleanText);
       },
     }),
   });
