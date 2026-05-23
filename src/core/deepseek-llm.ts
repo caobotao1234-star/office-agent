@@ -75,6 +75,10 @@ export function createDeepSeekLLM(options: DeepSeekLLMOptions): LLMClient {
   }
 
   return {
+    capabilities: {
+      vision: false,
+    },
+
     async query(system: string, user: string, signal: AbortSignal): Promise<string> {
       const response = await fetch(endpoint, {
         method: 'POST',

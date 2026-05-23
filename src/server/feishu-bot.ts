@@ -87,12 +87,23 @@ function getOrCreateMessageQueue(userId: string): SerialMessageQueue {
 // ============================================================
 
 /** Collect all stream events into a single text response */
-async function processMessage(agent: OfficeAgent, text: string): Promise<string> {
+async function processMessage(agent: OfficeAgent, text: string, images?: string[]): Promise<string> {
+  const safeImages = images?.filter(Boolean) ?? [];
+  if (safeImages.length > 0 && !agent.queryEngine.supportsVision()) {
+    const note = `我收到了 ${safeImages.length} 张图片，但当前模型不支持图片识别，已忽略图片。`;
+    if (!text.trim()) {
+      return `${note}\n\n请切换到支持视觉的模型后再发图，例如 DashScope 的 qwen-vl 系列模型。`;
+    }
+    const textResponse = await processMessage(agent, text);
+    return `${note}\n\n${textResponse}`;
+  }
+
   const parts: string[] = [];
   let toolCount = 0;
+  const finalText = text.trim() || (safeImages.length > 0 ? '请识别并描述用户发送的图片，并根据图片内容回应。' : text);
 
   try {
-    for await (const event of agent.handleMessage(text)) {
+    for await (const event of agent.handleMessage(finalText, safeImages.length > 0 ? safeImages : undefined)) {
       switch (event.type) {
         case 'text':
           parts.push(event.content);
@@ -323,13 +334,14 @@ async function main() {
     chatId: string,
     senderId: string,
     cleanText: string,
+    images?: string[],
   ): Promise<void> {
     try {
       recipientStore.upsert(senderId, chatId);
       const agent = getOrCreateAgent(senderId);
       await ensureAgentStarted(agent, senderId, lark, chatId);
 
-      const response = await processMessage(agent, cleanText);
+      const response = await processMessage(agent, cleanText, images);
 
       log.info(`回复 to ${senderId}: ${response.slice(0, 80)}`);
 
@@ -365,6 +377,7 @@ async function main() {
     chatId: string,
     senderId: string,
     cleanText: string,
+    images?: string[],
   ): void {
     const queue = getOrCreateMessageQueue(senderId);
     const queuedBefore = queue.pendingCount();
@@ -382,7 +395,7 @@ async function main() {
       });
     }
 
-    const { promise } = queue.enqueue(() => handleFeishuMessage(lark, chatId, senderId, cleanText));
+    const { promise } = queue.enqueue(() => handleFeishuMessage(lark, chatId, senderId, cleanText, images));
     void promise.catch((err) => {
       log.error('队列消息处理失败', { senderId, chatId, error: err instanceof Error ? err.message : String(err) });
     });
@@ -406,15 +419,46 @@ async function main() {
           return;
         }
 
-        // Only handle text and audio messages
-        if (msgType !== 'text' && msgType !== 'audio') {
+        // Only handle text, post, image, and audio messages
+        if (msgType !== 'text' && msgType !== 'post' && msgType !== 'image' && msgType !== 'audio') {
           void larkClient.im.v1.message.create({
             params: { receive_id_type: 'chat_id' },
             data: {
               receive_id: chatId,
-              content: JSON.stringify({ text: '目前支持文本和语音消息，图片/文件暂不支持。' }),
+              content: JSON.stringify({ text: '目前支持文本、富文本、图片和语音消息，该类型暂不支持。' }),
               msg_type: 'text',
             },
+          });
+          return;
+        }
+
+        if (msgType === 'image') {
+          let imageKey = '';
+          try {
+            const content = JSON.parse(message.content);
+            imageKey = content.image_key ?? '';
+          } catch {
+            return;
+          }
+          if (!imageKey) return;
+
+          log.info(`收到图片消息 from ${senderId}`, { imageKey });
+          void (async () => {
+            const image = await downloadFeishuImage(imageKey, messageId, getFeishuTenantToken);
+            if (!image) {
+              await larkClient.im.v1.message.create({
+                params: { receive_id_type: 'chat_id' },
+                data: {
+                  receive_id: chatId,
+                  content: JSON.stringify({ text: '❌ 图片下载失败，暂时无法识别这张图片。' }),
+                  msg_type: 'text',
+                },
+              });
+              return;
+            }
+            enqueueFeishuMessage(larkClient, chatId, senderId, '请识别并描述用户发送的图片，并根据图片内容回应。', [image]);
+          })().catch((err) => {
+            log.error('图片处理失败', { senderId, chatId, error: err instanceof Error ? err.message : String(err) });
           });
           return;
         }
@@ -534,27 +578,56 @@ async function main() {
           return;
         }
 
-        // Text message handling
+        // Text and post message handling
         let text: string;
+        let imageKeys: string[] = [];
         try {
           const content = JSON.parse(message.content);
-          text = content.text ?? '';
+          if (msgType === 'post') {
+            text = extractTextFromPost(content);
+            imageKeys = extractImageKeysFromPost(content);
+          } else {
+            text = content.text ?? '';
+          }
         } catch {
           text = message.content ?? '';
         }
 
-        if (!text.trim()) return;
+        if (!text.trim() && imageKeys.length === 0) return;
 
         // Strip @bot mention prefix
         cleanText = text.replace(/@_user_\d+\s*/g, '').trim();
-        if (!cleanText) return;
+        if (!cleanText && imageKeys.length === 0) return;
 
-        log.info(`收到消息 from ${senderId}: ${cleanText.slice(0, 80)}`);
+        log.info(`收到消息 from ${senderId}: ${cleanText.slice(0, 80)}`, { imageCount: imageKeys.length });
 
         // CRITICAL: Return immediately, process in background
         // Feishu requires the event handler to complete within 3 seconds.
         // Our Agent processing (LLM API + tools) takes much longer.
         // If we block here, Feishu will stop pushing subsequent messages.
+        if (imageKeys.length > 0) {
+          void (async () => {
+            const images = (await Promise.all(
+              imageKeys.map((key) => downloadFeishuImage(key, messageId, getFeishuTenantToken)),
+            )).filter((image): image is string => image !== null);
+            if (images.length === 0 && !cleanText) {
+              await larkClient.im.v1.message.create({
+                params: { receive_id_type: 'chat_id' },
+                data: {
+                  receive_id: chatId,
+                  content: JSON.stringify({ text: '❌ 图片下载失败，暂时无法识别这条消息里的图片。' }),
+                  msg_type: 'text',
+                },
+              });
+              return;
+            }
+            enqueueFeishuMessage(larkClient, chatId, senderId, cleanText || '请识别并描述用户发送的图片，并根据图片内容回应。', images);
+          })().catch((err) => {
+            log.error('富文本图片处理失败', { senderId, chatId, error: err instanceof Error ? err.message : String(err) });
+          });
+          return;
+        }
+
         enqueueFeishuMessage(larkClient, chatId, senderId, cleanText);
       },
     }),
@@ -562,6 +635,70 @@ async function main() {
 
   log.info('✅ 飞书 WebSocket 长连接已启动，等待消息...');
   await bootstrapKnownRecipients();
+}
+
+/** Download a Feishu image by image_key and return a base64 data URL. */
+async function downloadFeishuImage(
+  imageKey: string,
+  messageId: string,
+  getTenantToken: () => Promise<string>,
+): Promise<string | null> {
+  try {
+    const token = await getTenantToken();
+    const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${imageKey}?type=image`;
+    log.info('下载飞书图片', { imageKey, messageId });
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) {
+      log.warn('飞书图片下载失败', { imageKey, status: res.status });
+      return null;
+    }
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get('content-type') ?? 'image/png';
+    log.info('飞书图片下载完成', { imageKey, bytes: buffer.length, contentType });
+    return `data:${contentType};base64,${buffer.toString('base64')}`;
+  } catch (err) {
+    log.error('飞书图片下载异常', { imageKey, error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
+function extractImageKeysFromPost(content: any): string[] {
+  const keys: string[] = [];
+  const locales = content.zh_cn ?? content.en_us ?? content.ja_jp ?? content;
+  const paragraphs: any[][] = locales?.content ?? [];
+  for (const paragraph of paragraphs) {
+    if (!Array.isArray(paragraph)) continue;
+    for (const element of paragraph) {
+      if (element?.tag === 'img' && element.image_key) {
+        keys.push(element.image_key);
+      }
+    }
+  }
+  return keys;
+}
+
+function extractTextFromPost(content: any): string {
+  const parts: string[] = [];
+  const locales = content.zh_cn ?? content.en_us ?? content.ja_jp ?? content;
+  const title = locales?.title;
+  if (title) parts.push(title);
+
+  const paragraphs: any[][] = locales?.content ?? [];
+  for (const paragraph of paragraphs) {
+    if (!Array.isArray(paragraph)) continue;
+    for (const element of paragraph) {
+      if (element?.tag === 'text' && element.text) {
+        parts.push(element.text);
+      } else if (element?.tag === 'a' && element.text) {
+        const href = element.href ? ` (${element.href})` : '';
+        parts.push(element.text + href);
+      } else if (element?.tag === 'at' && element.user_name) {
+        parts.push(`@${element.user_name}`);
+      }
+    }
+  }
+
+  return parts.join(' ').trim();
 }
 
 /** Split long text into chunks for Feishu message limit */

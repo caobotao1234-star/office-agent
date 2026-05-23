@@ -375,6 +375,7 @@ src/
 | `qwen-plus` | 默认，性价比高 |
 | `qwen-max` | 更强 |
 | `qwen-turbo` | 更快更便宜 |
+| `qwen-vl-plus` / `qwen-vl-max` | 支持图片输入的视觉模型 |
 
 运行时指定：`npx tsx src/cli/index.ts chat -m qwen-max`
 
@@ -404,17 +405,19 @@ DEEPSEEK_REASONING_EFFORT=high
 npx tsx src/cli/index.ts chat -m deepseek-v4-pro
 ```
 
-DeepSeek 官方 Chat API 当前消息 `content` 是文本 string，能力表列出 JSON Output、Tool Calls、Prefix/FIM 等，没有公开图片输入/vision API。因此本项目目前只适配 DeepSeek 文本和工具调用。
+DeepSeek 官方 Chat API 当前消息 `content` 是文本 string，能力表列出 JSON Output、Tool Calls、Prefix/FIM 等，没有公开图片输入/vision API。因此本项目目前只适配 DeepSeek 文本和工具调用；用 DeepSeek 时飞书图片会被明确提示“不支持图片识别”并忽略。
 
 ## 多模态现状
 
-当前 Agent 主链路不是图片多模态：
+当前 Agent 已恢复飞书图片输入，但是否真的能识别图片取决于当前 LLM provider/model：
 
 - 飞书文本消息：直接进入 LLM。
 - 飞书语音消息：先用 DashScope STT 转文字，再进入 LLM。
-- 飞书图片/文件消息：当前直接回复“不支持”，不会发送给 LLM。
+- 飞书图片消息：下载为 base64 data URL；视觉模型会同时接收图片和文字。
+- 飞书富文本消息：会提取文字和其中的图片一起处理。
+- 纯文本模型收到图片：回复“当前模型不支持图片识别，已忽略图片”；如果同条消息里有文字，会继续处理文字。
 
-如果接入纯文本 LLM，例如 DeepSeek V4，文本和语音转文字后的内容可以正常处理；图片必须先经过独立 OCR/视觉模型转成文本，再交给 Agent。未来如果 DeepSeek 官方开放图片输入，应新增独立 `VisionClient` 或图片预处理层，而不是把图片直接塞进当前纯文本 `LLMClient`。
+当前视觉能力判断规则：DashScope 模型名包含 `vl` 或 `omni` 时视为支持图片；DeepSeek V4 视为纯文本模型。如果未来 DeepSeek 官方开放图片输入，再把 DeepSeek provider 标记为 vision-capable。
 
 ## 开发
 

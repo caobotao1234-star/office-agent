@@ -49,5 +49,14 @@ describe('llm-provider', () => {
     expect(configured.provider).toBe('deepseek');
     expect(configured.model).toBe('deepseek-v4-pro');
     expect(configured.llm.queryWithTools).toBeTypeOf('function');
+    expect(configured.llm.capabilities?.vision).toBe(false);
+  });
+
+  it('marks DashScope qwen-vl models as vision-capable', () => {
+    resetEnv();
+    process.env['DASHSCOPE_API_KEY'] = 'sk-test';
+    const configured = createConfiguredLLM({ modelOverride: 'qwen-vl-plus' });
+    expect(configured.provider).toBe('dashscope');
+    expect(configured.llm.capabilities?.vision).toBe(true);
   });
 });

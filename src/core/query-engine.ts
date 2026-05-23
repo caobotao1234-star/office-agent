@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { zodToJsonSchema } from './schema-utils.js';
 import { logger } from './logger.js';
 import type { Message, StreamEvent, UserConfig } from '../types/index.js';
-import type { LLMClient, LLMMessage, LLMToolCall, LLMToolDef } from './llm-client.js';
+import type { LLMClient, LLMContentPart, LLMMessage, LLMToolCall, LLMToolDef } from './llm-client.js';
 import type { MemorySystem } from './memory-system.js';
 import type { ContextManager } from './context-manager.js';
 import type { ToolRegistry } from './tool-system.js';
@@ -53,6 +53,10 @@ export class QueryEngine {
   /** Set a channel name for session persistence (e.g. "feishu-{userId}") */
   setSessionChannel(channel: string): void {
     this.sessionChannel = channel;
+  }
+
+  supportsVision(): boolean {
+    return this.config.llm.capabilities?.vision === true;
   }
 
   /** 从磁盘恢复上一次会话（支持按 channel 隔离） */
@@ -130,12 +134,13 @@ export class QueryEngine {
     return prompt;
   }
 
-  async *submitMessage(userMessage: string): AsyncGenerator<StreamEvent> {
+  async *submitMessage(userMessage: string, images?: string[]): AsyncGenerator<StreamEvent> {
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
+    const safeImages = images?.filter(Boolean) ?? [];
 
     this.messages.push({ role: 'user', content: userMessage, timestamp: new Date() });
-    logger.debug(`submitMessage: "${userMessage.slice(0, 80)}"`, { msgCount: this.messages.length }, 'QueryEngine');
+    logger.debug(`submitMessage: "${userMessage.slice(0, 80)}"`, { msgCount: this.messages.length, imageCount: safeImages.length }, 'QueryEngine');
 
     try {
       const systemPrompt = await this.buildDynamicSystemPrompt(userMessage, signal);
@@ -143,7 +148,7 @@ export class QueryEngine {
 
       const hasNativeTools = !!this.config.llm.queryWithTools;
       if (hasNativeTools) {
-        yield* this.executeWithNativeTools(systemPrompt, signal);
+        yield* this.executeWithNativeTools(systemPrompt, signal, safeImages);
       } else if (this.config.llm.queryStream) {
         yield* this.executeWithStream(systemPrompt, signal);
       } else {
@@ -177,6 +182,7 @@ export class QueryEngine {
   private async *executeWithNativeTools(
     systemPrompt: string,
     signal: AbortSignal,
+    images: string[] = [],
   ): AsyncGenerator<StreamEvent> {
     // Build tool definitions in OpenAI format
     const toolDefs: LLMToolDef[] = this.config.tools.listEnabled().map(t => {
@@ -209,6 +215,9 @@ export class QueryEngine {
       { role: 'system', content: systemPrompt },
       ...this.messages.map(m => this.toLLMMessage(m)),
     ];
+    if (images.length > 0) {
+      llmMessages = withLatestUserImages(llmMessages, images);
+    }
 
     let rounds = 0;
     let nudged = false;
@@ -445,6 +454,33 @@ function summarizeToolResult(toolName: string, result: { success: boolean; error
   return result.success
     ? `${toolName} 成功`
     : `${toolName} 失败${result.error ? `：${result.error}` : ''}`;
+}
+
+function withLatestUserImages(messages: LLMMessage[], images: string[]): LLMMessage[] {
+  const next = [...messages];
+  const userIndex = findLastIndex(next, (message) => message.role === 'user');
+  if (userIndex < 0) return next;
+
+  const message = next[userIndex]!;
+  const parts: LLMContentPart[] = [];
+  if (typeof message.content === 'string' && message.content.trim()) {
+    parts.push({ type: 'text', text: message.content });
+  } else if (Array.isArray(message.content)) {
+    parts.push(...message.content);
+  }
+  for (const image of images) {
+    parts.push({ type: 'image_url', image_url: { url: image } });
+  }
+
+  next[userIndex] = { ...message, content: parts };
+  return next;
+}
+
+function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
+  for (let idx = items.length - 1; idx >= 0; idx--) {
+    if (predicate(items[idx]!)) return idx;
+  }
+  return -1;
 }
 
 interface PreparedToolCall {

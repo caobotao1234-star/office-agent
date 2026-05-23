@@ -27,16 +27,28 @@ export interface LLMQueryResult {
   toolCalls: LLMToolCall[] | null;
 }
 
+/** Multimodal content part in OpenAI-compatible vision format. */
+export type LLMContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } };
+
 /** Chat message for multi-turn conversations */
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | LLMContentPart[] | null;
   tool_calls?: LLMToolCall[];
   tool_call_id?: string;
   name?: string;
 }
 
+export interface LLMCapabilities {
+  vision?: boolean;
+}
+
 export interface LLMClient {
+  /** Provider/model capability flags used by input adapters. */
+  capabilities?: LLMCapabilities;
+
   /** Simple query — returns text only. Used for side queries (memory, compact). */
   query(system: string, user: string, signal: AbortSignal): Promise<string>;
 

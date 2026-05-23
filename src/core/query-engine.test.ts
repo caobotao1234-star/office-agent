@@ -144,6 +144,44 @@ describe('QueryEngine', () => {
     expect(textEv.content).toBe('Final answer after tool call');
   });
 
+  it('sends latest user images as multimodal content parts', async () => {
+    let userContent: unknown;
+    const llm: LLMClient = {
+      capabilities: { vision: true },
+      async query() { return ''; },
+      async queryWithTools(msgs) {
+        userContent = [...msgs].reverse().find((m) => m.role === 'user')?.content;
+        return { content: '我看到了图片', toolCalls: null };
+      },
+    };
+
+    const engine = new QueryEngine({
+      model: 'vision-test',
+      systemPrompt: 'test',
+      tools: new ToolRegistry(),
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+    });
+
+    const events = await collectEvents(engine.submitMessage('看图', ['data:image/png;base64,abc']));
+    expect(engine.supportsVision()).toBe(true);
+    expect(userContent).toEqual([
+      { type: 'text', text: '看图' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } },
+    ]);
+    const textEv = events.find((e) => e.type === 'text') as Extract<StreamEvent, { type: 'text' }>;
+    expect(textEv.content).toBe('我看到了图片');
+  });
+
+  it('reports non-vision model capability', () => {
+    const engine = buildEngine({
+      llmFn: () => 'text only',
+      dir,
+    });
+    expect(engine.supportsVision()).toBe(false);
+  });
+
   it('passes tool errors back to the LLM, not only output', async () => {
     let callCount = 0;
     let toolMessageContent = '';
@@ -160,7 +198,7 @@ describe('QueryEngine', () => {
         }
 
         const lastToolMsg = [...msgs].reverse().find((m) => m.role === 'tool');
-        toolMessageContent = lastToolMsg?.content ?? '';
+        toolMessageContent = typeof lastToolMsg?.content === 'string' ? lastToolMsg.content : '';
         return { content: toolMessageContent.includes('boom') ? '工具失败：boom' : 'missing error', toolCalls: null };
       },
     };
@@ -341,7 +379,7 @@ describe('QueryEngine', () => {
         JSON.parse(historicalArguments);
 
         const lastToolMsg = [...msgs].reverse().find((m) => m.role === 'tool');
-        toolMessageContent = lastToolMsg?.content ?? '';
+        toolMessageContent = typeof lastToolMsg?.content === 'string' ? lastToolMsg.content : '';
         return { content: '参数错误已上报，等待重试。', toolCalls: null };
       },
     };

@@ -229,7 +229,7 @@ export interface OfficeAgent {
   configManager: UserConfigManager;
   dataDir: string;
 
-  handleMessage(input: string): AsyncGenerator<StreamEvent>;
+  handleMessage(input: string, images?: string[]): AsyncGenerator<StreamEvent>;
   start(): Promise<void>;
   stop(): void;
   getConfig(): UserConfig;
@@ -373,7 +373,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     awaySummaryEngine, notificationService,
     usageStats, configManager,
     dataDir,
-    handleMessage: (input: string) => handleMessage(agent, input),
+    handleMessage: (input: string, images?: string[]) => handleMessage(agent, input, images),
     start: () => startAgent(agent),
     stop: () => stopAgent(agent),
     getConfig: () => configManager.get(),
@@ -405,6 +405,7 @@ function stopAgent(agent: OfficeAgent): void {
 async function* handleMessage(
   agent: OfficeAgent,
   input: string,
+  images?: string[],
 ): AsyncGenerator<StreamEvent> {
 
   const activityStatus = agent.awaySummaryEngine.checkUserActivity();
@@ -428,7 +429,7 @@ async function* handleMessage(
   }
 
   // Track tool usage from stream events
-  for await (const event of agent.queryEngine.submitMessage(input)) {
+  for await (const event of agent.queryEngine.submitMessage(input, images)) {
     if (event.type === 'tool_use') {
       agent.usageStats.record(event.toolName, 'tool');
     }

@@ -23,7 +23,7 @@
 ## 非目标
 
 - 不接非官方 DeepSeek 多模态服务。
-- 不实现图片 OCR/视觉模型路由；本次只说明现状和为未来保留边界。
+- 不为 DeepSeek 实现图片 OCR 或非官方视觉路由；图片输入由支持 vision capability 的其他 provider/model 处理。
 - 不移除 DashScope；DeepSeek 是可选 provider。
 
 ## 官方文档结论

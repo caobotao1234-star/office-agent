@@ -40,6 +40,10 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
   }
 
   return {
+    capabilities: {
+      vision: isDashScopeVisionModel(model),
+    },
+
     // --- 非流式（用于 side query、记忆提取等轻量调用）---
     async query(system: string, user: string, signal: AbortSignal): Promise<string> {
       const response = await fetch(DASHSCOPE_BASE_URL, {
@@ -175,7 +179,7 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
           tools: tools.length > 0 ? tools : undefined,
           max_tokens: maxTokens,
           temperature,
-          enable_search: true,
+          enable_search: isDashScopeVisionModel(model) ? undefined : true,
           // 百炼文档：tools 参数不能和 stream=True 同时使用
         }),
         signal,
@@ -226,4 +230,9 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
       };
     },
   };
+}
+
+export function isDashScopeVisionModel(model: string): boolean {
+  const normalized = model.toLowerCase();
+  return normalized.includes('vl') || normalized.includes('omni');
 }

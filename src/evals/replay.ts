@@ -174,10 +174,11 @@ class ScriptedLLM implements LLMClient {
     }
 
     const lastToolMessage = [...messages].reverse().find((message) => message.role === 'tool');
+    const lastToolContent = typeof lastToolMessage?.content === 'string' ? lastToolMessage.content : '';
     for (const expected of step.expectLastToolResultIncludes ?? []) {
       assert.ok(
-        lastToolMessage?.content?.includes(expected),
-        `Expected last tool result to include "${expected}", got: ${lastToolMessage?.content ?? '<none>'}`,
+        lastToolContent.includes(expected),
+        `Expected last tool result to include "${expected}", got: ${lastToolContent || '<none>'}`,
       );
     }
 

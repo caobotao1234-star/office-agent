@@ -41,9 +41,9 @@
 
 ## 多模态边界
 
-当前 `LLMClient` 消息只支持纯文本，飞书机器人也只处理文本和语音。语音先经 DashScope STT 转文字再进入 Agent。
+当前 `LLMClient` 已支持 OpenAI vision content parts，飞书机器人也能接收图片和富文本图片。是否把图片传入 LLM 由 provider/model 的 `capabilities.vision` 决定。
 
-如果未来接视觉能力，应新增独立的 `VisionClient` 或 image-to-text 预处理层，把图片理解结果转成文本上下文，再交给当前 Agent。不要把图片直接塞给纯文本 LLM。
+DeepSeek V4 provider 当前标记为非视觉模型，因为官方 Chat API 未公开图片输入。收到图片时会提示不支持并忽略图片；如果同条消息有文字，继续处理文字。
 
 ## 测试
 
