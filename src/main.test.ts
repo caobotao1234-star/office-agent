@@ -63,6 +63,7 @@ describe('createOfficeAgent', () => {
     expect(agent.skillSystem).toBeDefined();
     expect(agent.subAgentManager).toBeDefined();
     expect(agent.agendaStore).toBeDefined();
+    expect(agent.officeContextStore).toBeDefined();
     expect(agent.agendaScheduler).toBeDefined();
     expect(agent.cronScheduler).toBeDefined();
     expect(agent.awaySummaryEngine).toBeDefined();
@@ -79,6 +80,7 @@ describe('createOfficeAgent', () => {
       'CronTool',
       'LarkCli',
       'MemoryTool',
+      'OfficeContextTool',
       'SkillCreator',
       'SubAgentTool',
       'TaskManager',

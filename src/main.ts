@@ -28,6 +28,7 @@ import { NotificationService } from './services/notification-service.js';
 import { AgendaStore } from './services/agenda-store.js';
 import { ReminderComposer } from './services/reminder-composer.js';
 import { AgendaScheduler } from './services/agenda-scheduler.js';
+import { OfficeContextStore } from './services/office-context-store.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -38,6 +39,7 @@ import { WebSearchTool } from './tools/WebSearchTool/index.js';
 import { SkillCreatorTool } from './tools/SkillCreatorTool/index.js';
 import { LarkCliTool } from './tools/LarkCliTool/index.js';
 import { AgendaTool } from './tools/AgendaTool/index.js';
+import { OfficeContextTool } from './tools/OfficeContextTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -88,6 +90,14 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- Memory index is injected dynamically each turn',
     '- Use MemoryTool to store important information',
     '- When you learn project details from Feishu docs, store key info (milestones, deadlines, decisions) as memories',
+    '',
+    '# Office Context System',
+    '',
+    '- Use OfficeContextTool as the structured office context graph for people, projects, documents, meetings, tasks, business processes, relationships, durable knowledge, and miscellaneous office context.',
+    '- Search OfficeContextTool before answering questions about project status, stakeholders, responsibilities, documents, meetings, business processes, or prior office context.',
+    '- Upsert OfficeContextTool records when you learn stable context from conversation, Feishu docs/messages/calendar/base, meetings, or tool results.',
+    '- Use MemoryTool for loose facts, preferences, raw notes, and quick knowledge cards; use OfficeContextTool for durable structured entities and relationships.',
+    '- Include sourceRefs when the source is known, and use stable keys such as project:<name>, person:<name>, doc:<token>, meeting:<date-topic>, process:<name>.',
     '',
     '# Agenda & Proactive Reminders',
     '',
@@ -143,17 +153,17 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '',
     '# Knowledge Capture (知识卡片)',
     '',
-    '- CRITICAL for ADHD users: when user sends ANY fragment of information, IMMEDIATELY store it.',
-    '- Examples that MUST be captured with MemoryTool:',
-    '  - Contact info: "张三电话138xxx" → store as colleague type',
-    '  - Passwords/accounts: "服务器密码xxx" → store as preference type',
-    '  - Facts: "项目预算200万" → store as project_context type',
-    '  - Decisions: "用RV1106芯片" → store as decision type',
-    '  - Commitments: "答应周五给客户方案" → store as commitment type',
-    '  - Random notes: "下次开会记得带样品" → store as task or preference',
-    '- Do NOT just reply "好的/收到" — you MUST call MemoryTool to store it.',
-    '- Tag memories with relevant project names and keywords for easy retrieval.',
-    '- When user asks "张三电话多少" or "服务器密码是什么", search MemoryTool to find it.',
+    '- CRITICAL for ADHD users: when user sends useful information, store it with the right tool instead of only saying "收到".',
+    '- Use OfficeContextTool for structured durable entities: people, projects, documents, meetings, responsibilities, business processes, relationships, and project status.',
+    '- Use MemoryTool for loose facts, preferences, raw notes, credentials/accounts, and quick knowledge cards.',
+    '- Use AgendaTool for concrete reminder times, deadlines, commitments, and follow-up points.',
+    '- Examples:',
+    '  - "张三负责 Apollo 前端" → OfficeContextTool person/project relationship',
+    '  - "项目预算200万" → OfficeContextTool project or MemoryTool project_context',
+    '  - "服务器密码xxx" → MemoryTool preference',
+    '  - "答应周五给客户方案" → AgendaTool commitment and OfficeContextTool relationship if useful',
+    '- Tag records with relevant project names and keywords for easy retrieval.',
+    '- When user asks "张三负责什么" or "这个项目现在怎样", search OfficeContextTool first. When user asks loose facts like "服务器密码是什么", search MemoryTool.',
     '',
     '# Smart Scheduling',
     '',
@@ -188,6 +198,7 @@ export interface OfficeAgent {
   skillSystem: SkillSystem;
   subAgentManager: SubAgentManager;
   agendaStore: AgendaStore;
+  officeContextStore: OfficeContextStore;
   agendaScheduler: AgendaScheduler;
   cronScheduler: CronScheduler;
   awaySummaryEngine: AwaySummaryEngine;
@@ -221,6 +232,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const toolRegistry = new ToolRegistry();
 
   const agendaStore = new AgendaStore(path.join(dataDir, 'agenda.json'));
+  const officeContextStore = new OfficeContextStore(path.join(dataDir, 'office-context.json'));
   const reminderComposer = new ReminderComposer(llm);
   const cronScheduler = new CronScheduler(
     path.join(dataDir, 'cron-tasks.json'),
@@ -235,6 +247,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new LarkCliTool());
+  toolRegistry.register(new OfficeContextTool(officeContextStore));
   toolRegistry.register(new AgendaTool(agendaStore));
   toolRegistry.register(new MemoryTool(memorySystem));
   toolRegistry.register(new CronTool(cronScheduler));
@@ -279,7 +292,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
-    skillSystem, subAgentManager, agendaStore, agendaScheduler, cronScheduler,
+    skillSystem, subAgentManager, agendaStore, officeContextStore, agendaScheduler, cronScheduler,
     awaySummaryEngine, notificationService,
     usageStats, configManager,
     dataDir,

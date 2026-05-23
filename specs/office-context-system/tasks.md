@@ -18,7 +18,7 @@
 
 ## T3 OfficeContextTool 与 Agent 注册
 
-- 状态：PENDING
+- 状态：DONE
 - 文件：`src/tools/OfficeContextTool/index.ts`、`src/tools/OfficeContextTool/index.test.ts`、`src/main.ts`、`src/main.test.ts`、`README.md`
 - 实现说明：把上下文库暴露给 LLM，更新系统提示词和工具列表。
 - 验证命令：`npm test -- src/tools/OfficeContextTool/index.test.ts src/main.test.ts && npm run typecheck`
