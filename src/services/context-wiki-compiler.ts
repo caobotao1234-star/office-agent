@@ -71,8 +71,10 @@ export class ContextWikiCompiler {
 
   readPage(pagePath: string): string | null {
     const normalized = normalizePagePath(pagePath);
-    const fullPath = path.join(this.wikiDir, normalized);
-    if (!fullPath.startsWith(this.wikiDir) || !fs.existsSync(fullPath)) return null;
+    const root = path.resolve(this.wikiDir);
+    const fullPath = path.resolve(root, normalized);
+    if (fullPath !== root && !fullPath.startsWith(`${root}${path.sep}`)) return null;
+    if (!fs.existsSync(fullPath)) return null;
     return fs.readFileSync(fullPath, 'utf-8');
   }
 

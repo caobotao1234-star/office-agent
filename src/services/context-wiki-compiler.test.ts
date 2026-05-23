@@ -70,4 +70,13 @@ describe('ContextWikiCompiler', () => {
     expect(compiler.readPage('missing.md')).toBeNull();
     expect(compiler.listPages()).toEqual([]);
   });
+
+  it('does not read files outside the wiki directory', () => {
+    const dir = tmpDir();
+    const store = new OfficeContextStore(path.join(dir, 'office-context.json'));
+    const compiler = new ContextWikiCompiler(store, path.join(dir, 'wikidir'));
+    fs.writeFileSync(path.join(dir, 'secret.md'), 'outside', 'utf-8');
+
+    expect(compiler.readPage('../secret.md')).toBeNull();
+  });
 });

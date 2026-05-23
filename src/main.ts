@@ -242,6 +242,12 @@ function getFeishuSyncIntervalMs(config: UserConfig): number {
   return minutes > 0 ? minutes * 60_000 : 0;
 }
 
+function shouldFeishuSyncOnStart(config: UserConfig): boolean {
+  const fromEnv = process.env['FEISHU_SYNC_ON_START'];
+  if (fromEnv !== undefined) return ['1', 'true', 'yes', 'on'].includes(fromEnv.trim().toLowerCase());
+  return config.feishu.syncOnStart ?? false;
+}
+
 async function runFeishuSyncTick(
   tool: FeishuIngestTool,
   signal: AbortSignal,
@@ -370,7 +376,7 @@ async function startAgent(agent: OfficeAgent): Promise<void> {
   agent.agendaScheduler.start();
   agent.feishuSyncScheduler.start();
   const config = agent.configManager.get();
-  if (config.feishu.syncOnStart && agent.feishuSyncScheduler.isEnabled()) {
+  if (shouldFeishuSyncOnStart(config) && agent.feishuSyncScheduler.isEnabled()) {
     void agent.feishuSyncScheduler.tick();
   }
 }
@@ -429,7 +435,7 @@ async function* handleSlashCommand(
 
   const mapping = resolveCommand(parsed.command);
   if (!mapping) {
-    yield { type: 'text', content: `未知命令: /${parsed.command}。可用命令: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /project, /memory, /cron, /usage, /help, /db, /reset, /undo` };
+    yield { type: 'text', content: `未知命令: /${parsed.command}。可用命令: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /sync, /wiki, /project, /memory, /cron, /usage, /help, /db, /reset, /undo` };
     yield { type: 'done' };
     return;
   }

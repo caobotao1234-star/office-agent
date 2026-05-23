@@ -115,6 +115,8 @@ npx tsx src/cli/index.ts feishu schema im.messages.create
 | `/meeting-notes` | 整理会议纪要 |
 | `/task-breakdown` | 拆解大任务 |
 | `/feishu-sync` | 同步飞书状态 |
+| `/sync` | 同步已登记的飞书关注源；`/sync list` 查看来源，`/sync force` 强制刷新 |
+| `/wiki` | 查看本地知识 Wiki；`/wiki compile` 编译，`/wiki search <关键词>` 搜索 |
 | `/project` | 查看项目列表 |
 | `/memory <关键词>` | 搜索记忆 |
 | `/cron` | 查看定时任务 |
@@ -141,6 +143,7 @@ Agent 通过原生 Function Calling 调用这些工具：
 | OfficeContextTool | 办公上下文图谱：人、项目、文档、会议、流程、关系、知识 | ✅ 推荐 |
 | KnowledgeCaptureTool | 从对话/文档/会议等来源批量提取上下文、记忆和提醒 | ✅ 推荐 |
 | FeishuIngestTool | 登记、读取、同步飞书文档/群聊/日历/Base/任务/通讯录到上下文库 | ✅ 推荐 |
+| WikiTool | 把办公上下文图谱编译成本地 Markdown Wiki，并支持列表、搜索、读取 | ✅ 推荐 |
 | AgendaTool | 主动提醒日程：提醒、截止日期、承诺、跟进事项 | ✅ 推荐 |
 | CronTool | 定时任务（cron 表达式） | ✅ 完整 |
 | ConfigTool | 通过对话修改配置（提醒时间、工作时间等） | ✅ 完整 |
@@ -157,15 +160,19 @@ Agent 现在有一层本地办公上下文库，用来长期维护人、项目�
 - `OfficeContextTool`：结构化保存和检索办公实体与关系，数据写入 `office-context.json`
 - `KnowledgeCaptureTool`：当对话、文档、会议或群聊里出现多条稳定信息时，批量写入上下文、记忆和提醒
 - `FeishuIngestTool`：登记并同步飞书来源，例如云文档、知识库节点、群聊消息、日历、Base、任务和通讯录搜索
+- `WikiTool`：把上下文库编译成本地 Markdown Wiki，便于人工审阅、搜索和排查 Agent 到底记住了什么
 
 典型用法：
 
 - “把这个飞书文档登记成 Apollo 项目的长期关注源”
 - “同步所有关注的飞书来源”
+- “编译一下你的本地知识 Wiki”
 - “看看 Apollo 项目群和项目文档最近有什么变化”
 - “读取这个 Base，并把项目状态更新到你的上下文里”
 
 同步源记录在 `feishu-sync-sources.json`。每次同步会计算内容 hash；内容没变化时不会重复更新上下文。同步工具只负责拉取和变更检测，深度提取由 Agent 视情况调用 `KnowledgeCaptureTool` 完成。
+
+默认不会后台轮询飞书。需要定时刷新时，在 `.env` 或 `~/.office-agent/config.json` 中设置 `FEISHU_SYNC_INTERVAL_MINUTES=15` 一类的大于 0 的分钟数；`FEISHU_SYNC_ON_START=true` 可在启动时先同步一次。
 
 ## 主动提醒系统
 
@@ -254,6 +261,7 @@ Agenda 不会每分钟调用 LLM。Agent 只在对话中认为有明确时间点
 │   ├── colleagues/         # 同事信息
 │   └── projects/           # 项目上下文记忆
 ├── agents/                 # 项目（Sub-Agent）
+├── wikidir/                # 本地 Markdown Wiki（由 OfficeContextTool 编译）
 ├── sessions/               # 会话历史
 ├── skills/                 # 用户自定义技能
 └── trash/                  # 回收站（/undo 可恢复）
@@ -303,6 +311,9 @@ src/
 │   ├── lark-cli-runner.ts      # 官方 lark-cli 进程封装
 │   ├── office-context-store.ts # 办公上下文图谱持久化
 │   ├── feishu-sync-store.ts    # 飞书同步关注源状态
+│   ├── feishu-sync-scheduler.ts # 可选飞书后台同步调度
+│   ├── context-wiki-compiler.ts # 上下文图谱 → 本地 Markdown Wiki
+│   ├── serial-message-queue.ts # 飞书用户消息串行队列
 │   ├── cron-scheduler.ts       # 定时调度器（cron 表达式 + 持久化）
 │   ├── away-summary-engine.ts  # 离开摘要
 │   └── speech-to-text.ts       # 语音转文字（DashScope Paraformer）
@@ -314,6 +325,7 @@ src/
 │   ├── OfficeContextTool/      # 办公上下文图谱
 │   ├── KnowledgeCaptureTool/   # 批量知识提取
 │   ├── FeishuIngestTool/       # 飞书来源登记与同步
+│   ├── WikiTool/               # 本地知识 Wiki 编译/搜索/读取
 │   ├── AgendaTool/             # 主动提醒日程
 │   ├── CronTool/               # 定时任务
 │   ├── ConfigTool/             # 配置修改（通过对话）
@@ -356,6 +368,9 @@ npm run build     # 编译 TypeScript
 - 原生 Function Calling（非 prompt-based）
 - 三层记忆系统（MEMORY.md 索引 + LLM side query + 工具搜索）
 - 办公上下文图谱（OfficeContextStore + FeishuIngestTool + KnowledgeCaptureTool）
+- 本地知识 Wiki（ContextWikiCompiler + WikiTool）
+- 可选飞书后台同步（FeishuSyncScheduler，默认关闭）
+- 同一飞书用户消息串行处理（SerialMessageQueue，避免上一个任务未完成时并发改同一会话）
 - 可插拔 Tool 系统（当前只注册真实可用工具，Zod schema 自动转 JSON Schema）
 - SKILL.md 技能定义（inline/fork 两种执行模式）
 - 上下文自动压缩
