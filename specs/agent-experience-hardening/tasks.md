@@ -74,11 +74,11 @@
 
 ## T9 Doctor 自检命令
 
-- 状态：TODO
+- 状态：DONE
 - 文件：`src/cli/commands/doctor.ts`、`src/cli/index.ts`、测试、README。
 - 实现说明：检查 env、模型能力、lark-cli、auth、飞书 bot 配置、日志/数据目录。
 - 验证命令：`npm test -- src/cli/commands/doctor.test.ts && npm run build && node dist/cli/index.js doctor`
-- 完成标准：无真实 API key 时也能给出本地自检报告。
+- 完成标准：无真实 API key 时也能给出本地自检报告；命令已接入 CLI。
 
 ## T10 清理残留与最终验证
 

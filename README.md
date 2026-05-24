@@ -72,6 +72,7 @@ npx tsx src/cli/index.ts ask "帮我列出今天的待办"
 npx tsx src/cli/index.ts tasks     # 查看任务列表
 npx tsx src/cli/index.ts config    # 查看配置
 npx tsx src/cli/index.ts usage     # 查看 token 用量
+npx tsx src/cli/index.ts doctor    # 自检本地配置、模型能力和飞书 CLI
 npx tsx src/cli/index.ts feishu    # 官方 lark-cli 桥接
 npx tsx src/cli/index.ts -h        # 帮助
 ```

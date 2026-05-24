@@ -20,6 +20,7 @@ import { tasks } from './commands/tasks.js';
 import { config } from './commands/config.js';
 import { usage } from './commands/usage.js';
 import { feishu } from './commands/feishu.js';
+import { doctor } from './commands/doctor.js';
 import { loadEnv } from './env.js';
 
 const VERSION = '0.1.0';
@@ -34,6 +35,7 @@ const HELP = `
   oa tasks                 查看当前任务列表
   oa config                查看当前配置
   oa usage                 查看 token 用量统计
+  oa doctor                检查本地配置、模型能力和飞书 CLI 状态
   oa feishu <args...>      透传官方 lark-cli（飞书 CLI）
 
 选项:
@@ -45,6 +47,7 @@ const HELP = `
   oa chat
   oa ask "帮我列出今天的待办事项"
   oa tasks
+  oa doctor
 `.trim();
 
 async function main() {
@@ -105,6 +108,10 @@ async function main() {
     case 'usage':
     case 'tokens':
       usage();
+      break;
+
+    case 'doctor':
+      await doctor();
       break;
 
     default:
