@@ -34,11 +34,11 @@
 
 ## T4 Lark CLI 知识缓存
 
-- 状态：TODO
+- 状态：DONE
 - 文件：`src/services/lark-cli-knowledge-base.ts`、`src/tools/LarkCliTool/index.ts`、测试。
 - 实现说明：缓存 help 输出，阻止写命令时返回可复用指导信息。
 - 验证命令：`npm test -- src/services/lark-cli-knowledge-base.test.ts src/tools/LarkCliTool/index.test.ts`
-- 完成标准：写命令指导不只依赖 prompt。
+- 完成标准：写命令指导不只依赖 prompt；help 成功后写入本地缓存，阻止写命令时返回 cachedHelp。
 
 ## T5 Operation Ledger 与 debug 摘要
 

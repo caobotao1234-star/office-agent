@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { Tool, PermissionResult } from '../../core/tool-system.js';
 import type { ToolContext, ToolResult } from '../../types/index.js';
 import { runLarkCli } from '../../services/lark-cli-runner.js';
+import { LarkCliKnowledgeBase } from '../../services/lark-cli-knowledge-base.js';
 import { logger } from '../../core/logger.js';
 
 const log = logger.child('LarkCliTool');
@@ -87,6 +88,8 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
   private enabled = true;
   private verifiedWriteCommands = new Set<string>();
 
+  constructor(private knowledgeBase = new LarkCliKnowledgeBase()) {}
+
   isEnabled(): boolean { return this.enabled; }
   setEnabled(v: boolean): void { this.enabled = v; }
 
@@ -125,6 +128,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
 
     if (commandNeedsGuidance && commandKey && !this.verifiedWriteCommands.has(commandKey)) {
       log.warn('blocked write command without guidance', { args: input.args, commandKey });
+      const cachedHelp = this.knowledgeBase.summarize(commandKey);
       return {
         success: false,
         output: {
@@ -132,6 +136,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
           requiresCliGuidance: true,
           helpHint: [...commandKey.split(' '), '--help'],
           dryRunHint: appendDryRun(input.args),
+          ...(cachedHelp ? { cachedHelp } : {}),
         },
         error: '执行写操作前必须先查看同一 lark-cli 命令的 --help，或成功运行一次同一命令的 --dry-run。不要猜参数。',
       };
@@ -156,6 +161,13 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
 
     if (result.exitCode === 0 && commandKey && isGuidanceCommand(input.args)) {
       this.verifiedWriteCommands.add(commandKey);
+      if (input.args.includes('--help') || input.args.includes('-h')) {
+        this.knowledgeBase.recordHelp({
+          commandKey,
+          args: input.args,
+          help: [result.stdout, result.stderr].filter(Boolean).join('\n'),
+        });
+      }
       log.info('verified write command guidance', { commandKey });
     }
 

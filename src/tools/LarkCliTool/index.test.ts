@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { getCommandKey, LarkCliTool, requiresWriteGuidance, validateKnownCommand } from './index.js';
+import { LarkCliKnowledgeBase } from '../../services/lark-cli-knowledge-base.js';
+
+function tempKnowledgeBase(): LarkCliKnowledgeBase {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lark-cli-tool-kb-'));
+  return new LarkCliKnowledgeBase(path.join(dir, 'cache.json'));
+}
 
 describe('LarkCliTool', () => {
   it('allows read-only help commands', async () => {
@@ -51,6 +60,24 @@ describe('LarkCliTool', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('必须先查看');
     expect(JSON.stringify(result.output)).toContain('--help');
+  });
+
+  it('returns cached help when blocking unguided write commands', async () => {
+    const kb = tempKnowledgeBase();
+    kb.recordHelp({
+      commandKey: 'base +base-create',
+      args: ['base', '+base-create', '--help'],
+      help: 'Flags:\n  --name string\n  --as string',
+    });
+    const tool = new LarkCliTool(kb);
+    const result = await tool.call(
+      { args: ['base', '+base-create', '--name', '能力表', '--as', 'user'], timeoutMs: 10_000 },
+      { abortSignal: new AbortController().signal, userConfig: {} as never },
+    );
+
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.output)).toContain('cachedHelp');
+    expect(JSON.stringify(result.output)).toContain('--name string');
   });
 
   it('derives stable command keys for shortcut commands', () => {
