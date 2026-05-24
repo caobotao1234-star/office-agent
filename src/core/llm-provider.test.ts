@@ -50,6 +50,11 @@ describe('llm-provider', () => {
     expect(configured.model).toBe('deepseek-v4-pro');
     expect(configured.llm.queryWithTools).toBeTypeOf('function');
     expect(configured.llm.capabilities?.vision).toBe(false);
+    expect(configured.llm.capabilities?.toolCalling).toBe(true);
+    expect(configured.llm.capabilities?.streaming).toBe(true);
+    expect(configured.llm.capabilities?.jsonMode).toBe(true);
+    expect(configured.llm.capabilities?.webSearchNative).toBe(false);
+    expect(configured.llm.capabilities?.supportsImageDataUrl).toBe(false);
   });
 
   it('marks DashScope qwen-vl models as vision-capable', () => {
@@ -58,5 +63,18 @@ describe('llm-provider', () => {
     const configured = createConfiguredLLM({ modelOverride: 'qwen-vl-plus' });
     expect(configured.provider).toBe('dashscope');
     expect(configured.llm.capabilities?.vision).toBe(true);
+    expect(configured.llm.capabilities?.toolCalling).toBe(true);
+    expect(configured.llm.capabilities?.streaming).toBe(true);
+    expect(configured.llm.capabilities?.webSearchNative).toBe(false);
+    expect(configured.llm.capabilities?.supportsImageDataUrl).toBe(true);
+  });
+
+  it('marks DashScope text models as native-search text models', () => {
+    resetEnv();
+    process.env['DASHSCOPE_API_KEY'] = 'sk-test';
+    const configured = createConfiguredLLM({ modelOverride: 'qwen-plus' });
+    expect(configured.llm.capabilities?.vision).toBe(false);
+    expect(configured.llm.capabilities?.webSearchNative).toBe(true);
+    expect(configured.llm.capabilities?.supportsImageDataUrl).toBe(false);
   });
 });

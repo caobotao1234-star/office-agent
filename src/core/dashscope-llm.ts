@@ -42,6 +42,11 @@ export function createDashScopeLLM(options: DashScopeLLMOptions): LLMClient {
   return {
     capabilities: {
       vision: isDashScopeVisionModel(model),
+      toolCalling: true,
+      streaming: true,
+      jsonMode: false,
+      webSearchNative: !isDashScopeVisionModel(model),
+      supportsImageDataUrl: isDashScopeVisionModel(model),
     },
 
     // --- 非流式（用于 side query、记忆提取等轻量调用）---

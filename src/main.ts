@@ -332,9 +332,9 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new WebSearchTool());
   toolRegistry.register(new SkillCreatorTool(path.join(dataDir, 'skills')));
 
-  // Disable WebSearch by default — qwen-plus has built-in enable_search.
-  // Only enable for models without native search capability.
-  if ((model ?? 'qwen-plus').startsWith('qwen')) {
+  // Disable WebSearch when the active model/provider exposes native search.
+  // This avoids presenting two search paths to the model.
+  if (llm.capabilities?.webSearchNative) {
     const webSearch = toolRegistry.listAll().find(t => t.name === 'WebSearch');
     if (webSearch && 'setEnabled' in webSearch) {
       (webSearch as any).setEnabled(false);

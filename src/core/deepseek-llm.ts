@@ -77,6 +77,11 @@ export function createDeepSeekLLM(options: DeepSeekLLMOptions): LLMClient {
   return {
     capabilities: {
       vision: false,
+      toolCalling: true,
+      streaming: true,
+      jsonMode: true,
+      webSearchNative: false,
+      supportsImageDataUrl: false,
     },
 
     async query(system: string, user: string, signal: AbortSignal): Promise<string> {

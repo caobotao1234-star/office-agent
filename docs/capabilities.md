@@ -55,6 +55,16 @@
 | 图片降级 | 提示并忽略图片 | 正常识别 | 提示并忽略图片 |
 | 内置联网搜索 | 支持 enable_search | 关闭 enable_search 避免 vision 冲突 | 不支持 |
 
+运行时能力由 `LLMClient.capabilities` 声明，当前字段包括：
+
+- `vision`：是否支持图片输入。
+- `toolCalling`：是否支持原生工具调用。
+- `streaming`：是否支持流式文本。
+- `jsonMode`：是否支持 JSON 输出模式。
+- `webSearchNative`：是否有模型/provider 原生搜索能力；为 true 时隐藏 `WebSearch` 工具。
+- `supportsImageDataUrl`：是否支持把飞书图片转成 data URL 后直接传给模型。
+- `maxContextTokens`：模型上下文上限，未知时不填。
+
 ## 回归检查清单
 
 每次重构至少运行：

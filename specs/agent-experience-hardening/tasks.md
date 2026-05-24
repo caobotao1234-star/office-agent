@@ -18,11 +18,11 @@
 
 ## T2 模型能力声明扩展
 
-- 状态：TODO
+- 状态：DONE
 - 文件：`src/core/llm-client.ts`、provider、测试、README。
 - 实现说明：扩展 vision/toolCalling/streaming/jsonMode/webSearchNative/maxContextTokens/supportsImageDataUrl。
 - 验证命令：`npm test -- src/core/llm-provider.test.ts src/core/deepseek-llm.test.ts && npm run typecheck`
-- 完成标准：入口层可按能力降级。
+- 完成标准：入口层可按能力降级；`WebSearch` 是否启用改为读取 provider 能力声明。
 
 ## T3 飞书消息入口强类型化
 

@@ -105,6 +105,20 @@ describe('createOfficeAgent', () => {
     expect(allNames).not.toContain('ReminderTool');
   });
 
+  it('should disable WebSearch only when provider exposes native search', () => {
+    const nativeSearchAgent = createOfficeAgent({
+      llm: { ...createMockLLM(), capabilities: { webSearchNative: true } },
+      baseDir: tmpDir(),
+    });
+    expect(nativeSearchAgent.toolRegistry.listEnabled().map((t) => t.name)).not.toContain('WebSearch');
+
+    const externalSearchAgent = createOfficeAgent({
+      llm: { ...createMockLLM(), capabilities: { webSearchNative: false } },
+      baseDir: tmpDir(),
+    });
+    expect(externalSearchAgent.toolRegistry.listEnabled().map((t) => t.name)).toContain('WebSearch');
+  });
+
   it('should return default config via getConfig()', () => {
     const config = agent.getConfig();
     expect(config.workingHours.start).toBe('09:00');

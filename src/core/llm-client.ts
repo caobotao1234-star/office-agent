@@ -43,6 +43,12 @@ export interface LLMMessage {
 
 export interface LLMCapabilities {
   vision?: boolean;
+  toolCalling?: boolean;
+  streaming?: boolean;
+  jsonMode?: boolean;
+  webSearchNative?: boolean;
+  supportsImageDataUrl?: boolean;
+  maxContextTokens?: number;
 }
 
 export interface LLMClient {
