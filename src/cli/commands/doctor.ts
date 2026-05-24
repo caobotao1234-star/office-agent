@@ -182,12 +182,12 @@ async function checkLarkCliAuth(runner: DoctorRunner): Promise<DoctorCheck> {
     const result = await runner(['auth', 'status'], { timeoutMs: 8_000, maxOutputBytes: 8_192 });
     const output = (result.stdout || result.stderr).trim();
     if (result.exitCode === 0 && !result.timedOut && !result.aborted) {
-      return { name: 'lark-cli auth', status: 'ok', detail: output || 'auth status ok' };
+      return { name: 'lark-cli auth', status: 'ok', detail: summarizeAuthStatus(output) };
     }
     return {
       name: 'lark-cli auth',
       status: 'warn',
-      detail: output || `exitCode=${result.exitCode}`,
+      detail: summarizeAuthStatus(output) || `exitCode=${result.exitCode}`,
       advice: '运行 oa feishu login 完成 user 身份授权；bot 身份还需要飞书开放平台权限。',
     };
   } catch (err) {
@@ -198,6 +198,39 @@ async function checkLarkCliAuth(runner: DoctorRunner): Promise<DoctorCheck> {
       advice: '运行 oa feishu login 或 oa feishu doctor 查看官方 CLI 状态。',
     };
   }
+}
+
+function summarizeAuthStatus(output: string): string {
+  if (!output) return 'auth status ok';
+  try {
+    const parsed = JSON.parse(output) as {
+      identity?: string;
+      tokenStatus?: string;
+      userOpenId?: string;
+      userName?: string;
+      identities?: {
+        bot?: { status?: string; available?: boolean };
+        user?: { status?: string; available?: boolean; tokenStatus?: string; openId?: string };
+      };
+    };
+    const bot = parsed.identities?.bot;
+    const user = parsed.identities?.user;
+    return [
+      `identity=${parsed.identity ?? 'unknown'}`,
+      `bot=${bot?.status ?? (bot?.available ? 'available' : 'unknown')}`,
+      `user=${user?.status ?? parsed.tokenStatus ?? 'unknown'}`,
+      `token=${user?.tokenStatus ?? parsed.tokenStatus ?? 'unknown'}`,
+      `openId=${maskId(user?.openId ?? parsed.userOpenId)}`,
+    ].join(', ');
+  } catch {
+    return output.length > 500 ? `${output.slice(0, 500)}...` : output;
+  }
+}
+
+function maskId(value: string | undefined): string {
+  if (!value) return 'unknown';
+  if (value.length <= 8) return '***';
+  return `${value.slice(0, 4)}***${value.slice(-4)}`;
 }
 
 function statusIcon(status: DoctorStatus): string {

@@ -50,6 +50,37 @@ describe('doctor', () => {
     expect(formatDoctorReport(report)).toContain('Office Agent Doctor');
   });
 
+  it('summarizes and masks successful lark-cli auth JSON', async () => {
+    const cwd = tmpDir();
+    const runner: DoctorRunner = async (args) => {
+      if (args[0] === '--version') return result(args, 0, 'lark-cli version 1.0.0');
+      return result(args, 0, JSON.stringify({
+        identity: 'user',
+        tokenStatus: 'ready',
+        userOpenId: 'ou_1234567890abcdef',
+        userName: 'Someone',
+        scope: 'very long scope list',
+        identities: {
+          bot: { status: 'ready', available: true },
+          user: { status: 'ready', available: true, tokenStatus: 'ready', openId: 'ou_1234567890abcdef' },
+        },
+      }));
+    };
+
+    const report = await runDoctorChecks({
+      cwd,
+      dataDir: path.join(cwd, 'data'),
+      logDir: path.join(cwd, 'logs'),
+      env: { DASHSCOPE_API_KEY: 'sk-test' },
+      runner,
+    });
+    const auth = report.checks.find((check) => check.name === 'lark-cli auth');
+    expect(auth?.detail).toContain('identity=user');
+    expect(auth?.detail).toContain('openId=ou_1***cdef');
+    expect(auth?.detail).not.toContain('Someone');
+    expect(auth?.detail).not.toContain('very long scope list');
+  });
+
   it('flags invalid provider configuration', async () => {
     const cwd = tmpDir();
     const report = await runDoctorChecks({

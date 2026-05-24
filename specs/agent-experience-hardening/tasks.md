@@ -82,8 +82,8 @@
 
 ## T10 清理残留与最终验证
 
-- 状态：TODO
+- 状态：DONE
 - 文件：空目录、README、能力矩阵。
 - 实现说明：清理本地空目录和残留概念；跑全量验证。
 - 验证命令：`npm test && npm run typecheck && npm run build && npm run eval:replay`
-- 完成标准：工作区 clean，全量测试通过。
+- 完成标准：空工具目录已清理；工作区 clean，全量测试通过。

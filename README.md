@@ -142,6 +142,7 @@ Base 命令通常不支持 `--format json`，创建 Base 用 `--name`，不是 `
 | `/cron` | 查看定时任务 |
 | `/usage` | 查看 token 用量 |
 | `/usage detail` | 查看详细用量（按模型/环节） |
+| `/debug last` | 查看最近一轮任务账本和工具调用摘要 |
 | `/db tasks` | 直接查数据库任务（不经过 LLM） |
 | `/db projects` | 直接查数据库项目 |
 | `/db memories` | 直接查数据库记忆 |
@@ -150,6 +151,8 @@ Base 命令通常不支持 `--format json`，创建 Base 用 `--name`，不是 `
 | `/help` | 显示帮助 |
 
 每次 Agent 回复后会显示 `[本轮调用了 N 个工具]` 或 `[本轮未调用工具]`，帮你判断回答是否基于真实数据。
+
+核心能力和回归检查维护在 `docs/capabilities.md`。改动飞书入口、工具调用、记忆、日程、模型能力时，应同步更新能力矩阵并补对应测试或 replay eval。
 
 ## 主要内置工具
 
