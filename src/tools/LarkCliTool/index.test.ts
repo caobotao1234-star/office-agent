@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { getCommandKey, LarkCliTool, requiresWriteGuidance, validateKnownCommand } from './index.js';
+import { applyLarkCliProfile, getCommandKey, LarkCliTool, requiresCliProfile, requiresWriteGuidance, validateKnownCommand } from './index.js';
 import { LarkCliKnowledgeBase } from '../../services/lark-cli-knowledge-base.js';
 
 function tempKnowledgeBase(): LarkCliKnowledgeBase {
@@ -84,6 +84,8 @@ describe('LarkCliTool', () => {
     expect(getCommandKey(['docs', '+create', '--api-version', 'v2', '--help'])).toBe('docs +create');
     expect(getCommandKey(['im', '+messages-send', '--chat-id', 'oc_x'])).toBe('im +messages-send');
     expect(getCommandKey(['api', 'POST', '/open-apis/foo', '--data', '{}'])).toBe('api POST /open-apis/foo');
+    expect(getCommandKey(['--profile', 'alice', 'base', '+base-create', '--name', 'T'])).toBe('base +base-create');
+    expect(getCommandKey(['--profile=alice', 'base', '+table-create', '--base-token', 'base_x'])).toBe('base +table-create');
   });
 
   it('rejects known-bad docs v2 create flags that create empty or untitled docs', () => {
@@ -107,5 +109,36 @@ describe('LarkCliTool', () => {
     expect(requiresWriteGuidance(['schema', 'im.messages.create'])).toBe(false);
     expect(requiresWriteGuidance(['sheets', '+write', '--spreadsheet-token', 'sht_x'])).toBe(true);
     expect(requiresWriteGuidance(['sheets', '+write', '--spreadsheet-token', 'sht_x', '--dry-run'])).toBe(false);
+  });
+
+  it('injects lark-cli profile without overriding explicit profiles', () => {
+    expect(applyLarkCliProfile(['docs', '+fetch'], 'alice')).toEqual(['--profile', 'alice', 'docs', '+fetch']);
+    expect(applyLarkCliProfile(['--profile', 'bob', 'docs', '+fetch'], 'alice')).toEqual(['--profile', 'bob', 'docs', '+fetch']);
+    expect(applyLarkCliProfile(['--profile=bob', 'docs', '+fetch'], 'alice')).toEqual(['--profile=bob', 'docs', '+fetch']);
+    expect(applyLarkCliProfile(['docs', '+fetch'], undefined)).toEqual(['docs', '+fetch']);
+  });
+
+  it('blocks Feishu CLI operations when the user has no CLI profile', async () => {
+    const tool = new LarkCliTool();
+    const result = await tool.call(
+      { args: ['docs', '+fetch', '--doc', 'doc_x'], timeoutMs: 10_000 },
+      {
+        abortSignal: new AbortController().signal,
+        userConfig: {} as never,
+        feishuAppKey: 'team-app',
+        feishuUserKey: 'team-app:ou_missing',
+      },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('没有绑定 lark-cli profile');
+    expect(JSON.stringify(result.output)).toContain('missingCliProfile');
+  });
+
+  it('allows local guidance commands without a CLI profile', () => {
+    expect(requiresCliProfile(['docs', '+create', '--help'])).toBe(false);
+    expect(requiresCliProfile(['schema', 'im.messages.create'])).toBe(false);
+    expect(requiresCliProfile(['doctor'])).toBe(false);
+    expect(requiresCliProfile(['docs', '+fetch', '--doc', 'doc_x'])).toBe(true);
   });
 });

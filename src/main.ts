@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import type { LLMClient } from './core/llm-client.js';
-import type { StreamEvent, UserConfig } from './types/index.js';
+import type { StreamEvent, ToolContext, UserConfig } from './types/index.js';
 
 import { QueryEngine } from './core/query-engine.js';
 import { ToolRegistry } from './core/tool-system.js';
@@ -243,6 +243,7 @@ export interface CreateOfficeAgentOptions {
   baseDir?: string;
   contextWindowSize?: number;
   model?: string;
+  runtimeContext?: Partial<ToolContext>;
 }
 
 function getFeishuSyncIntervalMs(config: UserConfig): number {
@@ -269,6 +270,7 @@ async function runFeishuSyncTick(
   tool: FeishuIngestTool,
   signal: AbortSignal,
   userConfig: UserConfig,
+  runtimeContext: Partial<ToolContext> = {},
 ): Promise<FeishuSyncTickSummary> {
   const result = await tool.call(
     tool.inputSchema.parse({
@@ -277,7 +279,7 @@ async function runFeishuSyncTick(
       force: false,
       limit: 20,
     }),
-    { abortSignal: signal, userConfig },
+    { ...runtimeContext, abortSignal: signal, userConfig },
   );
 
   const output = result.output as { count?: number; changed?: number; failed?: number } | null;
@@ -289,7 +291,7 @@ async function runFeishuSyncTick(
 }
 
 export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgent {
-  const { llm, baseDir, contextWindowSize, model } = options;
+  const { llm, baseDir, contextWindowSize, model, runtimeContext } = options;
   const dataDir = baseDir ?? BASE_DIR;
 
   const configManager = new UserConfigManager(dataDir);
@@ -323,7 +325,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     feishuSyncKnowledgeCapture,
   );
   const feishuSyncScheduler = new FeishuSyncScheduler(
-    async (signal) => runFeishuSyncTick(feishuIngestTool, signal, configManager.get()),
+    async (signal) => runFeishuSyncTick(feishuIngestTool, signal, configManager.get(), runtimeContext),
     notificationService,
     getFeishuSyncIntervalMs(config),
   );
@@ -374,6 +376,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     llm,
     sessionStore,
     getUserConfig: () => configManager.get(),
+    getToolContext: () => runtimeContext ?? {},
     maxToolRounds: getMaxToolRounds(),
     operationLedger,
   });

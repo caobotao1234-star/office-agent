@@ -6,6 +6,7 @@ import { FeishuSyncStore } from '../../services/feishu-sync-store.js';
 import { OfficeContextStore } from '../../services/office-context-store.js';
 import type { LarkCliRunResult } from '../../services/lark-cli-runner.js';
 import type { FeishuSyncAutoCapture } from '../../services/feishu-sync-knowledge-capture.js';
+import type { ToolContext } from '../../types/index.js';
 import { buildFeishuIngestArgs, FeishuIngestTool, type FeishuIngestRunner } from './index.js';
 
 function tmpDir(): string {
@@ -41,10 +42,10 @@ function createTool(runner: FeishuIngestRunner, autoCapture?: FeishuSyncAutoCapt
   };
 }
 
-const ctx = { abortSignal: new AbortController().signal, userConfig: {} as never };
+const ctx: ToolContext = { abortSignal: new AbortController().signal, userConfig: {} as never };
 
-async function callTool(tool: FeishuIngestTool, input: unknown) {
-  return tool.call(tool.inputSchema.parse(input), ctx);
+async function callTool(tool: FeishuIngestTool, input: unknown, context: ToolContext = ctx) {
+  return tool.call(tool.inputSchema.parse(input), context);
 }
 
 describe('FeishuIngestTool', () => {
@@ -215,6 +216,53 @@ describe('FeishuIngestTool', () => {
     expect(result.success).toBe(true);
     expect(syncStore.list()).toHaveLength(0);
     expect(officeContextStore.search({ keyword: '项目 Base' })).toHaveLength(1);
+  });
+
+  it('injects lark-cli profile when fetching in a Feishu user context', async () => {
+    const calls: string[][] = [];
+    const runner: FeishuIngestRunner = async (args) => {
+      calls.push(args);
+      return createRunResult(args, 'doc content');
+    };
+    const { tool } = createTool(runner);
+
+    const result = await callTool(tool, {
+      action: 'fetchOnce',
+      source: {
+        type: 'doc',
+        title: '用户文档',
+        doc: 'docx_123',
+      },
+    }, {
+      abortSignal: new AbortController().signal,
+      userConfig: {} as never,
+      feishuUserKey: 'team:ou_alice',
+      larkCliProfile: 'alice',
+    });
+
+    expect(result.success).toBe(true);
+    expect(calls[0]?.slice(0, 2)).toEqual(['--profile', 'alice']);
+  });
+
+  it('blocks Feishu ingest when a Feishu user has no CLI profile', async () => {
+    const runner: FeishuIngestRunner = async (args) => createRunResult(args, 'should not run');
+    const { tool } = createTool(runner);
+
+    const result = await callTool(tool, {
+      action: 'fetchOnce',
+      source: {
+        type: 'doc',
+        title: '用户文档',
+        doc: 'docx_123',
+      },
+    }, {
+      abortSignal: new AbortController().signal,
+      userConfig: {} as never,
+      feishuUserKey: 'team:ou_missing',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('没有绑定 lark-cli profile');
   });
 
   it('rejects unsafe raw ingest commands', async () => {

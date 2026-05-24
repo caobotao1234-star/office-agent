@@ -50,6 +50,8 @@ export class SessionStore {
       return raw.map(m => ({
         role: m.role as Message['role'],
         content: m.content as string,
+        reasoningContent: m.reasoningContent as string | null | undefined,
+        toolCalls: m.toolCalls as Message['toolCalls'],
         toolCallId: m.toolCallId as string | undefined,
         toolName: m.toolName as string | undefined,
         timestamp: new Date(m.timestamp as string),

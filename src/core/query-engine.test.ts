@@ -144,6 +144,53 @@ describe('QueryEngine', () => {
     expect(textEv.content).toBe('Final answer after tool call');
   });
 
+  it('passes runtime tool context into tool calls', async () => {
+    let seenProfile: string | undefined;
+    let callCount = 0;
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools() {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: null,
+            toolCalls: [{ id: 'tc1', function: { name: 'ContextTool', arguments: '{}' } }],
+          };
+        }
+        return { content: 'done', toolCalls: null };
+      },
+    };
+
+    const contextTool: Tool = {
+      name: 'ContextTool',
+      description: 'Captures context',
+      inputSchema: z.object({}),
+      isEnabled: () => true,
+      isReadOnly: () => true,
+      checkPermissions: () => ({ allowed: true }),
+      call: async (_input, context) => {
+        seenProfile = context.larkCliProfile;
+        return { success: true, output: 'ok' };
+      },
+    };
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(contextTool);
+
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+      getToolContext: () => ({ larkCliProfile: 'alice', feishuUserKey: 'app:ou_alice' }),
+    });
+
+    await collectEvents(engine.submitMessage('use context'));
+
+    expect(seenProfile).toBe('alice');
+  });
+
   it('sends latest user images as multimodal content parts', async () => {
     let userContent: unknown;
     const llm: LLMClient = {
@@ -231,6 +278,54 @@ describe('QueryEngine', () => {
     expect(toolMessageContent).toContain('"success":false');
     expect(toolMessageContent).toContain('"error":"boom"');
     expect(textEv.content).toBe('工具失败：boom');
+  });
+
+  it('replays assistant reasoning content and tool call ids for providers that require it', async () => {
+    let callCount = 0;
+    let secondRoundAssistant: unknown;
+    let secondRoundTool: unknown;
+
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools(msgs) {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: '',
+            reasoningContent: 'I need to inspect data before answering.',
+            toolCalls: [{ id: 'tc-reason', function: { name: 'ReasonTool', arguments: '{}' } }],
+          };
+        }
+
+        secondRoundAssistant = msgs.find((m) => m.role === 'assistant' && m.tool_calls?.length);
+        secondRoundTool = msgs.find((m) => m.role === 'tool');
+        return { content: 'done', toolCalls: null };
+      },
+    };
+
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(createDummyTool('ReasonTool', 'ok'));
+
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+    });
+
+    await collectEvents(engine.submitMessage('use reasoned tool'));
+
+    expect(secondRoundAssistant).toMatchObject({
+      role: 'assistant',
+      reasoning_content: 'I need to inspect data before answering.',
+      tool_calls: [{ id: 'tc-reason' }],
+    });
+    expect(secondRoundTool).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'tc-reason',
+    });
   });
 
   it('respects maxToolRounds to prevent infinite loops', async () => {

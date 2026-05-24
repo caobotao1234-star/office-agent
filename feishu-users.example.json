@@ -1,0 +1,33 @@
+{
+  "apps": [
+    {
+      "key": "alice-app",
+      "appId": "cli_xxx",
+      "appSecret": "replace-with-app-secret",
+      "users": [
+        {
+          "openId": "ou_xxx",
+          "cliProfile": "alice",
+          "label": "Alice"
+        }
+      ]
+    },
+    {
+      "key": "team-app",
+      "appId": "cli_yyy",
+      "appSecret": "replace-with-app-secret",
+      "users": [
+        {
+          "openId": "ou_aaa",
+          "cliProfile": "alice",
+          "label": "Alice"
+        },
+        {
+          "openId": "ou_bbb",
+          "cliProfile": "bob",
+          "label": "Bob"
+        }
+      ]
+    }
+  ]
+}

@@ -13,6 +13,7 @@
 | 飞书图片 | 只发送一张图 | parser -> image download -> vision model | 纯文本模型提示不支持图片并忽略图片 | unit + replay |
 | 飞书语音 | 发送语音消息 | Feishu resource -> DashScope STT -> OfficeAgent(text) | 无 DashScope key 或识别失败时直接提示 | manual |
 | 多条连续飞书消息 | 快速发送多条指令 | per-user SerialMessageQueue 顺序处理 | 第二条起提示排队 | unit |
+| 飞书多用户隔离 | 用户 1/2 分别和 bot 对话 | appKey + open_id -> 独立 Agent/dataDir/queue/session | 未绑定用户只允许普通对话，飞书 CLI 操作返回配置问题 | unit |
 
 ## 飞书执行能力
 
@@ -24,6 +25,7 @@
 | 创建 Base | “做个多维表格” | LarkCli base +base-create -> table/field/record | `base +create`、`--title`、`--base` 等错误被拦截或修复 | unit + replay |
 | 日历/会议/任务/联系人 | “查今天日程” | LarkCli 对应 shortcut 或 raw API | 不猜 flags，先 help/schema | manual |
 | 飞书同步源 | “持续关注这个项目文档” | FeishuIngestTool addSource/syncAll | sync 失败记录 lastError | unit |
+| 用户级 CLI 授权 | “写到我的云文档” | ToolContext.larkCliProfile -> lark-cli --profile PROFILE | 无 profile 时快速失败，不落到其他用户授权 | unit |
 
 ## 记忆与知识
 
@@ -64,6 +66,7 @@
 - `webSearchNative`：是否有模型/provider 原生搜索能力；为 true 时隐藏 `WebSearch` 工具。
 - `supportsImageDataUrl`：是否支持把飞书图片转成 data URL 后直接传给模型。
 - `maxContextTokens`：模型上下文上限，未知时不填。
+- `reasoningContentReplay`：provider 是否需要在工具调用后回放 reasoning_content。
 
 ## 回归检查清单
 
@@ -80,6 +83,7 @@ npm run eval:replay
 
 ```bash
 npm test -- src/server/feishu-message-parser.test.ts src/services/serial-message-queue.test.ts
+npm test -- src/server/feishu-multi-user-config.test.ts src/services/feishu-recipient-store.test.ts
 ```
 
 涉及 CLI 指令时额外检查：

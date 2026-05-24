@@ -82,6 +82,7 @@ export function createDeepSeekLLM(options: DeepSeekLLMOptions): LLMClient {
       jsonMode: true,
       webSearchNative: false,
       supportsImageDataUrl: false,
+      reasoningContentReplay: thinking === 'enabled',
     },
 
     async query(system: string, user: string, signal: AbortSignal): Promise<string> {
@@ -187,6 +188,7 @@ export function createDeepSeekLLM(options: DeepSeekLLMOptions): LLMClient {
         choices?: Array<{
           message?: {
             content?: string | null;
+            reasoning_content?: string | null;
             tool_calls?: Array<{
               id: string;
               type: string;
@@ -212,6 +214,7 @@ export function createDeepSeekLLM(options: DeepSeekLLMOptions): LLMClient {
       return {
         content: msg?.content ?? null,
         toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : null,
+        reasoningContent: msg?.reasoning_content ?? null,
       };
     },
   };

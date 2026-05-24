@@ -96,6 +96,14 @@ export interface UserConfig {
 export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  reasoningContent?: string | null;
+  toolCalls?: Array<{
+    id: string;
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
   toolCallId?: string;
   toolName?: string;
   timestamp: Date;
@@ -118,6 +126,9 @@ export interface ToolContext {
   abortSignal: AbortSignal;
   memorySystem?: unknown; // Typed in memory-system module
   userConfig: UserConfig;
+  feishuAppKey?: string;
+  feishuUserKey?: string;
+  larkCliProfile?: string;
 }
 
 // ============================================================

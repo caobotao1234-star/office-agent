@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import type { LarkCliRunOptions, LarkCliRunResult } from '../../services/lark-cli-runner.js';
 import { runLarkCli } from '../../services/lark-cli-runner.js';
 import { isDashScopeVisionModel } from '../../core/dashscope-llm.js';
+import { loadFeishuMultiUserConfig } from '../../server/feishu-multi-user-config.js';
 
 export type DoctorStatus = 'ok' | 'warn' | 'fail';
 
@@ -47,11 +48,11 @@ export async function runDoctorChecks(options: DoctorOptions = {}): Promise<Doct
   checks.push(checkEnvFile(cwd));
   checks.push(checkProvider(env));
   checks.push(checkModelCapabilities(env));
-  checks.push(checkFeishuBotConfig(env));
+  checks.push(checkFeishuBotConfig(env, cwd));
   checks.push(checkWritableDir('数据目录', dataDir));
   checks.push(checkWritableDir('日志目录', logDir));
   checks.push(await checkLarkCliVersion(runner));
-  checks.push(await checkLarkCliAuth(runner));
+  checks.push(await checkLarkCliAuth(runner, env, cwd));
 
   return { checks };
 }
@@ -123,12 +124,37 @@ function checkModelCapabilities(env: NodeJS.ProcessEnv): DoctorCheck {
   };
 }
 
-function checkFeishuBotConfig(env: NodeJS.ProcessEnv): DoctorCheck {
+function checkFeishuBotConfig(env: NodeJS.ProcessEnv, cwd: string): DoctorCheck {
+  try {
+    const config = loadFeishuMultiUserConfig(env, cwd);
+    const userCount = config.apps.reduce((sum, app) => sum + app.users.length, 0);
+    const profileCount = new Set(config.apps.flatMap((app) => [
+      app.defaultCliProfile,
+      ...app.users.map((user) => user.cliProfile),
+    ].filter((profile): profile is string => !!profile))).size;
+    return {
+      name: '飞书机器人配置',
+      status: profileCount > 0 ? 'ok' : 'warn',
+      detail: config.source === 'file'
+        ? `multi-user config: apps=${config.apps.length}, users=${userCount}, cliProfiles=${profileCount}`
+        : `legacy config: app=${config.apps[0]?.key ?? 'default'}, cliProfile=${profileCount > 0 ? 'configured' : 'missing'}`,
+      advice: profileCount > 0 ? undefined : '为每个飞书用户配置 cliProfile，并完成 lark-cli --profile <profile> auth login。',
+    };
+  } catch (err) {
+    const hasAppId = !!env['FEISHU_APP_ID'];
+    const hasSecret = !!env['FEISHU_APP_SECRET'];
+    if (hasAppId || hasSecret || env['FEISHU_MULTI_USER_CONFIG']) {
+      return {
+        name: '飞书机器人配置',
+        status: 'fail',
+        detail: err instanceof Error ? err.message : String(err),
+        advice: '检查 FEISHU_MULTI_USER_CONFIG 指向的 JSON，或补齐 FEISHU_APP_ID/FEISHU_APP_SECRET。',
+      };
+    }
+  }
+
   const hasAppId = !!env['FEISHU_APP_ID'];
   const hasSecret = !!env['FEISHU_APP_SECRET'];
-  if (hasAppId && hasSecret) {
-    return { name: '飞书机器人配置', status: 'ok', detail: 'FEISHU_APP_ID and FEISHU_APP_SECRET configured' };
-  }
   return {
     name: '飞书机器人配置',
     status: 'warn',
@@ -177,7 +203,16 @@ async function checkLarkCliVersion(runner: DoctorRunner): Promise<DoctorCheck> {
   }
 }
 
-async function checkLarkCliAuth(runner: DoctorRunner): Promise<DoctorCheck> {
+async function checkLarkCliAuth(
+  runner: DoctorRunner,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+): Promise<DoctorCheck> {
+  const profiles = collectConfiguredCliProfiles(env, cwd);
+  if (profiles.length > 0) {
+    return checkLarkCliProfilesAuth(runner, profiles);
+  }
+
   try {
     const result = await runner(['auth', 'status'], { timeoutMs: 8_000, maxOutputBytes: 8_192 });
     const output = (result.stdout || result.stderr).trim();
@@ -197,6 +232,53 @@ async function checkLarkCliAuth(runner: DoctorRunner): Promise<DoctorCheck> {
       detail: err instanceof Error ? err.message : String(err),
       advice: '运行 oa feishu login 或 oa feishu doctor 查看官方 CLI 状态。',
     };
+  }
+}
+
+async function checkLarkCliProfilesAuth(runner: DoctorRunner, profiles: string[]): Promise<DoctorCheck> {
+  const sampled = profiles.slice(0, 5);
+  const results = await Promise.all(sampled.map(async (profile) => {
+    try {
+      const result = await runner(['--profile', profile, 'auth', 'status'], { timeoutMs: 8_000, maxOutputBytes: 8_192 });
+      const output = (result.stdout || result.stderr).trim();
+      const ok = result.exitCode === 0 && !result.timedOut && !result.aborted;
+      return { profile, ok, detail: summarizeAuthStatus(output) || `exitCode=${result.exitCode}` };
+    } catch (err) {
+      return { profile, ok: false, detail: err instanceof Error ? err.message : String(err) };
+    }
+  }));
+
+  const failed = results.filter((result) => !result.ok);
+  const suffix = profiles.length > sampled.length ? `; sampled=${sampled.length}/${profiles.length}` : '';
+  if (failed.length === 0) {
+    return {
+      name: 'lark-cli auth',
+      status: 'ok',
+      detail: `profiles ok: ${sampled.join(', ')}${suffix}`,
+    };
+  }
+
+  return {
+    name: 'lark-cli auth',
+    status: 'warn',
+    detail: `profiles with auth issue: ${failed.map((result) => `${result.profile}(${result.detail})`).join('; ')}${suffix}`,
+    advice: '对失败的 profile 运行 lark-cli --profile <profile> auth login。',
+  };
+}
+
+function collectConfiguredCliProfiles(env: NodeJS.ProcessEnv, cwd: string): string[] {
+  try {
+    const config = loadFeishuMultiUserConfig(env, cwd);
+    const profiles = new Set<string>();
+    for (const app of config.apps) {
+      if (app.defaultCliProfile) profiles.add(app.defaultCliProfile);
+      for (const user of app.users) {
+        if (user.cliProfile) profiles.add(user.cliProfile);
+      }
+    }
+    return [...profiles].sort();
+  } catch {
+    return [];
   }
 }
 

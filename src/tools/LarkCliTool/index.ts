@@ -106,12 +106,16 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
     const commandNeedsGuidance = requiresWriteGuidance(input.args);
     const commandKey = getCommandKey(input.args);
     const knownValidationError = validateKnownCommand(input.args);
+    const profileArgs = applyLarkCliProfile(input.args, context.larkCliProfile);
 
     log.info('call', {
       args: input.args,
       commandKey,
       commandNeedsGuidance,
       reason: input.reason,
+      feishuAppKey: context.feishuAppKey,
+      feishuUserKey: context.feishuUserKey,
+      hasCliProfile: !!context.larkCliProfile,
     });
 
     if (knownValidationError) {
@@ -123,6 +127,30 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
           helpHint: commandKey ? [...commandKey.split(' '), '--help'] : ['--help'],
         },
         error: knownValidationError,
+      };
+    }
+
+    if (context.feishuUserKey && !context.larkCliProfile && requiresCliProfile(input.args)) {
+      const error = [
+        '当前飞书用户没有绑定 lark-cli profile，不能执行飞书读写操作。',
+        '请在 FEISHU_MULTI_USER_CONFIG 指向的 JSON 中为该用户配置 cliProfile，',
+        '并运行 lark-cli --profile <profile> auth login 完成授权。',
+      ].join('');
+      log.warn('blocked lark-cli command without user profile', {
+        args: input.args,
+        commandKey,
+        feishuAppKey: context.feishuAppKey,
+        feishuUserKey: context.feishuUserKey,
+      });
+      return {
+        success: false,
+        output: {
+          command: `lark-cli ${input.args.join(' ')}`,
+          feishuAppKey: context.feishuAppKey,
+          feishuUserKey: context.feishuUserKey,
+          missingCliProfile: true,
+        },
+        error,
       };
     }
 
@@ -142,7 +170,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       };
     }
 
-    const result = await runLarkCli(input.args, {
+    const result = await runLarkCli(profileArgs, {
       stdin: input.stdin,
       timeoutMs: input.timeoutMs,
       abortSignal: context.abortSignal,
@@ -164,7 +192,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       if (input.args.includes('--help') || input.args.includes('-h')) {
         this.knowledgeBase.recordHelp({
           commandKey,
-          args: input.args,
+          args: profileArgs,
           help: [result.stdout, result.stderr].filter(Boolean).join('\n'),
         });
       }
@@ -187,7 +215,8 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
 }
 
 export function getCommandKey(args: string[]): string | null {
-  const positional = args.filter((arg) => !arg.startsWith('-') && arg !== 'user' && arg !== 'bot');
+  const normalizedArgs = stripLarkCliGlobalOptions(args);
+  const positional = normalizedArgs.filter((arg) => !arg.startsWith('-') && arg !== 'user' && arg !== 'bot');
   if (positional.length === 0) return null;
 
   if (positional[0] === 'api') {
@@ -199,6 +228,35 @@ export function getCommandKey(args: string[]): string | null {
   }
 
   return positional.slice(0, Math.min(3, positional.length)).join(' ');
+}
+
+export function applyLarkCliProfile(args: string[], profile?: string): string[] {
+  if (!profile || hasFlag(args, '--profile')) return args;
+  return ['--profile', profile, ...args];
+}
+
+export function requiresCliProfile(args: string[]): boolean {
+  const normalizedArgs = stripLarkCliGlobalOptions(args);
+  if (normalizedArgs.length === 0) return false;
+  if (normalizedArgs.includes('--help') || normalizedArgs.includes('-h')) return false;
+
+  const first = normalizedArgs[0];
+  if (!first) return false;
+  return !['--version', 'version', 'help', 'doctor', 'schema'].includes(first);
+}
+
+function stripLarkCliGlobalOptions(args: string[]): string[] {
+  const normalized: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === '--profile') {
+      i++;
+      continue;
+    }
+    if (arg.startsWith('--profile=')) continue;
+    normalized.push(arg);
+  }
+  return normalized;
 }
 
 function isGuidanceCommand(args: string[]): boolean {

@@ -25,6 +25,7 @@ export interface LLMToolCall {
 export interface LLMQueryResult {
   content: string | null;
   toolCalls: LLMToolCall[] | null;
+  reasoningContent?: string | null;
 }
 
 /** Multimodal content part in OpenAI-compatible vision format. */
@@ -39,6 +40,7 @@ export interface LLMMessage {
   tool_calls?: LLMToolCall[];
   tool_call_id?: string;
   name?: string;
+  reasoning_content?: string | null;
 }
 
 export interface LLMCapabilities {
@@ -49,6 +51,7 @@ export interface LLMCapabilities {
   webSearchNative?: boolean;
   supportsImageDataUrl?: boolean;
   maxContextTokens?: number;
+  reasoningContentReplay?: boolean;
 }
 
 export interface LLMClient {

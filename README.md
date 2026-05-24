@@ -16,15 +16,19 @@ echo "DASHSCOPE_API_KEY=sk-你的key" > .env
 # DEEPSEEK_API_KEY=sk-你的deepseek-key
 # DEEPSEEK_MODEL=deepseek-v4-pro
 
-# 2b.（可选）配置飞书机器人
-# 在 .env 中追加：
+# 2b. 配置官方飞书 CLI（用于 Agent 操作飞书）
+npm run lark -- --profile alice config init
+npm run lark -- --profile alice auth login --recommend --domain all
+npm run lark -- --profile alice auth status
+
+# 2c.（可选）配置飞书机器人 WebSocket 对话入口
+# 单用户旧写法：
 # FEISHU_APP_ID=cli_xxx
 # FEISHU_APP_SECRET=xxx
-
-# 2c. 配置官方飞书 CLI（推荐，用于 Agent 操作飞书）
-npm run lark -- config init
-npm run lark:auth
-npm run lark:status
+# FEISHU_CLI_PROFILE=alice
+#
+# 多用户推荐写法：
+# FEISHU_MULTI_USER_CONFIG=./feishu-users.json
 
 # WSL 下如果 lark-cli 走代理报 EOF/502，可在 .env 追加：
 # LARK_CLI_NO_PROXY=1
@@ -38,7 +42,7 @@ npm start
 - Node.js >= 18
 - 阿里云百炼平台 API Key（默认 LLM provider，https://bailian.console.aliyun.com/）
 - 或 DeepSeek API Key（可选 LLM provider，https://api-docs.deepseek.com/）
-- 官方飞书 CLI 授权（用于 Agent 操作飞书文档、消息、日历、表格等）
+- 官方飞书 CLI 授权（用于 Agent 操作飞书文档、消息、日历、表格等；飞书 bot 场景推荐每个用户一个 `--profile`）
 - （可选）飞书自建应用 App ID + App Secret（仅用于飞书机器人 WebSocket 接收消息）
 
 ## 全局安装
@@ -91,6 +95,10 @@ npx tsx src/cli/index.ts feishu config init
 # 用户身份授权；需要秘书式能力时，按计划使用范围开通对应读写权限
 npx tsx src/cli/index.ts feishu login
 
+# 多用户时直接使用官方 CLI profile
+npm run lark -- --profile alice auth login --recommend --domain all
+npm run lark -- --profile bob auth login --recommend --domain all
+
 # 检查状态
 npx tsx src/cli/index.ts feishu status
 npx tsx src/cli/index.ts feishu doctor
@@ -103,6 +111,8 @@ npx tsx src/cli/index.ts feishu schema im.messages.create
 配置完成后进入 `oa chat`，直接用自然语言说“读取这个飞书文档”“把周报写入飞书文档”“查今天日程”等，Agent 会通过 `LarkCli` 工具执行。需要访问个人日历、私有文档、私聊、通讯录、任务、多维表格等个人可见资源时，优先使用 user 授权；机器人群发或机器人身份操作可用 bot 身份。
 
 当前 Agent 采用高信任模式：在本地飞书 CLI 已登录、开放平台应用已授权的范围内，Agent 不再为每个写操作单独询问权限。真实边界由飞书应用权限、应用可用范围、user/bot 身份、以及官方 CLI 当前登录态共同决定。`LarkCli` 仍会要求写操作先查看对应命令 `--help` 或完成 `--dry-run`，这是为了防止模型猜错参数，不是二次授权。
+
+飞书 bot 多用户模式下，Agent 会按消息发送者的 `open_id` 查找对应 `cliProfile`，然后自动执行 `lark-cli --profile <cliProfile> ...`。没有绑定 profile 的用户可以继续普通对话，但读写飞书内容时会收到“未配置 CLI profile / 权限不足”的明确错误，系统不会默认落到其他用户的 CLI 授权上。
 
 多维表格 Base 常用命令：
 
@@ -234,15 +244,69 @@ Agenda 不会每分钟调用 LLM。Agent 只在对话中认为有明确时间点
 | 多维表格/Base 读写权限 | 读取和维护业务表格、项目库、知识库索引 |
 | `contact:user.base:readonly` | 读取用户基本信息 |
 
-5. 在 `.env` 中添加 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`
-6. `npm run feishu` 启动
+5. 为每个用户准备官方 CLI profile，并完成授权：
+
+```bash
+npm run lark -- --profile alice auth login --recommend --domain all
+npm run lark -- --profile bob auth login --recommend --domain all
+```
+
+6. 单用户可在 `.env` 中添加：
+
+```env
+FEISHU_APP_ID=cli_xxx
+FEISHU_APP_SECRET=xxx
+FEISHU_CLI_PROFILE=alice
+```
+
+7. 多用户推荐在 `.env` 中添加：
+
+```env
+FEISHU_MULTI_USER_CONFIG=./feishu-users.json
+```
+
+并复制示例配置后填写真实信息：
+
+```bash
+cp feishu-users.example.json feishu-users.json
+```
+
+`feishu-users.json` 示例：
+
+```json
+{
+  "apps": [
+    {
+      "key": "alice-app",
+      "appId": "cli_xxx",
+      "appSecret": "xxx",
+      "users": [
+        { "openId": "ou_xxx", "cliProfile": "alice", "label": "Alice" }
+      ]
+    }
+  ]
+}
+```
+
+`key` 是本地隔离用的稳定名称；`openId` 是飞书消息事件里的发送者 open_id；`cliProfile` 是本机 `lark-cli --profile` 名称。默认不会让未写入 `users` 的人使用 `defaultCliProfile`，避免别人和这个 bot 对话时误用你的 CLI 授权。
+
+如果你刚换了飞书企业，需要给新企业重新做 CLI 授权：
+
+```bash
+npm run lark -- --profile alice auth login --recommend --domain all
+npm run lark -- --profile alice auth status
+```
+
+登录页里选择新的飞书企业；`auth status` 里 user 身份可用后，再把新企业消息事件中的 `open_id` 写进 `feishu-users.json`。
+
+8. `npm run feishu` 启动；启动前可运行 `npx tsx src/cli/index.ts doctor` 或全局安装后运行 `oa doctor` 检查配置。
 
 ### 功能特性
 
 - 群聊中 @机器人 触发对话
 - 单聊直接发消息（需开通单聊权限）
 - 支持语音消息（自动转文字，使用 DashScope Paraformer STT）
-- 每个飞书用户独立会话和数据目录，重启后自动恢复
+- 每个飞书用户独立会话、数据目录、消息队列和 CLI profile，重启后自动恢复
 - 主动推送提醒（Agenda 到期、任务截止日期等），服务重启后会恢复最近联系过的飞书收件人
 - 读取飞书云文档内容，自动提取项目信息存入记忆
 
@@ -266,26 +330,25 @@ Agenda 不会每分钟调用 LLM。Agent 只在对话中认为有明确时间点
 
 ```
 ~/.office-agent/
-├── tasks.json              # 任务数据
-├── token-usage.json        # Token 用量统计
-├── config.json             # 用户配置（可通过对话修改）
-├── agenda.json             # 主动提醒日程（提醒/deadline/承诺/跟进）
-├── office-context.json     # 办公上下文图谱（人/项目/文档/会议/流程/关系/知识）
-├── feishu-sync-sources.json # 飞书同步关注源与内容 hash
-├── cron-tasks.json         # 定时任务
-├── last-session.txt        # CLI 最近会话 ID
-├── last-session-feishu-*.txt  # 飞书用户会话 ID（按用户隔离）
 ├── feishu-recipients.json  # 飞书主动推送收件人（最近 chat_id）
-├── memdir/                 # 记忆系统
-│   ├── MEMORY.md           # 记忆索引（自动维护）
-│   ├── auto/               # 自动提取的记忆
-│   ├── decisions/          # 决策类记忆
-│   ├── preferences/        # 偏好类记忆
-│   ├── colleagues/         # 同事信息
-│   └── projects/           # 项目上下文记忆
-├── agents/                 # 项目（Sub-Agent）
-├── wikidir/                # 本地 Markdown Wiki（由 OfficeContextTool 编译）
-├── sessions/               # 会话历史
+├── users/
+│   └── <appKey_openId>/    # 飞书用户隔离目录
+│       ├── tasks.json
+│       ├── token-usage.json
+│       ├── config.json
+│       ├── agenda.json
+│       ├── office-context.json
+│       ├── feishu-sync-sources.json
+│       ├── cron-tasks.json
+│       ├── memdir/
+│       ├── agents/
+│       ├── wikidir/
+│       └── sessions/
+├── tasks.json              # CLI 本地用户任务数据
+├── memdir/                 # CLI 本地用户记忆系统
+├── agents/                 # CLI 本地用户项目（Sub-Agent）
+├── wikidir/                # CLI 本地 Markdown Wiki
+├── sessions/               # CLI 本地会话历史
 ├── skills/                 # 用户自定义技能
 └── trash/                  # 回收站（/undo 可恢复）
 ```

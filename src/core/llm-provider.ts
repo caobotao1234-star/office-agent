@@ -94,6 +94,6 @@ function parseThinking(value: string | undefined): 'enabled' | 'disabled' {
 }
 
 function parseReasoningEffort(value: string | undefined): 'high' | 'max' {
-  if (value === 'max') return 'max';
+  if (value === 'max' || value === 'xhigh') return 'max';
   return 'high';
 }

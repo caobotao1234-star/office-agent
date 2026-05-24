@@ -81,6 +81,45 @@ describe('doctor', () => {
     expect(auth?.detail).not.toContain('very long scope list');
   });
 
+  it('checks configured lark-cli profiles from multi-user Feishu config', async () => {
+    const cwd = tmpDir();
+    fs.writeFileSync(path.join(cwd, 'feishu-users.json'), JSON.stringify({
+      apps: [
+        {
+          key: 'team',
+          appId: 'cli_team',
+          appSecret: 'secret',
+          users: [
+            { openId: 'ou_alice', cliProfile: 'alice' },
+            { openId: 'ou_bob', cliProfile: 'bob' },
+          ],
+        },
+      ],
+    }), 'utf-8');
+    const seenArgs: string[][] = [];
+    const runner: DoctorRunner = async (args) => {
+      seenArgs.push(args);
+      if (args[0] === '--version') return result(args, 0, 'lark-cli version 1.0.0');
+      return result(args, args[1] === 'bob' ? 1 : 0, args[1] === 'bob' ? '' : '{"identity":"user"}', args[1] === 'bob' ? 'not logged in' : '');
+    };
+
+    const report = await runDoctorChecks({
+      cwd,
+      dataDir: path.join(cwd, 'data'),
+      logDir: path.join(cwd, 'logs'),
+      env: {
+        FEISHU_MULTI_USER_CONFIG: './feishu-users.json',
+        DASHSCOPE_API_KEY: 'sk-test',
+      },
+      runner,
+    });
+
+    expect(seenArgs).toContainEqual(['--profile', 'alice', 'auth', 'status']);
+    expect(seenArgs).toContainEqual(['--profile', 'bob', 'auth', 'status']);
+    expect(report.checks.find((check) => check.name === '飞书机器人配置')?.detail).toContain('users=2');
+    expect(report.checks.find((check) => check.name === 'lark-cli auth')?.detail).toContain('bob');
+  });
+
   it('flags invalid provider configuration', async () => {
     const cwd = tmpDir();
     const report = await runDoctorChecks({

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Tool, PermissionResult } from '../../core/tool-system.js';
 import type { ToolContext, ToolResult } from '../../types/index.js';
 import { runLarkCli, type LarkCliRunOptions, type LarkCliRunResult } from '../../services/lark-cli-runner.js';
+import { applyLarkCliProfile, requiresCliProfile } from '../LarkCliTool/index.js';
 import {
   FeishuSyncSourceTypeSchema,
   type FeishuSyncSource,
@@ -13,6 +14,12 @@ import type { FeishuSyncAutoCapture, FeishuSyncCaptureResult } from '../../servi
 import type { OfficeContextSource, OfficeContextStore, OfficeContextType } from '../../services/office-context-store.js';
 
 export type FeishuIngestRunner = (args: string[], options?: LarkCliRunOptions) => Promise<LarkCliRunResult>;
+
+type FeishuIngestRunOptions = LarkCliRunOptions & {
+  force?: boolean;
+  larkCliProfile?: string;
+  feishuUserKey?: string;
+};
 
 const IdentitySchema = z.enum(['user', 'bot']).default('user');
 
@@ -162,6 +169,8 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
             timeoutMs: input.timeoutMs,
             maxOutputBytes: input.maxOutputBytes,
             abortSignal: context.abortSignal,
+            larkCliProfile: context.larkCliProfile,
+            feishuUserKey: context.feishuUserKey,
           });
           return { success: output.success, output, error: output.success ? undefined : output.error };
         }
@@ -176,6 +185,8 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
               timeoutMs: input.timeoutMs,
               maxOutputBytes: input.maxOutputBytes,
               abortSignal: context.abortSignal,
+              larkCliProfile: context.larkCliProfile,
+              feishuUserKey: context.feishuUserKey,
             }));
           }
           return {
@@ -190,7 +201,10 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
         }
         case 'fetchOnce': {
           const args = buildFeishuIngestArgs(input.source);
-          const result = await this.runner(args, {
+          const profileError = getMissingProfileError(args, context);
+          if (profileError) return { success: false, output: { args, missingCliProfile: true }, error: profileError };
+          const runArgs = applyLarkCliProfile(args, context.larkCliProfile);
+          const result = await this.runner(runArgs, {
             timeoutMs: input.timeoutMs,
             maxOutputBytes: input.maxOutputBytes,
             abortSignal: context.abortSignal,
@@ -257,7 +271,7 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
     }
   }
 
-  private async syncOne(source: FeishuSyncSource, options: LarkCliRunOptions & { force?: boolean }): Promise<{
+  private async syncOne(source: FeishuSyncSource, options: FeishuIngestRunOptions): Promise<{
     success: boolean;
     sourceId: string;
     title: string;
@@ -271,7 +285,24 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
     stderr?: string;
     error?: string;
   }> {
-    const result = await this.runner(source.args, {
+    const profileError = getMissingProfileError(source.args, {
+      larkCliProfile: options.larkCliProfile,
+      feishuUserKey: options.feishuUserKey,
+    });
+    if (profileError) {
+      this.syncStore.markFailed({ id: source.id, error: profileError, command: `lark-cli ${source.args.join(' ')}` });
+      return {
+        success: false,
+        sourceId: source.id,
+        title: source.title,
+        type: source.type,
+        changed: false,
+        error: profileError,
+      };
+    }
+
+    const runArgs = applyLarkCliProfile(source.args, options.larkCliProfile);
+    const result = await this.runner(runArgs, {
       timeoutMs: options.timeoutMs,
       maxOutputBytes: options.maxOutputBytes,
       abortSignal: options.abortSignal,
@@ -388,6 +419,18 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
       lastSeenAt: input.source.lastSyncedAt ?? new Date(),
     });
   }
+}
+
+function getMissingProfileError(
+  args: string[],
+  context: Pick<ToolContext, 'feishuUserKey' | 'larkCliProfile'>,
+): string | null {
+  if (!context.feishuUserKey || context.larkCliProfile || !requiresCliProfile(args)) return null;
+  return [
+    '当前飞书用户没有绑定 lark-cli profile，不能同步或读取飞书内容。',
+    '请在 FEISHU_MULTI_USER_CONFIG 指向的 JSON 中配置该用户的 cliProfile，',
+    '并运行 lark-cli --profile <profile> auth login 完成授权。',
+  ].join('');
 }
 
 export function buildFeishuIngestArgs(source: z.infer<typeof SourceSpecSchema>): string[] {

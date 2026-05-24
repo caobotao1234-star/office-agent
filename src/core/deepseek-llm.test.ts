@@ -69,6 +69,7 @@ describe('createDeepSeekLLM', () => {
       choices: [{
         message: {
           content: null,
+          reasoning_content: 'need a tool',
           tool_calls: [{
             id: 'call_1',
             type: 'function',
@@ -87,6 +88,7 @@ describe('createDeepSeekLLM', () => {
     );
 
     expect(result.content).toBeNull();
+    expect(result.reasoningContent).toBe('need a tool');
     expect(result.toolCalls?.[0]?.function.name).toBe('TaskManager');
     expect(result.toolCalls?.[0]?.function.arguments).toBe('{"action":"list"}');
   });

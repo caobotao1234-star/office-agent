@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import { zodToJsonSchema } from './schema-utils.js';
 import { logger } from './logger.js';
-import type { Message, StreamEvent, UserConfig } from '../types/index.js';
+import type { Message, StreamEvent, ToolContext, UserConfig } from '../types/index.js';
 import type { LLMClient, LLMContentPart, LLMMessage, LLMToolCall, LLMToolDef } from './llm-client.js';
 import type { MemorySystem } from './memory-system.js';
 import type { ContextManager } from './context-manager.js';
@@ -31,6 +31,7 @@ export interface QueryEngineConfig {
   maxRepeatedToolCalls?: number;
   sessionStore?: SessionStore;
   getUserConfig?: () => UserConfig;
+  getToolContext?: () => Partial<ToolContext>;
   operationLedger?: OperationLedger;
 }
 
@@ -291,6 +292,7 @@ export class QueryEngine {
         llmMessages.push({
           role: 'assistant',
           content: result.content,
+          ...(result.reasoningContent ? { reasoning_content: result.reasoningContent } : {}),
           tool_calls: preparedToolCalls.map((prepared) => prepared.toolCall),
         });
 
@@ -298,6 +300,8 @@ export class QueryEngine {
         this.messages.push({
           role: 'assistant',
           content: result.content ?? '',
+          reasoningContent: result.reasoningContent ?? null,
+          toolCalls: preparedToolCalls.map((prepared) => prepared.toolCall),
           timestamp: new Date(),
         });
 
@@ -329,7 +333,11 @@ export class QueryEngine {
             : await this.config.tools.execute(
                 tc.function.name,
                 parsedInput,
-                { abortSignal: signal, userConfig: this.config.getUserConfig?.() ?? ({} as UserConfig) },
+                {
+                  ...this.config.getToolContext?.(),
+                  abortSignal: signal,
+                  userConfig: this.config.getUserConfig?.() ?? ({} as UserConfig),
+                },
               );
 
           if (repeatedCount > this.maxRepeatedToolCalls) {
@@ -364,6 +372,7 @@ export class QueryEngine {
           this.messages.push({
             role: 'tool',
             content: JSON.stringify(toolResult),
+            toolCallId: tc.id,
             toolName: tc.function.name,
             timestamp: new Date(),
           });
@@ -404,13 +413,13 @@ export class QueryEngine {
           // Small delay for streaming effect
           await new Promise(r => setTimeout(r, 15));
         }
-        this.messages.push({ role: 'assistant', content, timestamp: new Date() });
+        this.messages.push({ role: 'assistant', content, reasoningContent: result.reasoningContent ?? null, timestamp: new Date() });
         emittedFinalResponse = true;
       } else {
         const content = result.content ?? '';
         if (content) {
           yield { type: 'text', content };
-          this.messages.push({ role: 'assistant', content, timestamp: new Date() });
+          this.messages.push({ role: 'assistant', content, reasoningContent: result.reasoningContent ?? null, timestamp: new Date() });
           emittedFinalResponse = true;
         }
       }
@@ -493,6 +502,8 @@ export class QueryEngine {
       content: msg.content,
       ...(msg.toolName && { name: msg.toolName }),
       ...(msg.toolCallId && { tool_call_id: msg.toolCallId }),
+      ...(msg.toolCalls && msg.toolCalls.length > 0 ? { tool_calls: msg.toolCalls } : {}),
+      ...(msg.reasoningContent ? { reasoning_content: msg.reasoningContent } : {}),
     };
   }
 
