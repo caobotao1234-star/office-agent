@@ -135,6 +135,7 @@ export class OperationLedger {
       `状态: ${formatStatus(entry.status)}`,
       `模型: ${entry.model}`,
       `开始: ${entry.startedAt.toISOString()}`,
+      ...(entry.finishedAt ? [`耗时: ${entry.finishedAt.getTime() - entry.startedAt.getTime()}ms`] : []),
       `输入: ${entry.userMessagePreview}${entry.imageCount > 0 ? `（图片 ${entry.imageCount} 张）` : ''}`,
     ];
 

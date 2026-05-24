@@ -150,7 +150,11 @@ export class QueryEngine {
     let errorText = '';
 
     this.messages.push({ role: 'user', content: userMessage, timestamp: new Date() });
-    logger.debug(`submitMessage: "${userMessage.slice(0, 80)}"`, { msgCount: this.messages.length, imageCount: safeImages.length }, 'QueryEngine');
+    logger.debug(`submitMessage: "${userMessage.slice(0, 80)}"`, {
+      turnId,
+      msgCount: this.messages.length,
+      imageCount: safeImages.length,
+    }, 'QueryEngine');
 
     try {
       const systemPrompt = await this.buildDynamicSystemPrompt(userMessage, signal);
@@ -158,10 +162,10 @@ export class QueryEngine {
 
       const hasNativeTools = !!this.config.llm.queryWithTools;
       const stream = hasNativeTools
-        ? this.executeWithNativeTools(systemPrompt, signal, safeImages)
+        ? this.executeWithNativeTools(systemPrompt, signal, safeImages, turnId)
         : this.config.llm.queryStream
-          ? this.executeWithStream(systemPrompt, signal)
-          : this.executeBasic(systemPrompt, signal);
+          ? this.executeWithStream(systemPrompt, signal, turnId)
+          : this.executeBasic(systemPrompt, signal, turnId);
 
       for await (const event of stream) {
         if (turnId && event.type === 'tool_use') {
@@ -221,6 +225,7 @@ export class QueryEngine {
     systemPrompt: string,
     signal: AbortSignal,
     images: string[] = [],
+    turnId?: string,
   ): AsyncGenerator<StreamEvent> {
     // Build tool definitions in OpenAI format
     const toolDefs: LLMToolDef[] = this.config.tools.listEnabled().map(t => {
@@ -269,6 +274,7 @@ export class QueryEngine {
 
       const result = await this.config.llm.queryWithTools!(llmMessages, toolDefs, signal);
       logger.debug(`LLM round ${rounds}`, {
+        turnId,
         hasToolCalls: !!(result.toolCalls?.length),
         toolCallCount: result.toolCalls?.length ?? 0,
         contentLength: result.content?.length ?? 0,
@@ -300,7 +306,7 @@ export class QueryEngine {
           const parsedInput = prepared.parsedInput;
 
           yield { type: 'tool_use', toolName: tc.function.name, input: parsedInput };
-          logger.debug(`tool call: ${tc.function.name}`, { args: JSON.stringify(parsedInput).slice(0, 200) }, 'QueryEngine');
+          logger.debug(`tool call: ${tc.function.name}`, { turnId, args: JSON.stringify(parsedInput).slice(0, 200) }, 'QueryEngine');
 
           const signature = `${tc.function.name}:${stableStringify(parsedInput)}`;
           const repeatedCount = (repeatedToolCalls.get(signature) ?? 0) + 1;
@@ -328,6 +334,7 @@ export class QueryEngine {
 
           if (repeatedCount > this.maxRepeatedToolCalls) {
             logger.warn('blocked repeated identical tool call', {
+              turnId,
               toolName: tc.function.name,
               repeatedCount,
               maxRepeatedToolCalls: this.maxRepeatedToolCalls,
@@ -335,6 +342,7 @@ export class QueryEngine {
           }
           if (prepared.parseError) {
             logger.warn('blocked malformed tool arguments', {
+              turnId,
               toolName: tc.function.name,
               error: prepared.parseError,
               rawArgumentsPreview: prepared.rawArguments.slice(0, 200),
@@ -423,6 +431,7 @@ export class QueryEngine {
             '你可以回复“继续完成上一步”，我会基于当前会话继续。',
           ].join('');
       logger.warn('tool run ended without final response', {
+        turnId,
         hitRoundLimit,
         maxToolRounds: this.maxToolRounds,
         lastToolSummary,
@@ -438,7 +447,9 @@ export class QueryEngine {
   private async *executeWithStream(
     systemPrompt: string,
     signal: AbortSignal,
+    turnId?: string,
   ): AsyncGenerator<StreamEvent> {
+    logger.debug('stream execution started', { turnId }, 'QueryEngine');
     const userPrompt = this.messages.map(m => `[${m.role}] ${m.content}`).join('\n');
     const chunks: string[] = [];
 
@@ -460,7 +471,9 @@ export class QueryEngine {
   private async *executeBasic(
     systemPrompt: string,
     signal: AbortSignal,
+    turnId?: string,
   ): AsyncGenerator<StreamEvent> {
+    logger.debug('basic execution started', { turnId }, 'QueryEngine');
     const userPrompt = this.messages.map(m => `[${m.role}] ${m.content}`).join('\n');
     const response = await this.config.llm.query(systemPrompt, userPrompt, signal);
 

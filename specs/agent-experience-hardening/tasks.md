@@ -66,11 +66,11 @@
 
 ## T8 Trace 日志与最近一轮调试
 
-- 状态：TODO
+- 状态：DONE
 - 文件：logger、query-engine、feishu-bot、debug 命令、测试。
 - 实现说明：turnId 贯穿一轮消息，日志和 debug 摘要可定位问题。
 - 验证命令：`npm test -- src/core/query-engine.test.ts src/main.test.ts`
-- 完成标准：用户能查看最近一轮执行摘要。
+- 完成标准：用户能查看最近一轮执行摘要；QueryEngine 关键日志包含 turnId。
 
 ## T9 Doctor 自检命令
 
