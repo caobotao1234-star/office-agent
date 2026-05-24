@@ -18,6 +18,7 @@ import { SubAgentManager } from './core/sub-agent-manager.js';
 import { UserConfigManager } from './core/user-config.js';
 import { SessionStore } from './core/session-store.js';
 import { isSlashCommand, parseSlashCommand, resolveCommand } from './core/slash-command.js';
+import { OperationLedger } from './core/operation-ledger.js';
 
 import { TokenTracker } from './core/token-tracker.js';
 import { UsageStats } from './core/usage-stats.js';
@@ -227,6 +228,7 @@ export interface OfficeAgent {
   notificationService: NotificationService;
   usageStats: UsageStats;
   configManager: UserConfigManager;
+  operationLedger: OperationLedger;
   dataDir: string;
 
   handleMessage(input: string, images?: string[]): AsyncGenerator<StreamEvent>;
@@ -311,6 +313,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const notificationService = new NotificationService();
   const usageStats = new UsageStats(path.join(dataDir, 'usage-stats.json'));
+  const operationLedger = new OperationLedger(path.join(dataDir, 'operation-ledger.json'));
   const feishuIngestTool = new FeishuIngestTool(feishuSyncStore, officeContextStore);
   const feishuSyncScheduler = new FeishuSyncScheduler(
     async (signal) => runFeishuSyncTick(feishuIngestTool, signal, configManager.get()),
@@ -365,13 +368,14 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     sessionStore,
     getUserConfig: () => configManager.get(),
     maxToolRounds: getMaxToolRounds(),
+    operationLedger,
   });
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
     skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, contextWikiCompiler, agendaScheduler, cronScheduler,
     awaySummaryEngine, notificationService,
-    usageStats, configManager,
+    usageStats, configManager, operationLedger,
     dataDir,
     handleMessage: (input: string, images?: string[]) => handleMessage(agent, input, images),
     start: () => startAgent(agent),
@@ -451,7 +455,7 @@ async function* handleSlashCommand(
 
   const mapping = resolveCommand(parsed.command);
   if (!mapping) {
-    yield { type: 'text', content: `未知命令: /${parsed.command}。可用命令: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /sync, /wiki, /project, /memory, /cron, /usage, /help, /db, /reset, /undo` };
+    yield { type: 'text', content: `未知命令: /${parsed.command}。可用命令: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /sync, /wiki, /project, /memory, /cron, /usage, /debug, /help, /db, /reset, /undo` };
     yield { type: 'done' };
     return;
   }
@@ -495,6 +499,17 @@ async function* handleBuiltinCommand(
       return;
     }
 
+    case 'debug': {
+      const sub = args.trim() || 'last';
+      if (sub !== 'last') {
+        yield { type: 'text', content: '用法: /debug last' };
+      } else {
+        yield { type: 'text', content: agent.operationLedger.formatLast() };
+      }
+      yield { type: 'done' };
+      return;
+    }
+
     case 'help': {
       yield {
         type: 'text',
@@ -519,6 +534,7 @@ async function* handleBuiltinCommand(
           '  /usage              查看 token 用量',
           '  /usage detail       查看详细用量',
           '  /stats              查看工具/技能使用统计',
+          '  /debug last         查看最近一轮调试摘要',
           '  /db tasks           直接查数据库任务',
           '  /db projects        直接查数据库项目',
           '  /db memories        直接查数据库记忆',

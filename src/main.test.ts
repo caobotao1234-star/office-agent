@@ -72,6 +72,7 @@ describe('createOfficeAgent', () => {
     expect(agent.awaySummaryEngine).toBeDefined();
     expect(agent.notificationService).toBeDefined();
     expect(agent.configManager).toBeDefined();
+    expect(agent.operationLedger).toBeDefined();
   });
 
   it('should register only active, non-stub tools', () => {
@@ -171,6 +172,17 @@ describe('handleMessage — slash commands', () => {
     expect(events.length).toBeGreaterThan(0);
     const types = events.map((e) => e.type);
     expect(types).toContain('text');
+  });
+
+  it('should handle /debug last command from the operation ledger', async () => {
+    await collectEvents(agent.handleMessage('你好'));
+    const events = await collectEvents(agent.handleMessage('/debug last'));
+    const text = events
+      .filter((e) => e.type === 'text')
+      .map((e) => (e as { content: string }).content)
+      .join('');
+    expect(text).toContain('最近一轮');
+    expect(text).toContain('你好');
   });
 
   it('should handle invalid slash command format', async () => {

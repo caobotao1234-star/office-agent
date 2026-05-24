@@ -42,11 +42,11 @@
 
 ## T5 Operation Ledger 与 debug 摘要
 
-- 状态：TODO
+- 状态：DONE
 - 文件：`src/core/operation-ledger.ts`、`src/core/query-engine.ts`、slash command、测试。
 - 实现说明：记录一轮任务的工具调用、结果、最终状态；支持 `/debug last`。
 - 验证命令：`npm test -- src/core/query-engine.test.ts src/core/operation-ledger.test.ts src/core/slash-command.test.ts`
-- 完成标准：长任务失败/部分完成可追踪。
+- 完成标准：长任务失败/部分完成可追踪；`/debug last` 可查看最近一轮摘要。
 
 ## T6 Feishu sync 自动知识抽取
 

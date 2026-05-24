@@ -15,6 +15,7 @@ import type { ContextManager } from './context-manager.js';
 import type { ToolRegistry } from './tool-system.js';
 
 import type { SessionStore } from './session-store.js';
+import type { OperationLedger, OperationStatus } from './operation-ledger.js';
 
 const DEFAULT_MAX_TOOL_ROUNDS = 30;
 const DEFAULT_MAX_REPEATED_TOOL_CALLS = 2;
@@ -30,6 +31,7 @@ export interface QueryEngineConfig {
   maxRepeatedToolCalls?: number;
   sessionStore?: SessionStore;
   getUserConfig?: () => UserConfig;
+  operationLedger?: OperationLedger;
 }
 
 export class QueryEngine {
@@ -138,6 +140,14 @@ export class QueryEngine {
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
     const safeImages = images?.filter(Boolean) ?? [];
+    const turnId = this.config.operationLedger?.startTurn({
+      userMessage,
+      imageCount: safeImages.length,
+      model: this.config.model,
+    });
+    let finalText = '';
+    let status: Exclude<OperationStatus, 'running'> = 'completed';
+    let errorText = '';
 
     this.messages.push({ role: 'user', content: userMessage, timestamp: new Date() });
     logger.debug(`submitMessage: "${userMessage.slice(0, 80)}"`, { msgCount: this.messages.length, imageCount: safeImages.length }, 'QueryEngine');
@@ -147,12 +157,25 @@ export class QueryEngine {
       logger.debug(`systemPrompt built`, { length: systemPrompt.length, estimatedTokens: Math.ceil(systemPrompt.length / 4) }, 'QueryEngine');
 
       const hasNativeTools = !!this.config.llm.queryWithTools;
-      if (hasNativeTools) {
-        yield* this.executeWithNativeTools(systemPrompt, signal, safeImages);
-      } else if (this.config.llm.queryStream) {
-        yield* this.executeWithStream(systemPrompt, signal);
-      } else {
-        yield* this.executeBasic(systemPrompt, signal);
+      const stream = hasNativeTools
+        ? this.executeWithNativeTools(systemPrompt, signal, safeImages)
+        : this.config.llm.queryStream
+          ? this.executeWithStream(systemPrompt, signal)
+          : this.executeBasic(systemPrompt, signal);
+
+      for await (const event of stream) {
+        if (turnId && event.type === 'tool_use') {
+          this.config.operationLedger?.recordToolUse(turnId, event.toolName, event.input);
+        } else if (turnId && event.type === 'tool_result') {
+          this.config.operationLedger?.recordToolResult(turnId, event.toolName, event.result);
+          if (!event.result.success && status !== 'failed') status = 'partial';
+        } else if (event.type === 'text') {
+          finalText += event.content;
+        } else if (event.type === 'error') {
+          status = 'failed';
+          errorText = event.error;
+        }
+        yield event;
       }
 
       // Auto memory extraction — only every 5 turns to save tokens
@@ -166,10 +189,25 @@ export class QueryEngine {
 
       // 持久化会话
       this.saveSession();
+      if (turnId) {
+        this.config.operationLedger?.finishTurn(turnId, {
+          status,
+          finalText,
+          ...(errorText ? { error: errorText } : {}),
+        });
+      }
 
       yield { type: 'done' };
     } catch (err) {
-      yield { type: 'error', error: err instanceof Error ? err.message : String(err) };
+      const message = err instanceof Error ? err.message : String(err);
+      if (turnId) {
+        this.config.operationLedger?.finishTurn(turnId, {
+          status: 'failed',
+          finalText,
+          error: message,
+        });
+      }
+      yield { type: 'error', error: message };
     } finally {
       this.abortController = null;
     }

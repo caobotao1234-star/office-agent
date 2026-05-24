@@ -78,6 +78,7 @@ describe('resolveCommand', () => {
     expect(resolveCommand('agenda')).toEqual({ type: 'tool', target: 'AgendaTool' });
     expect(resolveCommand('sync')).toEqual({ type: 'builtin', target: 'sync' });
     expect(resolveCommand('wiki')).toEqual({ type: 'builtin', target: 'wiki' });
+    expect(resolveCommand('debug')).toEqual({ type: 'builtin', target: 'debug' });
   });
 
   it('resolves known skill commands', () => {
