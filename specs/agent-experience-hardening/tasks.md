@@ -58,11 +58,11 @@
 
 ## T7 JsonStore 原子写与坏文件备份
 
-- 状态：TODO
+- 状态：DONE
 - 文件：`src/services/json-store.ts`、各 store、测试。
 - 实现说明：统一原子写、坏文件备份、schema fallback。
 - 验证命令：`npm test -- src/services/*store*.test.ts`
-- 完成标准：关键 JSON store 写入可靠，坏文件可备份。
+- 完成标准：关键 JSON store 写入可靠，坏文件可备份；Agenda、OfficeContext、FeishuSync、FeishuRecipient 已接入。
 
 ## T8 Trace 日志与最近一轮调试
 

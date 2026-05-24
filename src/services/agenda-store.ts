@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type { AgendaItem, AgendaItemPriority, AgendaItemSource, AgendaItemStatus, AgendaItemType } from '../types/index.js';
 import { logger } from '../core/logger.js';
+import { readJsonFile, writeJsonFileAtomic } from './json-store.js';
+import { z } from 'zod';
 
 const log = logger.child('AgendaStore');
 
@@ -35,10 +35,6 @@ export interface UpdateAgendaItemInput {
   composePrompt?: string;
 }
 
-interface AgendaFile {
-  items?: SerializedAgendaItem[];
-}
-
 type SerializedAgendaItem = Omit<AgendaItem, 'triggerAt' | 'deadlineAt' | 'createdAt' | 'updatedAt' | 'deliveredAt' | 'cancelledAt'> & {
   triggerAt: string;
   deadlineAt?: string;
@@ -47,6 +43,30 @@ type SerializedAgendaItem = Omit<AgendaItem, 'triggerAt' | 'deadlineAt' | 'creat
   deliveredAt?: string;
   cancelledAt?: string;
 };
+
+const SerializedAgendaItemSchema = z.object({
+  id: z.string(),
+  type: z.enum(['reminder', 'deadline', 'commitment', 'follow_up']),
+  title: z.string(),
+  description: z.string().optional(),
+  triggerAt: z.string(),
+  deadlineAt: z.string().optional(),
+  timezone: z.string(),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']),
+  status: z.enum(['pending', 'delivered', 'cancelled']),
+  source: z.enum(['llm', 'user', 'tool', 'migration']),
+  sourceMessage: z.string().optional(),
+  context: z.string().optional(),
+  composePrompt: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deliveredAt: z.string().optional(),
+  cancelledAt: z.string().optional(),
+});
+
+const AgendaFileSchema = z.object({
+  items: z.array(SerializedAgendaItemSchema).default([]),
+});
 
 export class AgendaStore {
   private items: AgendaItem[] = [];
@@ -163,9 +183,8 @@ export class AgendaStore {
 
   private save(): void {
     try {
-      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
       const items = this.items.map(serializeAgendaItem);
-      fs.writeFileSync(this.filePath, JSON.stringify({ items }, null, 2), 'utf-8');
+      writeJsonFileAtomic(this.filePath, { items });
     } catch (err) {
       log.error('save failed', { filePath: this.filePath, error: err instanceof Error ? err.message : String(err) });
     }
@@ -173,15 +192,12 @@ export class AgendaStore {
   }
 
   private load(): void {
-    if (!fs.existsSync(this.filePath)) return;
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as AgendaFile;
-      this.items = (parsed.items ?? []).map(deserializeAgendaItem);
-      log.info('agenda loaded', { count: this.items.length, filePath: this.filePath });
-    } catch (err) {
-      log.error('load failed', { filePath: this.filePath, error: err instanceof Error ? err.message : String(err) });
-      this.items = [];
-    }
+    const parsed = readJsonFile(this.filePath, AgendaFileSchema, {
+      fallback: { items: [] },
+      label: 'agenda',
+    });
+    this.items = parsed.items.map(deserializeAgendaItem);
+    if (this.items.length > 0) log.info('agenda loaded', { count: this.items.length, filePath: this.filePath });
   }
 
   private emitChange(): void {

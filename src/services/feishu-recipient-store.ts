@@ -1,6 +1,6 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { z } from 'zod';
 import { logger } from '../core/logger.js';
+import { readJsonFile, writeJsonFileAtomic } from './json-store.js';
 
 const log = logger.child('FeishuRecipients');
 
@@ -14,19 +14,23 @@ interface RecipientFile {
   recipients?: FeishuRecipient[];
 }
 
+const RecipientFileSchema = z.object({
+  recipients: z.array(z.object({
+    senderId: z.string(),
+    chatId: z.string(),
+    updatedAt: z.string(),
+  })).default([]),
+});
+
 export class FeishuRecipientStore {
   constructor(private filePath: string) {}
 
   list(): FeishuRecipient[] {
-    if (!fs.existsSync(this.filePath)) return [];
-
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as RecipientFile;
-      return Array.isArray(parsed.recipients) ? parsed.recipients : [];
-    } catch (err) {
-      log.error('failed to read recipients', { filePath: this.filePath, error: err instanceof Error ? err.message : String(err) });
-      return [];
-    }
+    const parsed = readJsonFile<Required<RecipientFile>>(this.filePath, RecipientFileSchema, {
+      fallback: { recipients: [] },
+      label: 'feishu-recipients',
+    });
+    return parsed.recipients;
   }
 
   upsert(senderId: string, chatId: string): FeishuRecipient {
@@ -50,7 +54,6 @@ export class FeishuRecipientStore {
   }
 
   private save(recipients: FeishuRecipient[]): void {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, JSON.stringify({ recipients }, null, 2));
+    writeJsonFileAtomic(this.filePath, { recipients });
   }
 }

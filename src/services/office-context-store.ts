@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { z } from 'zod';
 import { logger } from '../core/logger.js';
+import { readJsonFile, writeJsonFileAtomic } from './json-store.js';
 
 const log = logger.child('OfficeContextStore');
 
@@ -93,10 +92,6 @@ export interface OfficeContextSearchQuery {
   tags?: string[];
   source?: OfficeContextSource;
   limit?: number;
-}
-
-interface OfficeContextFile {
-  records?: SerializedOfficeContextRecord[];
 }
 
 type SerializedOfficeContextSourceRef = Omit<OfficeContextSourceRef, 'observedAt'> & {
@@ -259,27 +254,16 @@ export class OfficeContextStore {
   }
 
   private save(): void {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(
-      this.filePath,
-      JSON.stringify({ records: this.records.map(serializeRecord) }, null, 2),
-      'utf-8',
-    );
+    writeJsonFileAtomic(this.filePath, { records: this.records.map(serializeRecord) });
   }
 
   private load(): void {
-    if (!fs.existsSync(this.filePath)) return;
-    try {
-      const parsed = OfficeContextFileSchema.safeParse(JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as OfficeContextFile);
-      if (!parsed.success) {
-        throw new Error(parsed.error.message);
-      }
-      this.records = parsed.data.records.map(deserializeRecord);
-      log.info('context loaded', { count: this.records.length, filePath: this.filePath });
-    } catch (err) {
-      log.error('context load failed', { filePath: this.filePath, error: err instanceof Error ? err.message : String(err) });
-      this.records = [];
-    }
+    const parsed = readJsonFile(this.filePath, OfficeContextFileSchema, {
+      fallback: { records: [] },
+      label: 'office-context',
+    });
+    this.records = parsed.records.map(deserializeRecord);
+    if (this.records.length > 0) log.info('context loaded', { count: this.records.length, filePath: this.filePath });
   }
 }
 

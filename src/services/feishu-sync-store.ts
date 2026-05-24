@@ -1,8 +1,7 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { logger } from '../core/logger.js';
+import { readJsonFile, writeJsonFileAtomic } from './json-store.js';
 
 const log = logger.child('FeishuSyncStore');
 
@@ -61,10 +60,6 @@ export interface MarkFailedInput {
   error: string;
   command?: string;
   syncedAt?: Date;
-}
-
-interface FeishuSyncFile {
-  sources?: SerializedFeishuSyncSource[];
 }
 
 type SerializedFeishuSyncSource = Omit<
@@ -193,25 +188,16 @@ export class FeishuSyncStore {
   }
 
   private save(): void {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(
-      this.filePath,
-      JSON.stringify({ sources: this.sources.map(serializeSource) }, null, 2),
-      'utf-8',
-    );
+    writeJsonFileAtomic(this.filePath, { sources: this.sources.map(serializeSource) });
   }
 
   private load(): void {
-    if (!fs.existsSync(this.filePath)) return;
-    try {
-      const parsed = FeishuSyncFileSchema.safeParse(JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as FeishuSyncFile);
-      if (!parsed.success) throw new Error(parsed.error.message);
-      this.sources = parsed.data.sources.map(deserializeSource);
-      log.info('sources loaded', { count: this.sources.length, filePath: this.filePath });
-    } catch (err) {
-      log.error('source load failed', { filePath: this.filePath, error: err instanceof Error ? err.message : String(err) });
-      this.sources = [];
-    }
+    const parsed = readJsonFile(this.filePath, FeishuSyncFileSchema, {
+      fallback: { sources: [] },
+      label: 'feishu-sync',
+    });
+    this.sources = parsed.sources.map(deserializeSource);
+    if (this.sources.length > 0) log.info('sources loaded', { count: this.sources.length, filePath: this.filePath });
   }
 }
 
