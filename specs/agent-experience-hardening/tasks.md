@@ -10,11 +10,11 @@
 
 ## T1 能力矩阵与回放测试
 
-- 状态：TODO
+- 状态：DONE
 - 文件：`docs/capabilities.md`、`src/evals/replay.ts`、相关测试/脚本。
 - 实现说明：把关键能力映射到输入、期望链路、降级行为和测试覆盖；补回放用例。
 - 验证命令：`npm run eval:replay && npm test -- src/core/query-engine.test.ts`
-- 完成标准：回放能发现核心能力回归。
+- 完成标准：回放能发现核心能力回归；已覆盖视觉图片输入和 Base CLI 修复链路。
 
 ## T2 模型能力声明扩展
 

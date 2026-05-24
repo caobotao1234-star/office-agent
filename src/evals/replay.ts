@@ -22,6 +22,7 @@ type ReplayStep =
       type: 'final';
       content: string;
       expectLastToolResultIncludes?: string[];
+      expectLatestUserImageCount?: number;
     };
 
 interface ReplayTool {
@@ -32,10 +33,12 @@ interface ReplayTool {
 interface ReplayCase {
   name: string;
   userMessage: string;
+  images?: string[];
   steps: ReplayStep[];
   tools: ReplayTool[];
   expectToolNames: string[];
   expectFinalIncludes: string;
+  capabilities?: LLMClient['capabilities'];
 }
 
 const REPLAY_CASES: ReplayCase[] = [
@@ -139,12 +142,90 @@ const REPLAY_CASES: ReplayCase[] = [
     expectToolNames: ['KnowledgeCaptureTool'],
     expectFinalIncludes: '已记入上下文',
   },
+  {
+    name: 'vision model receives image input',
+    userMessage: '帮我识别这张图，并告诉我下一步该怎么做',
+    images: ['data:image/png;base64,aW1hZ2U='],
+    steps: [
+      {
+        type: 'final',
+        content: '这张图看起来是一张测试图片，我会根据图中内容继续处理。',
+        expectLatestUserImageCount: 1,
+      },
+    ],
+    tools: [],
+    expectToolNames: [],
+    expectFinalIncludes: '测试图片',
+    capabilities: { vision: true },
+  },
+  {
+    name: 'base creation repairs invalid cli attempts',
+    userMessage: '做个多维表格，把你的能力写进去',
+    steps: [
+      {
+        type: 'tool',
+        name: 'LarkCli',
+        arguments: {
+          args: ['base', '+create', '--title', 'Office Agent 能力表', '--as', 'user'],
+        },
+      },
+      {
+        type: 'tool',
+        name: 'LarkCli',
+        arguments: {
+          args: ['base', '+base-create', '--help'],
+        },
+      },
+      {
+        type: 'tool',
+        name: 'LarkCli',
+        arguments: {
+          args: ['base', '+base-create', '--name', 'Office Agent 能力表', '--as', 'user', '--dry-run'],
+        },
+      },
+      {
+        type: 'tool',
+        name: 'LarkCli',
+        arguments: {
+          args: ['base', '+base-create', '--name', 'Office Agent 能力表', '--as', 'user'],
+        },
+      },
+      {
+        type: 'final',
+        content: '已创建多维表格，并记录了可继续补表字段和记录。',
+        expectLastToolResultIncludes: ['"success":true', 'base_token'],
+      },
+    ],
+    tools: [
+      {
+        name: 'LarkCli',
+        result: { success: false, output: { helpHint: ['base', '+base-create', '--help'] }, error: 'base 没有 +create 子命令' },
+      },
+      {
+        name: 'LarkCli',
+        result: { success: true, output: { stdout: 'Usage: lark-cli base +base-create --name NAME --as user' } },
+      },
+      {
+        name: 'LarkCli',
+        result: { success: true, output: { stdout: '{"api":[{"method":"POST"}]}' } },
+      },
+      {
+        name: 'LarkCli',
+        result: { success: true, output: { data: { base: { base_token: 'base_token_1' } } } },
+      },
+    ],
+    expectToolNames: ['LarkCli', 'LarkCli', 'LarkCli', 'LarkCli'],
+    expectFinalIncludes: '已创建多维表格',
+  },
 ];
 
 class ScriptedLLM implements LLMClient {
   private cursor = 0;
+  readonly capabilities: LLMClient['capabilities'];
 
-  constructor(private readonly steps: ReplayStep[]) {}
+  constructor(private readonly steps: ReplayStep[], capabilities?: LLMClient['capabilities']) {
+    this.capabilities = capabilities;
+  }
 
   async query(): Promise<string> {
     return '';
@@ -181,22 +262,31 @@ class ScriptedLLM implements LLMClient {
         `Expected last tool result to include "${expected}", got: ${lastToolContent || '<none>'}`,
       );
     }
+    if (step.expectLatestUserImageCount !== undefined) {
+      const latestUserMessage = [...messages].reverse().find((message) => message.role === 'user');
+      const imageCount = Array.isArray(latestUserMessage?.content)
+        ? latestUserMessage.content.filter((part) => part.type === 'image_url').length
+        : 0;
+      assert.equal(imageCount, step.expectLatestUserImageCount);
+    }
 
     return { content: step.content, toolCalls: null };
   }
 }
 
-function createReplayTool(def: ReplayTool, calls: Array<{ name: string; input: unknown }>): Tool {
+function createReplayTool(name: string, results: ToolResult[], calls: Array<{ name: string; input: unknown }>): Tool {
   return {
-    name: def.name,
-    description: `Replay fake tool: ${def.name}`,
+    name,
+    description: `Replay fake tool: ${name}`,
     inputSchema: z.object({}).passthrough(),
     isEnabled: () => true,
     isReadOnly: () => false,
     checkPermissions: () => ({ allowed: true }),
     call: async (input: unknown, _context: ToolContext) => {
-      calls.push({ name: def.name, input });
-      return def.result;
+      calls.push({ name, input });
+      const result = results.shift();
+      if (!result) return { success: false, output: null, error: `Replay result queue exhausted for ${name}` };
+      return result;
     },
   };
 }
@@ -212,9 +302,15 @@ async function runCase(testCase: ReplayCase): Promise<void> {
   const calls: Array<{ name: string; input: unknown }> = [];
 
   try {
-    const llm = new ScriptedLLM(testCase.steps);
+    const llm = new ScriptedLLM(testCase.steps, testCase.capabilities);
     const registry = new ToolRegistry();
-    for (const tool of testCase.tools) registry.register(createReplayTool(tool, calls));
+    const resultsByTool = new Map<string, ToolResult[]>();
+    for (const tool of testCase.tools) {
+      const results = resultsByTool.get(tool.name) ?? [];
+      results.push(tool.result);
+      resultsByTool.set(tool.name, results);
+    }
+    for (const [name, results] of resultsByTool) registry.register(createReplayTool(name, results, calls));
 
     const engine = new QueryEngine({
       model: 'replay-script',
@@ -227,7 +323,7 @@ async function runCase(testCase: ReplayCase): Promise<void> {
       getUserConfig: () => UserConfigManager.getDefault(),
     });
 
-    const events = await collectEvents(engine.submitMessage(testCase.userMessage));
+    const events = await collectEvents(engine.submitMessage(testCase.userMessage, testCase.images));
     const actualToolNames = events
       .filter((event): event is Extract<StreamEvent, { type: 'tool_use' }> => event.type === 'tool_use')
       .map((event) => event.toolName);
