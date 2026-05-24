@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import type { Tool, PermissionResult } from '../../core/tool-system.js';
 import type { ToolContext, ToolResult } from '../../types/index.js';
+import type { LarkCliRunOptions, LarkCliRunResult } from '../../services/lark-cli-runner.js';
 import { runLarkCli } from '../../services/lark-cli-runner.js';
 import { LarkCliKnowledgeBase } from '../../services/lark-cli-knowledge-base.js';
 import { logger } from '../../core/logger.js';
@@ -20,6 +21,7 @@ const LarkCliInput = z.object({
 });
 
 export type LarkCliInput = z.infer<typeof LarkCliInput>;
+export type LarkCliRunner = (args: string[], options?: LarkCliRunOptions) => Promise<LarkCliRunResult>;
 
 const WRITE_KEYWORDS = [
   'add',
@@ -88,7 +90,10 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
   private enabled = true;
   private verifiedWriteCommands = new Set<string>();
 
-  constructor(private knowledgeBase = new LarkCliKnowledgeBase()) {}
+  constructor(
+    private knowledgeBase = new LarkCliKnowledgeBase(),
+    private runner: LarkCliRunner = runLarkCli,
+  ) {}
 
   isEnabled(): boolean { return this.enabled; }
   setEnabled(v: boolean): void { this.enabled = v; }
@@ -170,7 +175,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       };
     }
 
-    const result = await runLarkCli(profileArgs, {
+    const result = await this.runner(profileArgs, {
       stdin: input.stdin,
       timeoutMs: input.timeoutMs,
       abortSignal: context.abortSignal,

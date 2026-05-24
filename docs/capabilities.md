@@ -9,6 +9,7 @@
 | CLI 文本对话 | `oa chat` 后输入“列出今天任务” | CLI -> OfficeAgent -> QueryEngine -> Tool | LLM/工具失败时输出错误 | unit + replay |
 | CLI 单次提问 | `oa ask "总结项目状态"` | CLI -> OfficeAgent -> QueryEngine | 失败时非零退出 | unit |
 | 飞书接入向导 | `oa setup feishu` | CLI -> lark-cli profile list -> 配置建议 | 读取 profile 失败时输出默认引导 | unit |
+| 本地 debug 面板 | `oa debug users` / `oa debug last --user app:openId` | CLI -> 本地数据目录/日志/OperationLedger | 不调用 LLM；配置错误时输出可排查信息且不显示 secret | unit |
 | 飞书文本私聊/群聊 | “提醒我 10 分钟后开会” | Feishu WS -> per-user queue -> OfficeAgent -> AgendaTool | 前序任务未完成时排队提示 | unit + manual |
 | 飞书富文本 | 富文本含文字和图片 | parser -> image download -> OfficeAgent(text, images) | 图片下载失败时继续处理文字或提示失败 | unit |
 | 飞书图片 | 只发送一张图 | parser -> image download -> vision model | 纯文本模型提示不支持图片并忽略图片 | unit + replay |
@@ -28,6 +29,7 @@
 | 飞书同步源 | “持续关注这个项目文档” | FeishuIngestTool addSource/syncAll | sync 失败记录 lastError | unit |
 | 用户级 CLI 授权 | “写到我的云文档” | ToolContext.larkCliProfile -> lark-cli --profile PROFILE | 无 profile 时快速失败，不落到其他用户授权 | unit |
 | CLI profile 诊断 | `oa doctor` | profile auth status + docs search read probe | 探测失败时 warn 并给出权限/授权建议 | unit |
+| CLI 回放测试 | fake runner | LarkCliTool -> injected runner | 不依赖真实飞书，验证 help/dry-run、profile 注入和已知错误拦截 | unit + replay |
 
 ## 记忆与知识
 
@@ -92,4 +94,5 @@ npm test -- src/server/feishu-multi-user-config.test.ts src/services/feishu-reci
 
 ```bash
 npm test -- src/tools/LarkCliTool/index.test.ts src/services/lark-cli-runner.test.ts
+npm test -- src/cli/commands/debug.test.ts src/tools/LarkCliTool/index.replay.test.ts
 ```

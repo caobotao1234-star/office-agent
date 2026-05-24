@@ -81,6 +81,7 @@ npx tsx src/cli/index.ts config    # 查看配置
 npx tsx src/cli/index.ts usage     # 查看 token 用量
 npx tsx src/cli/index.ts doctor    # 自检本地配置、模型能力和飞书 CLI
 npx tsx src/cli/index.ts setup feishu # 飞书接入向导
+npx tsx src/cli/index.ts debug users  # 本地排查用户隔离目录、日志和最近工具账本
 npx tsx src/cli/index.ts feishu    # 官方 lark-cli 桥接
 npx tsx src/cli/index.ts -h        # 帮助
 ```
@@ -137,6 +138,16 @@ Base 命令通常不支持 `--format json`，创建 Base 用 `--name`，不是 `
 `LARK_CLI_NO_PROXY=1` 只影响官方 `lark-cli` 子进程：它会让 CLI 不使用本机代理配置，适合 WSL 中代理导致飞书接口 EOF/502 的情况。它不是密钥；如果你的网络必须通过代理访问飞书，可以删掉这一行。
 
 日志默认写入当前工程目录 `logs/agent-YYYY-MM-DD.log`，也会同时打印到终端。可以通过 `.env` 设置 `LOG_LEVEL=debug` 和 `OFFICE_AGENT_LOG_DIR=./logs` 调整。
+
+本地排查可以直接用 `oa debug`，它只读取本机文件，不调用 LLM，也不会显示飞书 appSecret：
+
+```bash
+npx tsx src/cli/index.ts debug users
+npx tsx src/cli/index.ts debug user my-app:ou_xxx
+npx tsx src/cli/index.ts debug last --user my-app:ou_xxx
+npx tsx src/cli/index.ts debug feishu-profiles
+npx tsx src/cli/index.ts debug logs --tail 120
+```
 
 工具调用默认最多 30 轮，避免复杂办公任务因为旧的 10 轮预算过早中断；如果确实需要更长任务，可以设置 `OFFICE_AGENT_MAX_TOOL_ROUNDS=50`。系统会阻止重复调用完全相同工具和参数，达到上限时会明确告诉你任务未完成，而不是假装成功。
 
@@ -359,11 +370,12 @@ npm run lark -- --profile alice auth status
 ~/.office-agent/
 ├── feishu-recipients.json  # 飞书主动推送收件人（最近 chat_id）
 ├── users/
-│   └── <appKey_openId>/    # 飞书用户隔离目录
+│   └── <safeUserKey>/      # 飞书用户隔离目录（由 appKey:openId 编码得到）
 │       ├── tasks.json
 │       ├── token-usage.json
 │       ├── config.json
 │       ├── agenda.json
+│       ├── operation-ledger.json
 │       ├── office-context.json
 │       ├── feishu-sync-sources.json
 │       ├── cron-tasks.json
@@ -396,6 +408,9 @@ src/
 │       ├── tasks.ts            # 任务列表
 │       ├── config.ts           # 配置查看
 │       ├── usage.ts            # Token 用量
+│       ├── doctor.ts           # 本地环境与飞书 CLI 自检
+│       ├── setup.ts            # 接入向导
+│       ├── debug.ts            # 本地状态/日志/账本排查
 │       └── feishu.ts           # 官方 lark-cli 透传
 │
 ├── core/                       # 核心引擎
@@ -411,6 +426,7 @@ src/
 │   ├── llm-client.ts           # LLM 接口定义
 │   ├── schema-utils.ts         # Zod v4 → JSON Schema 转换
 │   ├── token-tracker.ts        # Token 用量统计（按模型/环节/天）
+│   ├── operation-ledger.ts     # 最近任务与工具调用账本
 │   ├── session-store.ts        # 会话持久化（支持多通道隔离）
 │   ├── security.ts             # AES-256-GCM 加密
 │   ├── user-config.ts          # 用户配置管理
