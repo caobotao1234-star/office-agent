@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { FeishuSyncStore } from '../../services/feishu-sync-store.js';
 import { OfficeContextStore } from '../../services/office-context-store.js';
 import type { LarkCliRunResult } from '../../services/lark-cli-runner.js';
+import type { FeishuSyncAutoCapture } from '../../services/feishu-sync-knowledge-capture.js';
 import { buildFeishuIngestArgs, FeishuIngestTool, type FeishuIngestRunner } from './index.js';
 
 function tmpDir(): string {
@@ -25,7 +26,7 @@ function createRunResult(args: string[], stdout: string, exitCode = 0): LarkCliR
   };
 }
 
-function createTool(runner: FeishuIngestRunner): {
+function createTool(runner: FeishuIngestRunner, autoCapture?: FeishuSyncAutoCapture): {
   tool: FeishuIngestTool;
   syncStore: FeishuSyncStore;
   officeContextStore: OfficeContextStore;
@@ -34,7 +35,7 @@ function createTool(runner: FeishuIngestRunner): {
   const syncStore = new FeishuSyncStore(path.join(dir, 'sync.json'));
   const officeContextStore = new OfficeContextStore(path.join(dir, 'office-context.json'));
   return {
-    tool: new FeishuIngestTool(syncStore, officeContextStore, runner),
+    tool: new FeishuIngestTool(syncStore, officeContextStore, runner, autoCapture),
     syncStore,
     officeContextStore,
   };
@@ -140,6 +141,35 @@ describe('FeishuIngestTool', () => {
     expect((first.output as any).changed).toBe(true);
     expect((second.output as any).changed).toBe(false);
     expect((second.output as any).contextRecord).toBeUndefined();
+  });
+
+  it('runs auto capture only when synced content changes', async () => {
+    let runCount = 0;
+    const captured: string[] = [];
+    const runner: FeishuIngestRunner = async (args) => {
+      runCount++;
+      return createRunResult(args, '决定采用 qwen-vl-plus 处理飞书图片输入');
+    };
+    const autoCapture: FeishuSyncAutoCapture = {
+      capture(input) {
+        captured.push(input.contentHash);
+        return { contexts: 1, snippets: [{ type: 'knowledge', title: '决策', summary: input.content }] };
+      },
+    };
+    const { tool } = createTool(runner, autoCapture);
+    const added = await callTool(tool, {
+      action: 'addSource',
+      source: { type: 'doc', title: '图片能力文档', doc: 'docx_123' },
+    });
+    const sourceId = (added.output as any).source.id as string;
+
+    const first = await callTool(tool, { action: 'syncSource', id: sourceId });
+    const second = await callTool(tool, { action: 'syncSource', id: sourceId });
+
+    expect(runCount).toBe(2);
+    expect(captured).toHaveLength(1);
+    expect((first.output as any).autoCapture.contexts).toBe(1);
+    expect((second.output as any).autoCapture).toBeUndefined();
   });
 
   it('syncs all enabled sources and records failures', async () => {

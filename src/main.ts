@@ -33,6 +33,7 @@ import { OfficeContextStore } from './services/office-context-store.js';
 import { FeishuSyncStore } from './services/feishu-sync-store.js';
 import { FeishuSyncScheduler, type FeishuSyncTickSummary } from './services/feishu-sync-scheduler.js';
 import { ContextWikiCompiler } from './services/context-wiki-compiler.js';
+import { FeishuSyncKnowledgeCapture } from './services/feishu-sync-knowledge-capture.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -314,7 +315,13 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const notificationService = new NotificationService();
   const usageStats = new UsageStats(path.join(dataDir, 'usage-stats.json'));
   const operationLedger = new OperationLedger(path.join(dataDir, 'operation-ledger.json'));
-  const feishuIngestTool = new FeishuIngestTool(feishuSyncStore, officeContextStore);
+  const feishuSyncKnowledgeCapture = new FeishuSyncKnowledgeCapture(officeContextStore);
+  const feishuIngestTool = new FeishuIngestTool(
+    feishuSyncStore,
+    officeContextStore,
+    undefined,
+    feishuSyncKnowledgeCapture,
+  );
   const feishuSyncScheduler = new FeishuSyncScheduler(
     async (signal) => runFeishuSyncTick(feishuIngestTool, signal, configManager.get()),
     notificationService,

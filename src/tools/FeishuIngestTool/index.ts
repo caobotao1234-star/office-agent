@@ -9,6 +9,7 @@ import {
   type FeishuSyncSourceType,
   type FeishuSyncStore,
 } from '../../services/feishu-sync-store.js';
+import type { FeishuSyncAutoCapture, FeishuSyncCaptureResult } from '../../services/feishu-sync-knowledge-capture.js';
 import type { OfficeContextSource, OfficeContextStore, OfficeContextType } from '../../services/office-context-store.js';
 
 export type FeishuIngestRunner = (args: string[], options?: LarkCliRunOptions) => Promise<LarkCliRunResult>;
@@ -117,6 +118,7 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
     private syncStore: FeishuSyncStore,
     private officeContextStore: OfficeContextStore,
     private runner: FeishuIngestRunner = runLarkCli,
+    private autoCapture?: FeishuSyncAutoCapture,
   ) {}
 
   isEnabled(): boolean { return true; }
@@ -196,6 +198,7 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
           const content = normalizeFetchedContent(result.stdout);
           const contentHash = hashContent(content);
           let contextRecord = null;
+          let autoCapture: FeishuSyncCaptureResult | undefined;
           if (result.exitCode === 0 && !result.timedOut && !result.aborted && input.storeAsContext) {
             contextRecord = this.upsertContext({
               source: {
@@ -214,6 +217,22 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
               contentHash,
               changed: true,
             });
+            autoCapture = await this.autoCapture?.capture({
+              source: {
+                id: `fetch:${input.source.type}:${contentHash.slice(0, 12)}`,
+                type: input.source.type,
+                title: input.source.title,
+                args,
+                projectId: input.source.projectId,
+                tags: input.source.tags,
+                syncEnabled: false,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              },
+              result,
+              content,
+              contentHash,
+            });
           }
           const success = result.exitCode === 0 && !result.timedOut && !result.aborted;
           return {
@@ -226,7 +245,8 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
               stderr: result.stderr,
               truncated: result.truncated,
               contextRecord,
-              captureHint: success ? 'If this content contains durable facts, call KnowledgeCaptureTool next.' : undefined,
+              autoCapture,
+              captureHint: success && !autoCapture ? 'If this content contains durable facts, call KnowledgeCaptureTool next.' : undefined,
             },
             error: success ? undefined : `lark-cli 退出码 ${result.exitCode ?? 'unknown'}`,
           };
@@ -246,6 +266,7 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
     contentHash?: string;
     changed: boolean;
     contextRecord?: unknown;
+    autoCapture?: FeishuSyncCaptureResult;
     stdoutPreview?: string;
     stderr?: string;
     error?: string;
@@ -285,9 +306,12 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
       changed,
     });
 
-    const contextRecord = changed
-      ? this.upsertContext({ source: updated, result, content, contentHash, changed })
-      : undefined;
+    let contextRecord: unknown;
+    let autoCapture: FeishuSyncCaptureResult | undefined;
+    if (changed) {
+      contextRecord = this.upsertContext({ source: updated, result, content, contentHash, changed });
+      autoCapture = await this.autoCapture?.capture({ source: updated, result, content, contentHash });
+    }
 
     return {
       success: true,
@@ -298,8 +322,9 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
       contentHash,
       changed,
       contextRecord,
+      autoCapture,
       stdoutPreview: truncate(content, 2_000),
-      captureHint: undefined,
+      captureHint: changed && !autoCapture ? 'Changed content may contain durable facts; call KnowledgeCaptureTool if deeper extraction is needed.' : undefined,
     } as {
       success: boolean;
       sourceId: string;
@@ -309,6 +334,7 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
       contentHash?: string;
       changed: boolean;
       contextRecord?: unknown;
+      autoCapture?: FeishuSyncCaptureResult;
       stdoutPreview?: string;
       stderr?: string;
       error?: string;

@@ -50,11 +50,11 @@
 
 ## T6 Feishu sync 自动知识抽取
 
-- 状态：TODO
+- 状态：DONE
 - 文件：`src/services/feishu-sync-scheduler.ts` 或新增服务、`src/tools/FeishuIngestTool/index.ts`、测试。
 - 实现说明：内容变化后自动触发受控知识抽取并更新上下文/记忆/日程。
 - 验证命令：`npm test -- src/tools/FeishuIngestTool/index.test.ts src/services/feishu-sync-scheduler.test.ts`
-- 完成标准：changed source 可产出 capture hint 或实际 capture 结果。
+- 完成标准：changed source 可产出 capture hint 或实际 capture 结果；当前实现为确定性轻量抽取并写入 OfficeContext。
 
 ## T7 JsonStore 原子写与坏文件备份
 
