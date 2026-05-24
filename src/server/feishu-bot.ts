@@ -26,6 +26,7 @@ import { FeishuRecipientStore } from '../services/feishu-recipient-store.js';
 import type { NotifyCallback } from '../services/notification-service.js';
 import { SerialMessageQueue } from '../services/serial-message-queue.js';
 import { createConfiguredLLM, resolveLLMProvider } from '../core/llm-provider.js';
+import { parseFeishuMessageEvent } from './feishu-message-parser.js';
 
 const log = logger.child('Feishu');
 const sdkLog = logger.child('FeishuSDK');
@@ -406,12 +407,15 @@ async function main() {
       logger: larkSdkLogger,
       loggerLevel: Lark.LoggerLevel.info,
     }).register({
-      'im.message.receive_v1': async (data: any) => {
-        const message = data.message;
-        const messageId = message.message_id;
-        const chatId = message.chat_id;
-        const senderId = data.sender?.sender_id?.open_id ?? 'unknown';
-        const msgType = message.message_type;
+      'im.message.receive_v1': async (data: unknown) => {
+        const parsed = parseFeishuMessageEvent(data);
+        if (!parsed.success) {
+          log.warn('飞书消息解析失败', { reason: parsed.reason });
+          return;
+        }
+
+        const parsedMessage = parsed.message;
+        const { messageId, chatId, senderId } = parsedMessage;
 
         // Dedup
         if (isDuplicate(messageId)) {
@@ -419,8 +423,7 @@ async function main() {
           return;
         }
 
-        // Only handle text, post, image, and audio messages
-        if (msgType !== 'text' && msgType !== 'post' && msgType !== 'image' && msgType !== 'audio') {
+        if (parsedMessage.kind === 'unsupported') {
           void larkClient.im.v1.message.create({
             params: { receive_id_type: 'chat_id' },
             data: {
@@ -432,19 +435,10 @@ async function main() {
           return;
         }
 
-        if (msgType === 'image') {
-          let imageKey = '';
-          try {
-            const content = JSON.parse(message.content);
-            imageKey = content.image_key ?? '';
-          } catch {
-            return;
-          }
-          if (!imageKey) return;
-
-          log.info(`收到图片消息 from ${senderId}`, { imageKey });
+        if (parsedMessage.kind === 'image') {
+          log.info(`收到图片消息 from ${senderId}`, { imageKey: parsedMessage.imageKey });
           void (async () => {
-            const image = await downloadFeishuImage(imageKey, messageId, getFeishuTenantToken);
+            const image = await downloadFeishuImage(parsedMessage.imageKey, messageId, getFeishuTenantToken);
             if (!image) {
               await larkClient.im.v1.message.create({
                 params: { receive_id_type: 'chat_id' },
@@ -463,27 +457,15 @@ async function main() {
           return;
         }
 
-        let cleanText: string;
-
-        if (msgType === 'audio') {
+        if (parsedMessage.kind === 'audio') {
           // Handle voice message: download audio → STT → text
-          const messageId = message.message_id;
-          let fileKey: string;
-          try {
-            const content = JSON.parse(message.content);
-            fileKey = content.file_key;
-          } catch {
-            return;
-          }
-          if (!fileKey) return;
-
-          log.info(`收到语音消息 from ${senderId}`, { fileKey });
+          log.info(`收到语音消息 from ${senderId}`, { fileKey: parsedMessage.fileKey });
 
           // Download audio file from Feishu
           void (async () => {
             try {
               const audioRes = await larkClient.im.v1.messageResource.get({
-                path: { message_id: messageId, file_key: fileKey },
+                path: { message_id: messageId, file_key: parsedMessage.fileKey },
                 params: { type: 'file' },
               });
 
@@ -511,7 +493,7 @@ async function main() {
                 // SDK v1.60+ returns a helper with writeFile method
                 // Fallback: use direct HTTP download
                 const token = await getFeishuTenantToken();
-                const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=file`;
+                const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${parsedMessage.fileKey}?type=file`;
                 const httpRes = await fetch(url, {
                   headers: { 'Authorization': `Bearer ${token}` },
                 });
@@ -521,7 +503,7 @@ async function main() {
               } else {
                 // Last resort: direct HTTP download
                 const token = await getFeishuTenantToken();
-                const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=file`;
+                const url = `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${parsedMessage.fileKey}?type=file`;
                 const httpRes = await fetch(url, {
                   headers: { 'Authorization': `Bearer ${token}` },
                 });
@@ -578,26 +560,8 @@ async function main() {
           return;
         }
 
-        // Text and post message handling
-        let text: string;
-        let imageKeys: string[] = [];
-        try {
-          const content = JSON.parse(message.content);
-          if (msgType === 'post') {
-            text = extractTextFromPost(content);
-            imageKeys = extractImageKeysFromPost(content);
-          } else {
-            text = content.text ?? '';
-          }
-        } catch {
-          text = message.content ?? '';
-        }
-
-        if (!text.trim() && imageKeys.length === 0) return;
-
-        // Strip @bot mention prefix
-        cleanText = text.replace(/@_user_\d+\s*/g, '').trim();
-        if (!cleanText && imageKeys.length === 0) return;
+        const cleanText = parsedMessage.cleanText;
+        const imageKeys = parsedMessage.kind === 'post' ? parsedMessage.imageKeys : [];
 
         log.info(`收到消息 from ${senderId}: ${cleanText.slice(0, 80)}`, { imageCount: imageKeys.length });
 
@@ -660,45 +624,6 @@ async function downloadFeishuImage(
     log.error('飞书图片下载异常', { imageKey, error: err instanceof Error ? err.message : String(err) });
     return null;
   }
-}
-
-function extractImageKeysFromPost(content: any): string[] {
-  const keys: string[] = [];
-  const locales = content.zh_cn ?? content.en_us ?? content.ja_jp ?? content;
-  const paragraphs: any[][] = locales?.content ?? [];
-  for (const paragraph of paragraphs) {
-    if (!Array.isArray(paragraph)) continue;
-    for (const element of paragraph) {
-      if (element?.tag === 'img' && element.image_key) {
-        keys.push(element.image_key);
-      }
-    }
-  }
-  return keys;
-}
-
-function extractTextFromPost(content: any): string {
-  const parts: string[] = [];
-  const locales = content.zh_cn ?? content.en_us ?? content.ja_jp ?? content;
-  const title = locales?.title;
-  if (title) parts.push(title);
-
-  const paragraphs: any[][] = locales?.content ?? [];
-  for (const paragraph of paragraphs) {
-    if (!Array.isArray(paragraph)) continue;
-    for (const element of paragraph) {
-      if (element?.tag === 'text' && element.text) {
-        parts.push(element.text);
-      } else if (element?.tag === 'a' && element.text) {
-        const href = element.href ? ` (${element.href})` : '';
-        parts.push(element.text + href);
-      } else if (element?.tag === 'at' && element.user_name) {
-        parts.push(`@${element.user_name}`);
-      }
-    }
-  }
-
-  return parts.join(' ').trim();
 }
 
 /** Split long text into chunks for Feishu message limit */

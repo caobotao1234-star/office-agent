@@ -26,11 +26,11 @@
 
 ## T3 飞书消息入口强类型化
 
-- 状态：TODO
+- 状态：DONE
 - 文件：`src/server/feishu-message-parser.ts`、`src/server/feishu-bot.ts`、测试。
 - 实现说明：抽离文本、富文本、图片、语音、不支持类型解析，减少 bot 主文件手写 any。
 - 验证命令：`npm test -- src/server/feishu-message-parser.test.ts && npm run typecheck`
-- 完成标准：fake 飞书事件可被稳定解析。
+- 完成标准：fake 飞书事件可被稳定解析；bot 主入口改为消费统一解析结果。
 
 ## T4 Lark CLI 知识缓存
 
