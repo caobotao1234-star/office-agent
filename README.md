@@ -16,12 +16,15 @@ echo "DASHSCOPE_API_KEY=sk-你的key" > .env
 # DEEPSEEK_API_KEY=sk-你的deepseek-key
 # DEEPSEEK_MODEL=deepseek-v4-pro
 
-# 2b. 配置官方飞书 CLI（用于 Agent 操作飞书）
-npm run lark -- --profile alice config init
+# 2b. 查看飞书接入向导（CLI profile、bot、多用户配置）
+npx tsx src/cli/index.ts setup feishu
+
+# 2c. 配置官方飞书 CLI（用于 Agent 操作飞书）
+npm run lark -- config init --name alice --new --brand feishu
 npm run lark -- --profile alice auth login --recommend --domain all
 npm run lark -- --profile alice auth status
 
-# 2c.（可选）配置飞书机器人 WebSocket 对话入口
+# 2d.（可选）配置飞书机器人 WebSocket 对话入口
 # 单用户旧写法：
 # FEISHU_APP_ID=cli_xxx
 # FEISHU_APP_SECRET=xxx
@@ -77,6 +80,7 @@ npx tsx src/cli/index.ts tasks     # 查看任务列表
 npx tsx src/cli/index.ts config    # 查看配置
 npx tsx src/cli/index.ts usage     # 查看 token 用量
 npx tsx src/cli/index.ts doctor    # 自检本地配置、模型能力和飞书 CLI
+npx tsx src/cli/index.ts setup feishu # 飞书接入向导
 npx tsx src/cli/index.ts feishu    # 官方 lark-cli 桥接
 npx tsx src/cli/index.ts -h        # 帮助
 ```
@@ -87,13 +91,18 @@ npx tsx src/cli/index.ts -h        # 帮助
 
 ```bash
 # 查看配置流程
+npx tsx src/cli/index.ts setup feishu
 npx tsx src/cli/index.ts feishu setup
 
-# 初始化或绑定飞书开放平台应用
-npx tsx src/cli/index.ts feishu config init
+# 初始化或绑定飞书开放平台应用。新 profile 需要先创建/绑定，再 auth login。
+npm run lark -- config init --name alice --new --brand feishu
+# 或使用已有 App ID/Secret：
+# read -s FEISHU_APP_SECRET
+# printf '%s' "$FEISHU_APP_SECRET" | npm run lark -- profile add --name alice --app-id cli_xxx --app-secret-stdin --brand feishu
+# unset FEISHU_APP_SECRET
 
 # 用户身份授权；需要秘书式能力时，按计划使用范围开通对应读写权限
-npx tsx src/cli/index.ts feishu login
+npm run lark -- --profile alice auth login --recommend --domain all
 
 # 多用户时直接使用官方 CLI profile
 npm run lark -- --profile alice auth login --recommend --domain all
@@ -244,14 +253,29 @@ Agenda 不会每分钟调用 LLM。Agent 只在对话中认为有明确时间点
 | 多维表格/Base 读写权限 | 读取和维护业务表格、项目库、知识库索引 |
 | `contact:user.base:readonly` | 读取用户基本信息 |
 
-5. 为每个用户准备官方 CLI profile，并完成授权：
+5. 查看本地向导：
 
 ```bash
+npx tsx src/cli/index.ts setup feishu
+```
+
+6. 为每个用户准备官方 CLI profile，并完成授权：
+
+```bash
+npm run lark -- config init --name alice --new --brand feishu
 npm run lark -- --profile alice auth login --recommend --domain all
 npm run lark -- --profile bob auth login --recommend --domain all
 ```
 
-6. 单用户可在 `.env` 中添加：
+如果已经有开放平台应用，先添加 profile：
+
+```bash
+read -s FEISHU_APP_SECRET
+printf '%s' "$FEISHU_APP_SECRET" | npm run lark -- profile add --name alice --app-id cli_xxx --app-secret-stdin --brand feishu
+unset FEISHU_APP_SECRET
+```
+
+7. 单用户可在 `.env` 中添加：
 
 ```env
 FEISHU_APP_ID=cli_xxx
@@ -259,10 +283,11 @@ FEISHU_APP_SECRET=xxx
 FEISHU_CLI_PROFILE=alice
 ```
 
-7. 多用户推荐在 `.env` 中添加：
+8. 多用户推荐在 `.env` 中添加：
 
 ```env
 FEISHU_MULTI_USER_CONFIG=./feishu-users.json
+FEISHU_APP_SECRET_MY_COMPANY=xxx
 ```
 
 并复制示例配置后填写真实信息：
@@ -279,7 +304,7 @@ cp feishu-users.example.json feishu-users.json
     {
       "key": "alice-app",
       "appId": "cli_xxx",
-      "appSecret": "xxx",
+      "appSecret": "${FEISHU_APP_SECRET_MY_COMPANY}",
       "users": [
         { "openId": "ou_xxx", "cliProfile": "alice", "label": "Alice" }
       ]
@@ -290,6 +315,8 @@ cp feishu-users.example.json feishu-users.json
 
 `key` 是本地隔离用的稳定名称；`openId` 是飞书消息事件里的发送者 open_id；`cliProfile` 是本机 `lark-cli --profile` 名称。默认不会让未写入 `users` 的人使用 `defaultCliProfile`，避免别人和这个 bot 对话时误用你的 CLI 授权。
 
+`appSecret` 推荐写成 `${ENV_NAME}`，真实 secret 放在 `.env` 或系统环境变量里，避免把密钥写进 JSON。缺少对应环境变量时，`npm run feishu` 和 `oa doctor` 会直接报出缺哪个变量。
+
 如果你刚换了飞书企业，需要给新企业重新做 CLI 授权：
 
 ```bash
@@ -299,7 +326,7 @@ npm run lark -- --profile alice auth status
 
 登录页里选择新的飞书企业；`auth status` 里 user 身份可用后，再把新企业消息事件中的 `open_id` 写进 `feishu-users.json`。
 
-8. `npm run feishu` 启动；启动前可运行 `npx tsx src/cli/index.ts doctor` 或全局安装后运行 `oa doctor` 检查配置。
+9. `npm run feishu` 启动；启动前可运行 `npx tsx src/cli/index.ts doctor` 或全局安装后运行 `oa doctor` 检查配置。`oa doctor` 会抽样 profile 做一次飞书文档只读搜索探测；如只想检查本地配置，可临时设置 `OFFICE_AGENT_DOCTOR_SKIP_FEISHU_PROBES=1`。
 
 ### 功能特性
 

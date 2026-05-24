@@ -3,7 +3,7 @@
     {
       "key": "alice-app",
       "appId": "cli_xxx",
-      "appSecret": "replace-with-app-secret",
+      "appSecret": "${FEISHU_APP_SECRET_ALICE}",
       "users": [
         {
           "openId": "ou_xxx",
@@ -15,7 +15,7 @@
     {
       "key": "team-app",
       "appId": "cli_yyy",
-      "appSecret": "replace-with-app-secret",
+      "appSecret": "${FEISHU_APP_SECRET_TEAM}",
       "users": [
         {
           "openId": "ou_aaa",

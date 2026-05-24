@@ -116,8 +116,17 @@ describe('doctor', () => {
 
     expect(seenArgs).toContainEqual(['--profile', 'alice', 'auth', 'status']);
     expect(seenArgs).toContainEqual(['--profile', 'bob', 'auth', 'status']);
+    expect(seenArgs).toContainEqual([
+      '--profile', 'alice',
+      'docs', '+search',
+      '--query', 'OfficeAgentDoctorProbe',
+      '--page-size', '1',
+      '--as', 'user',
+      '--format', 'json',
+    ]);
     expect(report.checks.find((check) => check.name === '飞书机器人配置')?.detail).toContain('users=2');
     expect(report.checks.find((check) => check.name === 'lark-cli auth')?.detail).toContain('bob');
+    expect(report.checks.find((check) => check.name === '飞书 CLI 读权限探测')?.detail).toContain('bob');
   });
 
   it('flags invalid provider configuration', async () => {

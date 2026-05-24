@@ -3,6 +3,7 @@
  */
 import { runLarkCliInteractive } from '../../services/lark-cli-runner.js';
 import { logger } from '../../core/logger.js';
+import { buildFeishuSetupGuide } from './setup.js';
 
 const HELP = `
 Office Agent 飞书 CLI 桥接
@@ -25,24 +26,7 @@ Office Agent 飞书 CLI 桥接
 `.trim();
 
 const SETUP = `
-飞书 CLI 首次配置流程:
-
-1. 初始化或绑定飞书开放平台应用:
-   oa feishu config init
-
-2. 登录用户身份:
-   oa feishu login
-
-3. 检查授权状态:
-   oa feishu status
-
-4. 运行健康检查:
-   oa feishu doctor
-
-5. 回到 Agent:
-   oa chat
-
-在 Agent 里直接说“读取这个飞书文档 ...”或“把这段内容写入飞书文档 ...”，Agent 会调用 LarkCli 工具执行。
+提示：也可以运行 oa setup feishu 查看同一套配置向导。
 `.trim();
 
 export async function feishu(rawArgs: string[]): Promise<void> {
@@ -61,6 +45,8 @@ export async function feishu(rawArgs: string[]): Promise<void> {
 
   if (args[0] === 'setup') {
     console.log(SETUP);
+    console.log('');
+    console.log(await buildFeishuSetupGuide());
     return;
   }
 

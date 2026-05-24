@@ -54,13 +54,18 @@ export function loadFeishuMultiUserConfig(
     const resolvedPath = path.isAbsolute(configPath) ? configPath : path.resolve(cwd, configPath);
     const raw = readJsonConfig(resolvedPath);
     const parsed = FeishuMultiUserConfigSchema.parse(raw);
-    const apps = parsed.apps.filter((app) => app.enabled);
+    const apps = parsed.apps
+      .filter((app) => app.enabled)
+      .map((app) => ({
+        ...app,
+        appSecret: resolveEnvReference(app.appSecret, env, `apps.${app.key}.appSecret`),
+      }));
     validateUniqueApps(apps);
     return { source: 'file', configPath: resolvedPath, apps };
   }
 
   const appId = getOptionalEnv(env, 'FEISHU_APP_ID');
-  const appSecret = getOptionalEnv(env, 'FEISHU_APP_SECRET');
+  const appSecret = resolveOptionalEnvReference(getOptionalEnv(env, 'FEISHU_APP_SECRET'), env, 'FEISHU_APP_SECRET');
   if (!appId || !appSecret) {
     throw new Error('缺少飞书配置：请设置 FEISHU_MULTI_USER_CONFIG，或设置 FEISHU_APP_ID 和 FEISHU_APP_SECRET。');
   }
@@ -118,11 +123,23 @@ export function safeFeishuUserKey(userKey: string): string {
 }
 
 export function buildMissingCliProfileProblem(appKey: string, openId: string): string {
+  const snippet = buildFeishuUserBindingSnippet(openId);
   return [
-    `当前飞书用户没有绑定 lark-cli profile（app=${appKey}, openId=${maskOpenId(openId)}）。`,
-    '请在 FEISHU_MULTI_USER_CONFIG 指向的 JSON 中为该 open_id 配置 cliProfile，',
-    '并运行 lark-cli --profile <profile> auth login 完成授权。',
-  ].join('');
+    `当前飞书用户没有绑定 lark-cli profile（app=${appKey}, openId=${openId}）。`,
+    '请把下面这段加入 FEISHU_MULTI_USER_CONFIG 指向的 JSON 中对应 app 的 users 数组：',
+    '```json',
+    snippet,
+    '```',
+    '然后运行 lark-cli --profile <profile> auth login 完成授权，或让管理员绑定已有 profile。',
+  ].join('\n');
+}
+
+export function buildFeishuUserBindingSnippet(openId: string, cliProfile = '填写该用户本机 lark-cli profile', label = '填写用户名字'): string {
+  return JSON.stringify({
+    openId,
+    cliProfile,
+    label,
+  }, null, 2);
 }
 
 function readJsonConfig(filePath: string): unknown {
@@ -158,6 +175,28 @@ function validateUniqueApps(apps: FeishuAppConfig[]): void {
 function getOptionalEnv(env: NodeJS.ProcessEnv, key: string): string | undefined {
   const value = env[key]?.trim();
   return value ? value : undefined;
+}
+
+function resolveOptionalEnvReference(
+  value: string | undefined,
+  env: NodeJS.ProcessEnv,
+  label: string,
+): string | undefined {
+  return value ? resolveEnvReference(value, env, label) : undefined;
+}
+
+export function resolveEnvReference(value: string, env: NodeJS.ProcessEnv = process.env, label = 'value'): string {
+  const trimmed = value.trim();
+  const braced = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(trimmed);
+  const simple = /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(trimmed);
+  const envName = braced?.[1] ?? simple?.[1];
+  if (!envName) return value;
+
+  const resolved = getOptionalEnv(env, envName);
+  if (!resolved) {
+    throw new Error(`${label} 引用了环境变量 ${envName}，但该变量未配置。请在 .env 或系统环境变量中设置它。`);
+  }
+  return resolved;
 }
 
 function maskOpenId(openId: string): string {

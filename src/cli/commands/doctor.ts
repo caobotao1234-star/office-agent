@@ -53,8 +53,73 @@ export async function runDoctorChecks(options: DoctorOptions = {}): Promise<Doct
   checks.push(checkWritableDir('日志目录', logDir));
   checks.push(await checkLarkCliVersion(runner));
   checks.push(await checkLarkCliAuth(runner, env, cwd));
+  checks.push(await checkFeishuCliReadProbe(runner, env, cwd));
 
   return { checks };
+}
+
+async function checkFeishuCliReadProbe(
+  runner: DoctorRunner,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+): Promise<DoctorCheck> {
+  if (isTruthy(env['OFFICE_AGENT_DOCTOR_SKIP_FEISHU_PROBES'])) {
+    return {
+      name: '飞书 CLI 读权限探测',
+      status: 'warn',
+      detail: 'skipped by OFFICE_AGENT_DOCTOR_SKIP_FEISHU_PROBES',
+    };
+  }
+
+  const profiles = collectConfiguredCliProfiles(env, cwd);
+  if (profiles.length === 0) {
+    return {
+      name: '飞书 CLI 读权限探测',
+      status: 'warn',
+      detail: 'no configured cli profiles',
+      advice: '配置 FEISHU_CLI_PROFILE 或 FEISHU_MULTI_USER_CONFIG 后可探测飞书读权限。',
+    };
+  }
+
+  const sampled = profiles.slice(0, 3);
+  const results = await Promise.all(sampled.map(async (profile) => {
+    const args = [
+      '--profile', profile,
+      'docs', '+search',
+      '--query', 'OfficeAgentDoctorProbe',
+      '--page-size', '1',
+      '--as', 'user',
+      '--format', 'json',
+    ];
+    try {
+      const result = await runner(args, { timeoutMs: 12_000, maxOutputBytes: 16_384 });
+      const ok = result.exitCode === 0 && !result.timedOut && !result.aborted;
+      return {
+        profile,
+        ok,
+        detail: summarizeProbeOutput(result),
+      };
+    } catch (err) {
+      return { profile, ok: false, detail: err instanceof Error ? err.message : String(err) };
+    }
+  }));
+
+  const failed = results.filter((result) => !result.ok);
+  const suffix = profiles.length > sampled.length ? `; sampled=${sampled.length}/${profiles.length}` : '';
+  if (failed.length === 0) {
+    return {
+      name: '飞书 CLI 读权限探测',
+      status: 'ok',
+      detail: `docs search probe ok: ${sampled.join(', ')}${suffix}`,
+    };
+  }
+
+  return {
+    name: '飞书 CLI 读权限探测',
+    status: 'warn',
+    detail: `probe failed: ${failed.map((result) => `${result.profile}(${result.detail})`).join('; ')}${suffix}`,
+    advice: '检查该 profile 是否已 auth login、开放平台是否开通 docs 搜索/读取权限、应用是否已发布并在正确企业下授权。',
+  };
 }
 
 export function formatDoctorReport(report: DoctorReport): string {
@@ -307,6 +372,18 @@ function summarizeAuthStatus(output: string): string {
   } catch {
     return output.length > 500 ? `${output.slice(0, 500)}...` : output;
   }
+}
+
+function summarizeProbeOutput(result: LarkCliRunResult): string {
+  if (result.timedOut) return 'timeout';
+  if (result.aborted) return 'aborted';
+  const output = (result.stderr || result.stdout || '').trim();
+  const summary = output.length > 240 ? `${output.slice(0, 240)}...` : output;
+  return summary || `exitCode=${result.exitCode}`;
+}
+
+function isTruthy(value: string | undefined): boolean {
+  return ['1', 'true', 'yes', 'on'].includes((value ?? '').trim().toLowerCase());
 }
 
 function maskId(value: string | undefined): string {

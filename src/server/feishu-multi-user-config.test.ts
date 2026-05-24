@@ -3,8 +3,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  buildFeishuUserBindingSnippet,
   loadFeishuMultiUserConfig,
   resolveFeishuUser,
+  resolveEnvReference,
   safeFeishuUserKey,
 } from './feishu-multi-user-config.js';
 
@@ -85,6 +87,59 @@ describe('feishu multi-user config', () => {
     expect(resolved.userKey).toBe('default:ou_legacy');
     expect(resolved.cliProfile).toBe('legacy-user');
     expect(resolved.configured).toBe(true);
+  });
+
+  it('resolves appSecret environment references in multi-user config', () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, 'feishu-users.json'), JSON.stringify({
+      apps: [
+        {
+          key: 'team-app',
+          appId: 'cli_team',
+          appSecret: '${FEISHU_APP_SECRET_TEAM}',
+          users: [{ openId: 'ou_alice', cliProfile: 'alice' }],
+        },
+        {
+          key: 'team-app-2',
+          appId: 'cli_team_2',
+          appSecret: '$FEISHU_APP_SECRET_TEAM_2',
+          users: [{ openId: 'ou_bob', cliProfile: 'bob' }],
+        },
+      ],
+    }), 'utf-8');
+
+    const config = loadFeishuMultiUserConfig({
+      FEISHU_MULTI_USER_CONFIG: './feishu-users.json',
+      FEISHU_APP_SECRET_TEAM: 'secret-from-env',
+      FEISHU_APP_SECRET_TEAM_2: 'secret-from-simple-env',
+    }, dir);
+
+    expect(config.apps[0]?.appSecret).toBe('secret-from-env');
+    expect(config.apps[1]?.appSecret).toBe('secret-from-simple-env');
+  });
+
+  it('fails clearly when an appSecret environment reference is missing', () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, 'feishu-users.json'), JSON.stringify({
+      apps: [
+        { key: 'team-app', appId: 'cli_team', appSecret: '${MISSING_SECRET}', users: [] },
+      ],
+    }), 'utf-8');
+
+    expect(() => loadFeishuMultiUserConfig({
+      FEISHU_MULTI_USER_CONFIG: './feishu-users.json',
+    }, dir)).toThrow('MISSING_SECRET');
+  });
+
+  it('builds copyable unknown user binding snippets', () => {
+    const snippet = buildFeishuUserBindingSnippet('ou_new_user');
+    expect(JSON.parse(snippet)).toEqual({
+      openId: 'ou_new_user',
+      cliProfile: '填写该用户本机 lark-cli profile',
+      label: '填写用户名字',
+    });
+    expect(resolveEnvReference('${SECRET_NAME}', { SECRET_NAME: 'resolved' })).toBe('resolved');
+    expect(resolveEnvReference('plain-secret', {})).toBe('plain-secret');
   });
 
   it('rejects duplicate app keys and duplicate users', () => {
