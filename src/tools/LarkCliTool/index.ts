@@ -175,10 +175,13 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       };
     }
 
-    const result = await this.runner(profileArgs, {
+    const { result, retry } = await runLarkCliWithRetry(this.runner, profileArgs, {
       stdin: input.stdin,
       timeoutMs: input.timeoutMs,
       abortSignal: context.abortSignal,
+    }, {
+      actualWrite: commandNeedsGuidance,
+      commandKey,
     });
 
     const output = {
@@ -190,6 +193,9 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       timedOut: result.timedOut,
       aborted: result.aborted,
       truncated: result.truncated,
+      attempts: retry.attempts,
+      retried: retry.retried,
+      ...(retry.skippedReason ? { retrySkippedReason: retry.skippedReason } : {}),
     };
 
     if (result.exitCode === 0 && commandKey && isGuidanceCommand(input.args)) {
@@ -404,4 +410,122 @@ function requiredFlags(args: string[], flags: string[]): string[] {
 
 function hasFlag(args: string[], flag: string): boolean {
   return args.some((arg) => arg === flag || arg.startsWith(`${flag}=`));
+}
+
+interface RetryState {
+  attempts: number;
+  retried: boolean;
+  skippedReason?: string;
+}
+
+async function runLarkCliWithRetry(
+  runner: LarkCliRunner,
+  args: string[],
+  options: LarkCliRunOptions,
+  policy: { actualWrite: boolean; commandKey: string | null },
+): Promise<{ result: LarkCliRunResult; retry: RetryState }> {
+  const maxAttempts = getRetryAttempts();
+  const retry: RetryState = { attempts: 0, retried: false };
+  let lastResult: LarkCliRunResult | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const result = await runner(args, options);
+    retry.attempts = attempt;
+    lastResult = result;
+
+    if (isSuccessfulResult(result)) return { result, retry };
+    const decision = getRetryDecision(result, policy.actualWrite, attempt, maxAttempts);
+    if (!decision.retry) {
+      if (decision.reason) retry.skippedReason = decision.reason;
+      return { result, retry };
+    }
+
+    retry.retried = true;
+    log.warn('retrying lark-cli command after transient failure', {
+      commandKey: policy.commandKey,
+      attempt,
+      maxAttempts,
+      actualWrite: policy.actualWrite,
+      reason: decision.reason,
+    });
+    await sleep(getRetryBackoffMs(attempt));
+  }
+
+  return { result: lastResult!, retry };
+}
+
+function getRetryDecision(
+  result: LarkCliRunResult,
+  actualWrite: boolean,
+  attempt: number,
+  maxAttempts: number,
+): { retry: boolean; reason?: string } {
+  if (attempt >= maxAttempts) return { retry: false };
+  if (result.aborted) return { retry: false };
+  const text = `${result.stderr}\n${result.stdout}`;
+  if (!isTransientLarkCliFailure(result, text)) return { retry: false };
+
+  if (!actualWrite) return { retry: true, reason: 'transient_read_or_guidance_failure' };
+  if (isSafeBeforeRequestFailure(text)) return { retry: true, reason: 'transient_before_request_failure' };
+  return {
+    retry: false,
+    reason: '检测到疑似瞬时故障，但这是写操作；为避免重复副作用，未自动重试。请先检查目标状态后再继续。',
+  };
+}
+
+function isSuccessfulResult(result: LarkCliRunResult): boolean {
+  return result.exitCode === 0 && !result.timedOut && !result.aborted;
+}
+
+function isTransientLarkCliFailure(result: LarkCliRunResult, text: string): boolean {
+  if (result.timedOut) return true;
+  return [
+    /no such host/i,
+    /lookup .*:.* no such/i,
+    /\bENOTFOUND\b/i,
+    /\bEAI_AGAIN\b/i,
+    /\bECONNRESET\b/i,
+    /\bECONNREFUSED\b/i,
+    /\bETIMEDOUT\b/i,
+    /network is unreachable/i,
+    /connection refused/i,
+    /unexpected EOF/i,
+    /\bEOF\b/i,
+    /\bHTTP 502\b/i,
+    /\bHTTP 503\b/i,
+    /\bHTTP 504\b/i,
+    /502 Bad Gateway/i,
+    /503 Service Unavailable/i,
+    /504 Gateway Timeout/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+function isSafeBeforeRequestFailure(text: string): boolean {
+  return [
+    /no such host/i,
+    /lookup .*:.* no such/i,
+    /\bENOTFOUND\b/i,
+    /\bEAI_AGAIN\b/i,
+    /\bECONNREFUSED\b/i,
+    /connection refused/i,
+    /network is unreachable/i,
+    /proxyconnect tcp/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+function getRetryAttempts(): number {
+  const raw = Number(process.env['OFFICE_AGENT_LARK_CLI_RETRY_ATTEMPTS']);
+  if (!Number.isFinite(raw) || raw <= 0) return 3;
+  return Math.min(5, Math.max(1, Math.floor(raw)));
+}
+
+function getRetryBackoffMs(attempt: number): number {
+  const raw = Number(process.env['OFFICE_AGENT_LARK_CLI_RETRY_BASE_MS']);
+  const base = Number.isFinite(raw) && raw >= 0 ? raw : 50;
+  return base * attempt;
+}
+
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

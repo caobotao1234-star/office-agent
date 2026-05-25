@@ -169,6 +169,10 @@ Base 命令通常不支持 `--format json`，创建 Base 用 `--name`，不是 `
 
 日志默认写入当前工程目录 `logs/agent-YYYY-MM-DD.log`，也会同时打印到终端。可以通过 `.env` 设置 `LOG_LEVEL=debug` 和 `OFFICE_AGENT_LOG_DIR=./logs` 调整。
 
+`npm run feishu` 启动前会做强校验：读取 `feishu-users.json`、检查每个 `cliProfile` 是否存在、profile 是否属于对应 App ID、`auth status` 是否可用。检查失败会直接退出，避免 bot 在线但真正读写飞书时才失败。临时排障可以设置 `OFFICE_AGENT_FEISHU_PREFLIGHT_SKIP_AUTH=1` 跳过 auth 探测，但不建议长期使用。
+
+`LarkCli` 对瞬时网络错误有有限重试：读取、`--help`、`--dry-run` 会重试；真实写操作只在 DNS/连接拒绝这类请求未到达服务端的低风险错误上重试。像 EOF/timeout 这类可能已经产生副作用的写失败不会盲目重试，Agent 会提示先检查目标状态。
+
 本地排查可以直接用 `oa debug`，它只读取本机文件，不调用 LLM，也不会显示飞书 appSecret：
 
 ```bash
@@ -180,6 +184,20 @@ npx tsx src/cli/index.ts debug logs --tail 120
 ```
 
 工具调用默认最多 30 轮，避免复杂办公任务因为旧的 10 轮预算过早中断；如果确实需要更长任务，可以设置 `OFFICE_AGENT_MAX_TOOL_ROUNDS=50`。系统会阻止重复调用完全相同工具和参数，达到上限时会明确告诉你任务未完成，而不是假装成功。
+
+长任务中断后，可以输入：
+
+```text
+/resume
+```
+
+或者直接说：
+
+```text
+继续刚才的任务
+```
+
+Agent 会读取最近一次失败/部分完成/运行中的 `operation-ledger.json`，基于上一轮请求和工具结果继续，并避免重复已成功的非幂等写操作。
 
 ## 对话中的斜杠命令
 
@@ -203,6 +221,7 @@ npx tsx src/cli/index.ts debug logs --tail 120
 | `/usage` | 查看 token 用量 |
 | `/usage detail` | 查看详细用量（按模型/环节） |
 | `/debug last` | 查看最近一轮任务账本和工具调用摘要 |
+| `/resume` | 继续上一轮中断、失败或部分完成的任务 |
 | `/db tasks` | 直接查数据库任务（不经过 LLM） |
 | `/db projects` | 直接查数据库项目 |
 | `/db memories` | 直接查数据库记忆 |

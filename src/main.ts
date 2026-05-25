@@ -424,7 +424,7 @@ async function* handleMessage(
 
   const activityStatus = agent.awaySummaryEngine.checkUserActivity();
   if (activityStatus.isAway) {
-      const messages = [...agent.queryEngine.getMessages()];
+    const messages = [...agent.queryEngine.getMessages()];
     const ac = new AbortController();
     try {
       const summary = await agent.awaySummaryEngine.generateSummary(messages, ac.signal);
@@ -436,6 +436,11 @@ async function* handleMessage(
     }
   }
   agent.awaySummaryEngine.recordActivity();
+
+  if (!images?.length && isResumeRequest(input)) {
+    yield* handleBuiltinCommand(agent, 'resume', input);
+    return;
+  }
 
   if (isSlashCommand(input)) {
     yield* handleSlashCommand(agent, input);
@@ -465,7 +470,7 @@ async function* handleSlashCommand(
 
   const mapping = resolveCommand(parsed.command);
   if (!mapping) {
-    yield { type: 'text', content: `未知命令: /${parsed.command}。可用命令: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /sync, /wiki, /project, /memory, /cron, /usage, /debug, /help, /db, /reset, /undo` };
+    yield { type: 'text', content: `未知命令: /${parsed.command}。可用命令: /tasks, /remind, /daily-report, /weekly-report, /meeting-notes, /task-breakdown, /feishu-sync, /sync, /wiki, /project, /memory, /cron, /usage, /debug, /resume, /help, /db, /reset, /undo` };
     yield { type: 'done' };
     return;
   }
@@ -520,6 +525,17 @@ async function* handleBuiltinCommand(
       return;
     }
 
+    case 'resume': {
+      const prompt = agent.operationLedger.formatResumePrompt(args);
+      if (!prompt) {
+        yield { type: 'text', content: '暂无可恢复的中断任务。' };
+        yield { type: 'done' };
+        return;
+      }
+      yield* agent.queryEngine.submitMessage(prompt);
+      return;
+    }
+
     case 'help': {
       yield {
         type: 'text',
@@ -545,6 +561,7 @@ async function* handleBuiltinCommand(
           '  /usage detail       查看详细用量',
           '  /stats              查看工具/技能使用统计',
           '  /debug last         查看最近一轮调试摘要',
+          '  /resume             继续上一轮中断/失败的任务',
           '  /db tasks           直接查数据库任务',
           '  /db projects        直接查数据库项目',
           '  /db memories        直接查数据库记忆',
@@ -716,6 +733,18 @@ async function* handleBuiltinCommand(
       yield { type: 'text', content: `未知内置命令: ${target}` };
       yield { type: 'done' };
   }
+}
+
+function isResumeRequest(input: string): boolean {
+  const normalized = input.trim().replace(/\s+/g, '');
+  return [
+    '继续刚才的任务',
+    '继续刚才任务',
+    '继续上一步',
+    '继续完成上一步',
+    '继续之前的任务',
+    '恢复刚才的任务',
+  ].includes(normalized);
 }
 
 async function* handleSkillTrigger(

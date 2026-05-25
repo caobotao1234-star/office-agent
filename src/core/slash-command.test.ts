@@ -79,6 +79,7 @@ describe('resolveCommand', () => {
     expect(resolveCommand('sync')).toEqual({ type: 'builtin', target: 'sync' });
     expect(resolveCommand('wiki')).toEqual({ type: 'builtin', target: 'wiki' });
     expect(resolveCommand('debug')).toEqual({ type: 'builtin', target: 'debug' });
+    expect(resolveCommand('resume')).toEqual({ type: 'builtin', target: 'resume' });
   });
 
   it('resolves known skill commands', () => {

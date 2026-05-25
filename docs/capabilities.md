@@ -11,6 +11,7 @@
 | 飞书接入向导 | `oa setup feishu` | CLI -> lark-cli profile list -> 配置建议 | 读取 profile 失败时输出默认引导 | unit |
 | 飞书 quickstart | `oa setup feishu quickstart` | profile list + recipients + feishu-users.json -> 自动绑定 openId/profile | 信息不唯一时只输出候选项和推荐命令；不打印 appSecret | unit |
 | 本地 debug 面板 | `oa debug users` / `oa debug last --user app:openId` | CLI -> 本地数据目录/日志/OperationLedger | 不调用 LLM；配置错误时输出可排查信息且不显示 secret | unit |
+| 任务中断恢复 | `/resume` 或“继续刚才的任务” | OperationLedger -> 恢复提示 -> QueryEngine | 无可恢复任务时直接说明；恢复时避免重复已成功的非幂等写操作 | unit |
 | 飞书文本私聊/群聊 | “提醒我 10 分钟后开会” | Feishu WS -> per-user queue -> OfficeAgent -> AgendaTool | 前序任务未完成时排队提示 | unit + manual |
 | 飞书富文本 | 富文本含文字和图片 | parser -> image download -> OfficeAgent(text, images) | 图片下载失败时继续处理文字或提示失败 | unit |
 | 飞书图片 | 只发送一张图 | parser -> image download -> vision model | 纯文本模型提示不支持图片并忽略图片 | unit + replay |
@@ -29,6 +30,8 @@
 | 日历/会议/任务/联系人 | “查今天日程” | LarkCli 对应 shortcut 或 raw API | 不猜 flags，先 help/schema | manual |
 | 飞书同步源 | “持续关注这个项目文档” | FeishuIngestTool addSource/syncAll | sync 失败记录 lastError | unit |
 | 用户级 CLI 授权 | “写到我的云文档” | ToolContext.larkCliProfile -> lark-cli --profile PROFILE | 无 profile 时快速失败，不落到其他用户授权 | unit |
+| 启动前强校验 | `npm run feishu` | feishu-users.json -> lark-cli profile list/auth status -> fail fast | 缺 profile、授权异常、appId 不匹配时拒绝启动；明文 secret 只 warn 且不打印 secret | unit |
+| 写操作稳定重试 | 任意飞书 CLI 写入 | LarkCliTool -> retry policy -> lark-cli | 只重试安全的瞬时网络失败；可能已发出请求的失败不盲目重试，避免重复写 | unit + replay |
 | CLI profile 诊断 | `oa doctor` | profile auth status + docs search read probe | 探测失败时 warn 并给出权限/授权建议 | unit |
 | CLI 回放测试 | fake runner | LarkCliTool -> injected runner | 不依赖真实飞书，验证 help/dry-run、profile 注入和已知错误拦截 | unit + replay |
 
@@ -89,6 +92,7 @@ npm run eval:replay
 ```bash
 npm test -- src/server/feishu-message-parser.test.ts src/services/serial-message-queue.test.ts
 npm test -- src/server/feishu-multi-user-config.test.ts src/services/feishu-recipient-store.test.ts
+npm test -- src/services/feishu-startup-preflight.test.ts
 ```
 
 涉及 CLI 指令时额外检查：
@@ -96,4 +100,10 @@ npm test -- src/server/feishu-multi-user-config.test.ts src/services/feishu-reci
 ```bash
 npm test -- src/tools/LarkCliTool/index.test.ts src/services/lark-cli-runner.test.ts
 npm test -- src/cli/commands/debug.test.ts src/tools/LarkCliTool/index.replay.test.ts
+```
+
+涉及中断恢复时额外检查：
+
+```bash
+npm test -- src/core/operation-ledger.test.ts src/core/slash-command.test.ts
 ```

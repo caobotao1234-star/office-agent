@@ -52,6 +52,7 @@ export const COMMAND_MAP: Record<string, { type: 'tool' | 'skill' | 'builtin'; t
   tokens: { type: 'builtin', target: 'usage' },
   stats: { type: 'builtin', target: 'stats' },
   debug: { type: 'builtin', target: 'debug' },
+  resume: { type: 'builtin', target: 'resume' },
   sync: { type: 'builtin', target: 'sync' },
   wiki: { type: 'builtin', target: 'wiki' },
   help: { type: 'builtin', target: 'help' },

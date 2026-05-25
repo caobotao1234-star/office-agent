@@ -122,6 +122,65 @@ export class OperationLedger {
     return entry ? cloneEntry(entry) : undefined;
   }
 
+  getLastRecoverable(): OperationLedgerEntry | undefined {
+    const entry = [...this.entries].reverse().find((item) =>
+      item.status === 'running' ||
+      item.status === 'partial' ||
+      item.status === 'failed' ||
+      item.tools.some((tool) => tool.success === false || tool.success === undefined),
+    );
+    return entry ? cloneEntry(entry) : undefined;
+  }
+
+  formatResumePrompt(note?: string): string | null {
+    const entry = this.getLastRecoverable();
+    if (!entry) return null;
+
+    const lines = [
+      '继续完成上一轮未完成或失败的办公任务。',
+      '',
+      '# 上一轮任务摘要',
+      `turnId: ${entry.turnId}`,
+      `状态: ${formatStatus(entry.status)}`,
+      `模型: ${entry.model}`,
+      `开始: ${entry.startedAt.toISOString()}`,
+      ...(entry.finishedAt ? [`结束: ${entry.finishedAt.toISOString()}`] : []),
+      `用户原始请求: ${entry.userMessagePreview}`,
+      ...(entry.finalTextPreview ? [`上一轮回复摘要: ${entry.finalTextPreview}`] : []),
+      ...(entry.error ? [`上一轮错误: ${entry.error}`] : []),
+      '',
+      '# 工具执行记录',
+    ];
+
+    if (entry.tools.length === 0) {
+      lines.push('无工具记录。');
+    } else {
+      for (const [index, tool] of entry.tools.entries()) {
+        const status = tool.success === undefined ? 'running/unknown' : tool.success ? 'success' : 'failed';
+        lines.push(`${index + 1}. ${tool.name} ${status}`);
+        lines.push(`   input: ${tool.inputPreview}`);
+        if (tool.outputPreview) lines.push(`   output: ${tool.outputPreview}`);
+        if (tool.error) lines.push(`   error: ${tool.error}`);
+      }
+    }
+
+    if (note?.trim()) {
+      lines.push('', '# 用户补充说明', note.trim());
+    }
+
+    lines.push(
+      '',
+      '# 恢复要求',
+      '- 基于当前会话历史和上面的工具记录继续，不要从头重做。',
+      '- 不要重复已经 success 的非幂等写操作，例如创建文档、发送消息、创建 Base、写入记录。',
+      '- 如果需要确认已成功写入的对象，先读取/查询目标状态，再继续剩余步骤。',
+      '- 如果无法判断上一轮是否已经产生副作用，向用户说明风险并给出下一步最小验证动作。',
+      '- 完成后简短汇报哪些步骤已继续完成，哪些仍失败。',
+    );
+
+    return lines.join('\n');
+  }
+
   list(): OperationLedgerEntry[] {
     return this.entries.map(cloneEntry);
   }

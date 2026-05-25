@@ -41,4 +41,34 @@ describe('OperationLedger', () => {
     expect(ledger.list().map((entry) => entry.turnId)).not.toContain(first);
     expect(ledger.list()).toHaveLength(2);
   });
+
+  it('builds a resume prompt from the latest recoverable turn', () => {
+    const ledger = new OperationLedger(tmpFile());
+    const completed = ledger.startTurn({ userMessage: '已完成任务', model: 'm', now: new Date('2026-05-24T00:00:00.000Z') });
+    ledger.recordToolUse(completed, 'TaskManager', { action: 'list' });
+    ledger.recordToolResult(completed, 'TaskManager', { success: true, output: [] });
+    ledger.finishTurn(completed, { status: 'completed', finalText: '完成', now: new Date('2026-05-24T00:00:01.000Z') });
+
+    const failed = ledger.startTurn({ userMessage: '创建飞书 Base 并写入能力表', model: 'qwen-plus', now: new Date('2026-05-24T00:01:00.000Z') });
+    ledger.recordToolUse(failed, 'LarkCli', { args: ['base', '+base-create', '--name', '能力表'] });
+    ledger.recordToolResult(failed, 'LarkCli', { success: false, output: { stderr: 'unexpected EOF' }, error: 'lark-cli 退出码 1' });
+    ledger.finishTurn(failed, { status: 'partial', finalText: 'Base 创建失败', now: new Date('2026-05-24T00:01:02.000Z') });
+
+    const prompt = ledger.formatResumePrompt('先检查是否已经创建');
+
+    expect(ledger.getLastRecoverable()?.turnId).toBe(failed);
+    expect(prompt).toContain('继续完成上一轮');
+    expect(prompt).toContain('创建飞书 Base');
+    expect(prompt).toContain('不要重复已经 success 的非幂等写操作');
+    expect(prompt).toContain('先检查是否已经创建');
+  });
+
+  it('returns null when there is no recoverable turn', () => {
+    const ledger = new OperationLedger(tmpFile());
+    const turnId = ledger.startTurn({ userMessage: '列任务', model: 'm' });
+    ledger.finishTurn(turnId, { status: 'completed', finalText: '无任务' });
+
+    expect(ledger.getLastRecoverable()).toBeUndefined();
+    expect(ledger.formatResumePrompt()).toBeNull();
+  });
 });

@@ -35,6 +35,13 @@ function fakeRunner(calls: string[][]): LarkCliRunner {
   };
 }
 
+function failingResult(args: string[], stderr: string): LarkCliRunResult {
+  return {
+    ...larkResult(args, '', 1),
+    stderr,
+  };
+}
+
 describe('LarkCliTool replay', () => {
   it('blocks unguided writes, records help, then executes with the bound user profile', async () => {
     const calls: string[][] = [];
@@ -126,5 +133,80 @@ describe('LarkCliTool replay', () => {
     expect(badTable.success).toBe(false);
     expect(badTable.error).toContain('--base-token');
     expect(calls).toHaveLength(0);
+  });
+
+  it('retries read commands on transient lark-cli failures', async () => {
+    const originalBackoff = process.env['OFFICE_AGENT_LARK_CLI_RETRY_BASE_MS'];
+    process.env['OFFICE_AGENT_LARK_CLI_RETRY_BASE_MS'] = '0';
+    const calls: string[][] = [];
+    const tool = new LarkCliTool(tempKnowledgeBase(), async (args) => {
+      calls.push(args);
+      return calls.length === 1
+        ? failingResult(args, 'dial tcp: lookup open.feishu.cn: no such host')
+        : larkResult(args, '{"ok":true}');
+    });
+
+    const result = await tool.call(
+      { args: ['docs', '+fetch', '--doc', 'doc_x'], timeoutMs: 10_000 },
+      { abortSignal: new AbortController().signal, userConfig: {} as never },
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(JSON.stringify(result.output)).toContain('"attempts":2');
+    process.env['OFFICE_AGENT_LARK_CLI_RETRY_BASE_MS'] = originalBackoff;
+  });
+
+  it('retries actual writes only for low-risk before-request failures', async () => {
+    const originalBackoff = process.env['OFFICE_AGENT_LARK_CLI_RETRY_BASE_MS'];
+    process.env['OFFICE_AGENT_LARK_CLI_RETRY_BASE_MS'] = '0';
+    const calls: string[][] = [];
+    const tool = new LarkCliTool(tempKnowledgeBase(), async (args) => {
+      calls.push(args);
+      if (args.includes('--help')) return larkResult(args, 'Flags:\n  --name string');
+      if (calls.length === 2) return failingResult(args, 'dial tcp: lookup open.feishu.cn: no such host');
+      return larkResult(args, '{"ok":true}');
+    });
+    const abortSignal = new AbortController().signal;
+
+    await tool.call(
+      { args: ['base', '+base-create', '--help'], timeoutMs: 10_000 },
+      { abortSignal, userConfig: {} as never },
+    );
+    const result = await tool.call(
+      { args: ['base', '+base-create', '--name', '能力表', '--as', 'user'], timeoutMs: 10_000 },
+      { abortSignal, userConfig: {} as never },
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls).toHaveLength(3);
+    expect(JSON.stringify(result.output)).toContain('"retried":true');
+    process.env['OFFICE_AGENT_LARK_CLI_RETRY_BASE_MS'] = originalBackoff;
+  });
+
+  it('does not retry actual writes when duplicate side effects are possible', async () => {
+    const originalBackoff = process.env['OFFICE_AGENT_LARK_CLI_RETRY_BASE_MS'];
+    process.env['OFFICE_AGENT_LARK_CLI_RETRY_BASE_MS'] = '0';
+    const calls: string[][] = [];
+    const tool = new LarkCliTool(tempKnowledgeBase(), async (args) => {
+      calls.push(args);
+      if (args.includes('--help')) return larkResult(args, 'Flags:\n  --name string');
+      return failingResult(args, 'unexpected EOF');
+    });
+    const abortSignal = new AbortController().signal;
+
+    await tool.call(
+      { args: ['base', '+base-create', '--help'], timeoutMs: 10_000 },
+      { abortSignal, userConfig: {} as never },
+    );
+    const result = await tool.call(
+      { args: ['base', '+base-create', '--name', '能力表', '--as', 'user'], timeoutMs: 10_000 },
+      { abortSignal, userConfig: {} as never },
+    );
+
+    expect(result.success).toBe(false);
+    expect(calls).toHaveLength(2);
+    expect(JSON.stringify(result.output)).toContain('避免重复副作用');
+    process.env['OFFICE_AGENT_LARK_CLI_RETRY_BASE_MS'] = originalBackoff;
   });
 });

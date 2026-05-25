@@ -23,6 +23,7 @@ import { TokenTracker } from '../core/token-tracker.js';
 import { logger } from '../core/logger.js';
 import { transcribeAudio } from '../services/speech-to-text.js';
 import { FeishuRecipientStore } from '../services/feishu-recipient-store.js';
+import { formatFeishuPreflightReport, runFeishuStartupPreflight } from '../services/feishu-startup-preflight.js';
 import type { NotifyCallback } from '../services/notification-service.js';
 import { SerialMessageQueue } from '../services/serial-message-queue.js';
 import { createConfiguredLLM, resolveLLMProvider } from '../core/llm-provider.js';
@@ -238,6 +239,18 @@ async function main() {
   if (llmConfig.provider === 'deepseek' && !process.env['DEEPSEEK_API_KEY']) {
     log.error('缺少 DEEPSEEK_API_KEY，请在 .env 中配置，或设置 OFFICE_AGENT_LLM_PROVIDER=dashscope');
     process.exit(1);
+  }
+
+  const preflight = await runFeishuStartupPreflight(feishuConfig, { env: process.env });
+  const preflightText = formatFeishuPreflightReport(preflight);
+  if (!preflight.ok) {
+    log.error('飞书启动前检查失败', { report: preflightText });
+    process.exit(1);
+  }
+  if (preflight.issues.length > 0) {
+    log.warn('飞书启动前检查有警告', { report: preflightText });
+  } else {
+    log.info('飞书启动前检查通过', { checkedProfiles: preflight.checkedProfiles });
   }
 
   const recipientStore = new FeishuRecipientStore(path.join(DATA_DIR, 'feishu-recipients.json'));
