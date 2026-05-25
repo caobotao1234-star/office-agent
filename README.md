@@ -95,6 +95,10 @@ npx tsx src/cli/index.ts -h        # 帮助
 npx tsx src/cli/index.ts setup feishu
 npx tsx src/cli/index.ts feishu setup
 
+# 首次绑定或新增用户：优先使用 quickstart
+npx tsx src/cli/index.ts setup feishu quickstart --dry-run
+npx tsx src/cli/index.ts setup feishu quickstart
+
 # 初始化或绑定飞书开放平台应用。新 profile 需要先创建/绑定，再 auth login。
 npm run lark -- config init --name alice --new --brand feishu
 # 或使用已有 App ID/Secret：
@@ -110,6 +114,8 @@ npm run lark -- --profile alice auth login --recommend --domain all
 npm run lark -- --profile bob auth login --recommend --domain all
 
 # 检查状态
+npm run lark -- profile list
+npm run lark -- --profile alice auth status
 npx tsx src/cli/index.ts feishu status
 npx tsx src/cli/index.ts feishu doctor
 
@@ -123,6 +129,30 @@ npx tsx src/cli/index.ts feishu schema im.messages.create
 当前 Agent 采用高信任模式：在本地飞书 CLI 已登录、开放平台应用已授权的范围内，Agent 不再为每个写操作单独询问权限。真实边界由飞书应用权限、应用可用范围、user/bot 身份、以及官方 CLI 当前登录态共同决定。`LarkCli` 仍会要求写操作先查看对应命令 `--help` 或完成 `--dry-run`，这是为了防止模型猜错参数，不是二次授权。
 
 飞书 bot 多用户模式下，Agent 会按消息发送者的 `open_id` 查找对应 `cliProfile`，然后自动执行 `lark-cli --profile <cliProfile> ...`。没有绑定 profile 的用户可以继续普通对话，但读写飞书内容时会收到“未配置 CLI profile / 权限不足”的明确错误，系统不会默认落到其他用户的 CLI 授权上。
+
+首次配置可以让用户先给 bot 发 `ping`，然后运行 quickstart。它会读取本机 `lark-cli profile list`、最近飞书消息用户、已有 `feishu-users.json`，自动生成或更新 `openId -> cliProfile` 绑定；信息不够时会输出可复制的完整命令。
+
+```bash
+# 先预览，不写文件
+npx tsx src/cli/index.ts setup feishu quickstart --dry-run
+
+# 信息能唯一推断时，直接写入 feishu-users.json，并补 FEISHU_MULTI_USER_CONFIG 指针
+npx tsx src/cli/index.ts setup feishu quickstart
+
+# 信息不能唯一推断时，显式指定
+npx tsx src/cli/index.ts setup feishu quickstart \
+  --app cbt-app \
+  --open-id ou_1d0cd3ed7f6151aec6fa6cba877ca491 \
+  --profile my-new-company \
+  --label 曹博弢
+```
+
+官方 `lark-cli` 的 profile 保存在本机用户目录的 `~/.lark-cli/config.json`，日志在 `~/.lark-cli/logs/`。这是官方 CLI 自己管理的配置；Office Agent 不直接改这个文件，只通过 `lark-cli profile list/add/remove/use` 读写。删除无用 profile：
+
+```bash
+npm run lark -- profile use my-new-company
+npm run lark -- profile remove old-profile-name
+```
 
 多维表格 Base 常用命令：
 
@@ -286,22 +316,24 @@ printf '%s' "$FEISHU_APP_SECRET" | npm run lark -- profile add --name alice --ap
 unset FEISHU_APP_SECRET
 ```
 
-7. 单用户可在 `.env` 中添加：
+7. 推荐使用 quickstart 绑定飞书消息用户和 CLI profile：
 
-```env
-FEISHU_APP_ID=cli_xxx
-FEISHU_APP_SECRET=xxx
-FEISHU_CLI_PROFILE=alice
+```bash
+# 让用户先给 bot 发 ping，然后运行：
+npx tsx src/cli/index.ts setup feishu quickstart --dry-run
+npx tsx src/cli/index.ts setup feishu quickstart
 ```
 
-8. 多用户推荐在 `.env` 中添加：
+如果 quickstart 提示信息不够，按它输出的推荐命令补充 `--app`、`--open-id`、`--profile`、`--app-id` 或 `--secret-env`。
+
+8. 多用户推荐在 `.env` 中只保留配置文件指针和 secret：
 
 ```env
 FEISHU_MULTI_USER_CONFIG=./feishu-users.json
 FEISHU_APP_SECRET_MY_COMPANY=xxx
 ```
 
-并复制示例配置后填写真实信息：
+`feishu-users.json` 由 quickstart 自动创建或更新，也可以手动复制示例配置后填写真实信息：
 
 ```bash
 cp feishu-users.example.json feishu-users.json
@@ -327,6 +359,14 @@ cp feishu-users.example.json feishu-users.json
 `key` 是本地隔离用的稳定名称；`openId` 是飞书消息事件里的发送者 open_id；`cliProfile` 是本机 `lark-cli --profile` 名称。默认不会让未写入 `users` 的人使用 `defaultCliProfile`，避免别人和这个 bot 对话时误用你的 CLI 授权。
 
 `appSecret` 推荐写成 `${ENV_NAME}`，真实 secret 放在 `.env` 或系统环境变量里，避免把密钥写进 JSON。缺少对应环境变量时，`npm run feishu` 和 `oa doctor` 会直接报出缺哪个变量。
+
+旧的单用户兼容写法仍可用，但新配置不推荐：
+
+```env
+FEISHU_APP_ID=cli_xxx
+FEISHU_APP_SECRET=xxx
+FEISHU_CLI_PROFILE=alice
+```
 
 如果你刚换了飞书企业，需要给新企业重新做 CLI 授权：
 

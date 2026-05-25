@@ -64,6 +64,14 @@ async function main() {
     await feishu(rawArgs.slice(1));
     return;
   }
+  if (rawCommand === 'setup') {
+    await setup(rawArgs.slice(1));
+    return;
+  }
+  if (rawCommand === 'debug') {
+    await debug(rawArgs.slice(1));
+    return;
+  }
 
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -117,14 +125,6 @@ async function main() {
 
     case 'doctor':
       await doctor();
-      break;
-
-    case 'setup':
-      await setup(positionals.slice(1));
-      break;
-
-    case 'debug':
-      await debug(positionals.slice(1));
       break;
 
     default:

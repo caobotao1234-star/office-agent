@@ -9,6 +9,7 @@
 | CLI 文本对话 | `oa chat` 后输入“列出今天任务” | CLI -> OfficeAgent -> QueryEngine -> Tool | LLM/工具失败时输出错误 | unit + replay |
 | CLI 单次提问 | `oa ask "总结项目状态"` | CLI -> OfficeAgent -> QueryEngine | 失败时非零退出 | unit |
 | 飞书接入向导 | `oa setup feishu` | CLI -> lark-cli profile list -> 配置建议 | 读取 profile 失败时输出默认引导 | unit |
+| 飞书 quickstart | `oa setup feishu quickstart` | profile list + recipients + feishu-users.json -> 自动绑定 openId/profile | 信息不唯一时只输出候选项和推荐命令；不打印 appSecret | unit |
 | 本地 debug 面板 | `oa debug users` / `oa debug last --user app:openId` | CLI -> 本地数据目录/日志/OperationLedger | 不调用 LLM；配置错误时输出可排查信息且不显示 secret | unit |
 | 飞书文本私聊/群聊 | “提醒我 10 分钟后开会” | Feishu WS -> per-user queue -> OfficeAgent -> AgendaTool | 前序任务未完成时排队提示 | unit + manual |
 | 飞书富文本 | 富文本含文字和图片 | parser -> image download -> OfficeAgent(text, images) | 图片下载失败时继续处理文字或提示失败 | unit |
