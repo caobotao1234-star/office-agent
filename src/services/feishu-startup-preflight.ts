@@ -95,15 +95,9 @@ export async function runFeishuStartupPreflight(
       });
     }
 
-    const tokenStatus = profile.tokenStatus?.toLowerCase();
-    if (tokenStatus && isClearlyBadTokenStatus(tokenStatus)) {
-      issues.push({
-        level: 'fail',
-        code: 'profile_token_not_ready',
-        message: `profile ${required.profile} token 状态为 ${profile.tokenStatus}。`,
-        advice: `运行 npm run lark -- --profile ${required.profile} auth login --recommend --domain all。`,
-      });
-    }
+    // `profile list` is a cached summary. It can report needs_refresh while
+    // `auth status` can still refresh the token successfully. Treat auth status
+    // below as the authoritative liveness check.
   }
 
   if (isTruthy(env['OFFICE_AGENT_FEISHU_PREFLIGHT_SKIP_AUTH']) || options.skipAuthStatus) {

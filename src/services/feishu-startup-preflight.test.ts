@@ -60,6 +60,38 @@ describe('Feishu startup preflight', () => {
     expect(formatFeishuPreflightReport(report)).toContain('[OK]');
   });
 
+  it('accepts profile list needs_refresh when auth status refreshes to valid', async () => {
+    const cwd = tmpDir();
+    writeConfig(cwd, {
+      apps: [
+        {
+          key: 'team',
+          appId: 'cli_team',
+          appSecret: '${FEISHU_APP_SECRET_TEAM}',
+          users: [{ openId: 'ou_alice', cliProfile: 'alice' }],
+        },
+      ],
+    });
+    const config = loadFeishuMultiUserConfig({
+      FEISHU_MULTI_USER_CONFIG: './feishu-users.json',
+      FEISHU_APP_SECRET_TEAM: 'secret',
+    }, cwd);
+    const runner: FeishuPreflightRunner = async (args) => {
+      if (args.join(' ') === 'profile list') {
+        return result(args, JSON.stringify([{ name: 'alice', appId: 'cli_team', tokenStatus: 'needs_refresh' }]));
+      }
+      return result(args, JSON.stringify({
+        tokenStatus: 'valid',
+        identities: { user: { tokenStatus: 'valid', status: 'ready' } },
+      }));
+    };
+
+    const report = await runFeishuStartupPreflight(config, { runner });
+
+    expect(report.ok).toBe(true);
+    expect(report.issues.map((issue) => issue.code)).not.toContain('profile_token_not_ready');
+  });
+
   it('fails for missing profile, app mismatch, missing user binding and bad auth', async () => {
     const cwd = tmpDir();
     writeConfig(cwd, {
