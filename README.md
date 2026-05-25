@@ -165,6 +165,15 @@ lark-cli base +record-batch-create --base-token BASE --table-id TABLE --json '{"
 
 Base 命令通常不支持 `--format json`，创建 Base 用 `--name`，不是 `--title`；创建表用 `--base-token`，不是 `--base`。
 
+云文档长正文建议走 stdin，避免大段 Markdown 表格或引号把工具调用 JSON 搞坏：
+
+```bash
+printf '<title>Office Agent 能力概览</title>\n# 正文' \
+  | lark-cli docs +create --api-version v2 --doc-format markdown --content - --as user
+```
+
+Agent 内部也会把长/多行 `--content` 自动改成 `--content -` + stdin，并会尝试修复常见的文档内容参数坏 JSON。
+
 `LARK_CLI_NO_PROXY=1` 只影响官方 `lark-cli` 子进程：它会让 CLI 不使用本机代理配置，适合 WSL 中代理导致飞书接口 EOF/502 的情况。它不是密钥；如果你的网络必须通过代理访问飞书，可以删掉这一行。
 
 日志默认写入当前工程目录 `logs/agent-YYYY-MM-DD.log`，也会同时打印到终端。可以通过 `.env` 设置 `LOG_LEVEL=debug` 和 `OFFICE_AGENT_LOG_DIR=./logs` 调整。

@@ -92,8 +92,54 @@ describe('LarkCliTool replay', () => {
       '--doc-format',
       'markdown',
       '--content',
-      '<title>T</title>\nBody',
+      '-',
     ]);
+  });
+
+  it('moves multiline document content to stdin before invoking lark-cli', async () => {
+    const calls: string[][] = [];
+    const options: LarkCliRunOptions[] = [];
+    const tool = new LarkCliTool(tempKnowledgeBase(), async (args, opts) => {
+      calls.push(args);
+      options.push(opts ?? {});
+      return larkResult(args, '{"ok":true}');
+    });
+
+    const result = await tool.call(
+      {
+        args: [
+          'docs',
+          '+create',
+          '--api-version',
+          'v2',
+          '--doc-format',
+          'markdown',
+          '--content',
+          '<title>T</title>\n# Body\n包含 "引号" 的正文',
+          '--as',
+          'user',
+          '--dry-run',
+        ],
+        timeoutMs: 10_000,
+      },
+      { abortSignal: new AbortController().signal, userConfig: {} as never },
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls[0]).toEqual([
+      'docs',
+      '+create',
+      '--api-version',
+      'v2',
+      '--doc-format',
+      'markdown',
+      '--content',
+      '-',
+      '--as',
+      'user',
+      '--dry-run',
+    ]);
+    expect(options[0]?.stdin).toBe('<title>T</title>\n# Body\n包含 "引号" 的正文');
   });
 
   it('blocks Feishu user operations before the runner when no CLI profile is bound', async () => {

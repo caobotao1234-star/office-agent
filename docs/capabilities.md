@@ -25,7 +25,7 @@
 | --- | --- | --- | --- | --- |
 | 创建云文档 | “创建一份文档写功能说明” | LarkCli docs +create v2 | flags 错误时工具返回修正建议，不允许谎报成功 | replay |
 | 读取云文档 | “读取这个文档” | LarkCli docs +fetch | 权限/登录失败时原样反馈 stderr/stdout 摘要 | replay |
-| 写入云文档 | “把结论追加到文档” | LarkCli docs +update | 写前需要 help/dry-run 指导 | unit |
+| 写入云文档 | “把结论追加到文档” | LarkCli docs +update；长/多行正文走 `--content -` + stdin | 写前需要 help/dry-run 指导；坏 JSON 文档参数优先修复 | unit |
 | 创建 Base | “做个多维表格” | LarkCli base +base-create -> table/field/record | `base +create`、`--title`、`--base` 等错误被拦截或修复 | unit + replay |
 | 日历/会议/任务/联系人 | “查今天日程” | LarkCli 对应 shortcut 或 raw API | 不猜 flags，先 help/schema | manual |
 | 飞书同步源 | “持续关注这个项目文档” | FeishuIngestTool addSource/syncAll | sync 失败记录 lastError | unit |

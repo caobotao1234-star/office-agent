@@ -91,6 +91,8 @@ describe('LarkCliTool', () => {
   it('rejects known-bad docs v2 create flags that create empty or untitled docs', () => {
     expect(validateKnownCommand(['docs', '+create', '--api-version', 'v2', '--title', 'T', '--content', 'Body'])).toContain('--title');
     expect(validateKnownCommand(['docs', '+create', '--api-version', 'v2', '--doc-format', 'markdown', '--content', '# Body'])).toContain('<title>');
+    expect(validateKnownCommand(['docs', '+create', '--api-version', 'v2', '--doc-format', 'markdown', '--content', '-'])).toContain('stdin');
+    expect(validateKnownCommand(['docs', '+create', '--api-version', 'v2', '--doc-format', 'markdown', '--content', '-'], '<title>T</title>\n# Body')).toBeNull();
     expect(validateKnownCommand(['docs', '+create', '--api-version', 'v2', '--doc-format', 'markdown', '--content', '<title>T</title>\n# Body'])).toBeNull();
   });
 

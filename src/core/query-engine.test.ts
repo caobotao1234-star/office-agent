@@ -499,6 +499,74 @@ describe('QueryEngine', () => {
     expect(textEv.content).toBe('参数错误已上报，等待重试。');
   });
 
+  it('repairs malformed LarkCli docs content arguments with unescaped quotes', async () => {
+    let callCount = 0;
+    let capturedInput: unknown;
+
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools() {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: null,
+            toolCalls: [
+              {
+                id: 'tc-doc',
+                function: {
+                  name: 'LarkCli',
+                  arguments: `{"args":["docs","+create","--api-version","v2","--doc-format","markdown","--content","<title>Office Agent 能力概览</title>\\n\\n| 类别 | 示例 |\\n| 文档 | 他说 "创建文档", 然后继续 |","--as","user"]}`,
+                },
+              },
+            ],
+          };
+        }
+        return { content: '文档已创建', toolCalls: null };
+      },
+    };
+
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register({
+      name: 'LarkCli',
+      description: 'Lark CLI',
+      inputSchema: z.object({ args: z.array(z.string()) }).passthrough(),
+      isEnabled: () => true,
+      isReadOnly: () => false,
+      checkPermissions: () => ({ allowed: true }),
+      call: async (input) => {
+        capturedInput = input;
+        return { success: true, output: { ok: true } };
+      },
+    });
+
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+    });
+
+    const events = await collectEvents(engine.submitMessage('创建文档'));
+
+    expect(capturedInput).toEqual({
+      args: [
+        'docs',
+        '+create',
+        '--api-version',
+        'v2',
+        '--doc-format',
+        'markdown',
+        '--content',
+        '<title>Office Agent 能力概览</title>\n\n| 类别 | 示例 |\n| 文档 | 他说 "创建文档", 然后继续 |',
+        '--as',
+        'user',
+      ],
+    });
+    expect(events.some((e) => e.type === 'tool_result' && e.result.success)).toBe(true);
+  });
+
   it('yields error event when LLM throws', async () => {
     const llm: LLMClient = {
       async query() { throw new Error('LLM failure'); },

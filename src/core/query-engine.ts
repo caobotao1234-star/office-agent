@@ -571,6 +571,25 @@ function prepareToolCall(toolCall: LLMToolCall): PreparedToolCall {
       rawArguments,
     };
   } catch (error) {
+    const repairedInput = repairMalformedToolArguments(toolCall.function.name, rawArguments);
+    if (repairedInput !== null) {
+      logger.warn('repaired malformed tool arguments', {
+        toolName: toolCall.function.name,
+        rawArgumentsPreview: rawArguments.slice(0, 200),
+      }, 'QueryEngine');
+      return {
+        toolCall: {
+          ...toolCall,
+          function: {
+            ...toolCall.function,
+            arguments: JSON.stringify(repairedInput),
+          },
+        },
+        parsedInput: repairedInput,
+        rawArguments,
+      };
+    }
+
     return {
       toolCall: {
         ...toolCall,
@@ -584,6 +603,131 @@ function prepareToolCall(toolCall: LLMToolCall): PreparedToolCall {
       parseError: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function repairMalformedToolArguments(toolName: string, rawArguments: string): unknown | null {
+  if (toolName !== 'LarkCli') return null;
+  const args = extractLenientArgsArray(rawArguments);
+  if (!args || !isSafeLarkCliArgsRepair(args)) return null;
+  return { args };
+}
+
+function isSafeLarkCliArgsRepair(args: string[]): boolean {
+  const commandKey = args.slice(0, 2).join(' ');
+  if (commandKey !== 'docs +create' && commandKey !== 'docs +update') return false;
+  return args.includes('--content') || args.some((arg) => arg.startsWith('--content='));
+}
+
+function extractLenientArgsArray(raw: string): string[] | null {
+  const propIndex = raw.search(/"args"\s*:/);
+  if (propIndex < 0) return null;
+  const arrayStart = raw.indexOf('[', propIndex);
+  if (arrayStart < 0) return null;
+
+  const args: string[] = [];
+  let i = arrayStart + 1;
+  while (i < raw.length) {
+    i = skipWhitespace(raw, i);
+    if (raw[i] === ']') return args;
+    if (raw[i] === ',') {
+      i++;
+      continue;
+    }
+    if (raw[i] !== '"') return null;
+
+    const previousArg = args.at(-1);
+    const parsed = previousArg === '--content' || previousArg === '--markdown'
+      ? parseLenientCliContentString(raw, i)
+      : parseJsonLikeString(raw, i);
+    if (!parsed) return null;
+    args.push(parsed.value);
+    i = parsed.end;
+
+    i = skipWhitespace(raw, i);
+    if (raw[i] === ',') {
+      i++;
+      continue;
+    }
+    if (raw[i] === ']') return args;
+    return null;
+  }
+  return null;
+}
+
+function parseJsonLikeString(raw: string, startQuote: number): { value: string; end: number } | null {
+  let out = '';
+  for (let i = startQuote + 1; i < raw.length; i++) {
+    const char = raw[i]!;
+    if (char === '\\') {
+      const parsed = parseJsonEscape(raw, i);
+      out += parsed.value;
+      i = parsed.end - 1;
+      continue;
+    }
+    if (char === '"') {
+      return { value: out, end: i + 1 };
+    }
+    out += char;
+  }
+  return null;
+}
+
+function parseLenientCliContentString(raw: string, startQuote: number): { value: string; end: number } | null {
+  let out = '';
+  for (let i = startQuote + 1; i < raw.length; i++) {
+    const char = raw[i]!;
+    if (char === '\\') {
+      const parsed = parseJsonEscape(raw, i);
+      out += parsed.value;
+      i = parsed.end - 1;
+      continue;
+    }
+    if (char === '"' && isLikelyCliContentClosingQuote(raw, i)) {
+      return { value: out, end: i + 1 };
+    }
+    out += char;
+  }
+  return null;
+}
+
+function parseJsonEscape(raw: string, backslashIndex: number): { value: string; end: number } {
+  const next = raw[backslashIndex + 1];
+  if (next === undefined) return { value: '\\', end: backslashIndex + 1 };
+  const map: Record<string, string> = {
+    '"': '"',
+    '\\': '\\',
+    '/': '/',
+    b: '\b',
+    f: '\f',
+    n: '\n',
+    r: '\r',
+    t: '\t',
+  };
+  if (next === 'u') {
+    const hex = raw.slice(backslashIndex + 2, backslashIndex + 6);
+    if (/^[0-9A-Fa-f]{4}$/.test(hex)) {
+      return { value: String.fromCharCode(Number.parseInt(hex, 16)), end: backslashIndex + 6 };
+    }
+  }
+  return { value: map[next] ?? next, end: backslashIndex + 2 };
+}
+
+function isLikelyCliContentClosingQuote(raw: string, quoteIndex: number): boolean {
+  let i = skipWhitespace(raw, quoteIndex + 1);
+  if (raw[i] === ']' || raw[i] === '}') return true;
+  if (raw[i] !== ',') return false;
+  i = skipWhitespace(raw, i + 1);
+  if (raw[i] === ']') return true;
+  if (raw[i] !== '"') return false;
+  const next = parseJsonLikeString(raw, i);
+  if (!next) return false;
+  return next.value.startsWith('-');
+}
+
+function skipWhitespace(raw: string, start: number): number {
+  let i = start;
+  while (i < raw.length && /\s/.test(raw[i]!)) i++;
+  return i;
 }
 
 function stableStringify(value: unknown): string {

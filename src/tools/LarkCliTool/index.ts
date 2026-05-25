@@ -15,7 +15,7 @@ const LarkCliInput = z.object({
   args: z.array(z.string().min(1))
     .min(1)
     .describe('Arguments passed after lark-cli. Do not include "lark-cli" itself. Example: ["docs","+fetch","--url","https://...","--format","json"].'),
-  stdin: z.string().optional().describe('Optional stdin for commands that explicitly read from stdin.'),
+  stdin: z.string().optional().describe('Optional stdin for commands that explicitly read from stdin. Prefer this for long/multiline docs content with --content - or --markdown -.'),
   timeoutMs: z.coerce.number().min(1_000).max(300_000).default(60_000),
   reason: z.string().optional().describe('Optional audit note for why this command is being executed.'),
 });
@@ -81,6 +81,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
     'The user has granted high-trust standing authorization for Feishu operations available to the current credentials and scopes.',
     'Do not ask for per-action permission. Before write commands, inspect the command with --help or run a successful --dry-run for that same command first.',
     'Docs v2 create/update/fetch flags are version-specific: docs +create --api-version v2 uses --content and --doc-format, not --title or --markdown.',
+    'For long or multiline document content, use args ["docs","+create","--api-version","v2","--doc-format","markdown","--content","-","--as","user"] and put the full content in stdin.',
     'Prefer --as user for personal data and --as bot for bot-owned actions.',
     'Prefer --format json for machine-readable output when --help shows the command supports it.',
     'Ask the user only when the target, content, or intent is ambiguous.',
@@ -108,34 +109,36 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
   }
 
   async call(input: LarkCliInput, context: ToolContext): Promise<ToolResult<unknown>> {
-    const commandNeedsGuidance = requiresWriteGuidance(input.args);
-    const commandKey = getCommandKey(input.args);
-    const knownValidationError = validateKnownCommand(input.args);
-    const profileArgs = applyLarkCliProfile(input.args, context.larkCliProfile);
+    const normalizedInput = normalizeDocumentContentToStdin(input);
+    const commandNeedsGuidance = requiresWriteGuidance(normalizedInput.args);
+    const commandKey = getCommandKey(normalizedInput.args);
+    const knownValidationError = validateKnownCommand(normalizedInput.args, normalizedInput.stdin);
+    const profileArgs = applyLarkCliProfile(normalizedInput.args, context.larkCliProfile);
 
     log.info('call', {
-      args: input.args,
+      args: normalizedInput.args,
       commandKey,
       commandNeedsGuidance,
-      reason: input.reason,
+      reason: normalizedInput.reason,
       feishuAppKey: context.feishuAppKey,
       feishuUserKey: context.feishuUserKey,
       hasCliProfile: !!context.larkCliProfile,
+      stdinBytes: normalizedInput.stdin ? Buffer.byteLength(normalizedInput.stdin, 'utf-8') : 0,
     });
 
     if (knownValidationError) {
-      log.warn('known command validation failed', { args: input.args, error: knownValidationError });
+      log.warn('known command validation failed', { args: normalizedInput.args, error: knownValidationError });
       return {
         success: false,
         output: {
-          command: `lark-cli ${input.args.join(' ')}`,
+          command: `lark-cli ${normalizedInput.args.join(' ')}`,
           helpHint: commandKey ? [...commandKey.split(' '), '--help'] : ['--help'],
         },
         error: knownValidationError,
       };
     }
 
-    if (context.feishuUserKey && !context.larkCliProfile && requiresCliProfile(input.args)) {
+    if (context.feishuUserKey && !context.larkCliProfile && requiresCliProfile(normalizedInput.args)) {
       const error = [
         '当前飞书用户没有绑定 lark-cli profile，不能执行飞书读写操作。',
         '请在 FEISHU_MULTI_USER_CONFIG 指向的 JSON 中为该用户配置 cliProfile，',
@@ -150,7 +153,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       return {
         success: false,
         output: {
-          command: `lark-cli ${input.args.join(' ')}`,
+          command: `lark-cli ${normalizedInput.args.join(' ')}`,
           feishuAppKey: context.feishuAppKey,
           feishuUserKey: context.feishuUserKey,
           missingCliProfile: true,
@@ -160,15 +163,15 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
     }
 
     if (commandNeedsGuidance && commandKey && !this.verifiedWriteCommands.has(commandKey)) {
-      log.warn('blocked write command without guidance', { args: input.args, commandKey });
+      log.warn('blocked write command without guidance', { args: normalizedInput.args, commandKey });
       const cachedHelp = this.knowledgeBase.summarize(commandKey);
       return {
         success: false,
         output: {
-          command: `lark-cli ${input.args.join(' ')}`,
+          command: `lark-cli ${normalizedInput.args.join(' ')}`,
           requiresCliGuidance: true,
           helpHint: [...commandKey.split(' '), '--help'],
-          dryRunHint: appendDryRun(input.args),
+          dryRunHint: appendDryRun(normalizedInput.args),
           ...(cachedHelp ? { cachedHelp } : {}),
         },
         error: '执行写操作前必须先查看同一 lark-cli 命令的 --help，或成功运行一次同一命令的 --dry-run。不要猜参数。',
@@ -176,8 +179,8 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
     }
 
     const { result, retry } = await runLarkCliWithRetry(this.runner, profileArgs, {
-      stdin: input.stdin,
-      timeoutMs: input.timeoutMs,
+      stdin: normalizedInput.stdin,
+      timeoutMs: normalizedInput.timeoutMs,
       abortSignal: context.abortSignal,
     }, {
       actualWrite: commandNeedsGuidance,
@@ -198,9 +201,9 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       ...(retry.skippedReason ? { retrySkippedReason: retry.skippedReason } : {}),
     };
 
-    if (result.exitCode === 0 && commandKey && isGuidanceCommand(input.args)) {
+    if (result.exitCode === 0 && commandKey && isGuidanceCommand(normalizedInput.args)) {
       this.verifiedWriteCommands.add(commandKey);
-      if (input.args.includes('--help') || input.args.includes('-h')) {
+      if (normalizedInput.args.includes('--help') || normalizedInput.args.includes('-h')) {
         this.knowledgeBase.recordHelp({
           commandKey,
           args: profileArgs,
@@ -274,7 +277,7 @@ function isGuidanceCommand(args: string[]): boolean {
   return args.includes('--help') || args.includes('-h') || args.includes('--dry-run');
 }
 
-export function validateKnownCommand(args: string[]): string | null {
+export function validateKnownCommand(args: string[], stdin?: string): string | null {
   const commandKey = getCommandKey(args);
   if (args.includes('--help') || args.includes('-h')) {
     if (commandKey === 'base +create') {
@@ -298,13 +301,17 @@ export function validateKnownCommand(args: string[]): string | null {
   if (!content) {
     return 'docs +create --api-version v2 必须提供 --content。创建 Markdown 文档请使用 --doc-format markdown --content "<title>标题</title>\\n# 正文"。';
   }
+  const contentForValidation = content === '-' ? stdin : content;
+  if (content === '-' && !contentForValidation?.trim()) {
+    return 'docs +create --api-version v2 使用 --content - 时，必须通过 stdin 提供文档内容。';
+  }
 
   const docFormat = getFlagValue(args, '--doc-format');
   if (!docFormat) {
     return 'docs +create --api-version v2 必须显式提供 --doc-format markdown 或 --doc-format xml，避免创建空文档。';
   }
 
-  if (docFormat === 'markdown' && !/<title>[^<]+<\/title>/.test(content)) {
+  if (docFormat === 'markdown' && contentForValidation && !/<title>[^<]+<\/title>/.test(contentForValidation)) {
     return 'docs +create --api-version v2 使用 markdown 时，--content 必须包含 <title>标题</title>，否则飞书可能创建 untitled 文档。';
   }
 
@@ -410,6 +417,53 @@ function requiredFlags(args: string[], flags: string[]): string[] {
 
 function hasFlag(args: string[], flag: string): boolean {
   return args.some((arg) => arg === flag || arg.startsWith(`${flag}=`));
+}
+
+interface FlagOccurrence {
+  flag: string;
+  index: number;
+  value: string;
+  inline: boolean;
+}
+
+function normalizeDocumentContentToStdin(input: LarkCliInput): LarkCliInput {
+  if (input.stdin) return input;
+  const commandKey = getCommandKey(input.args);
+  if (commandKey !== 'docs +create' && commandKey !== 'docs +update') return input;
+
+  const occurrence = getFlagOccurrence(input.args, ['--content', '--markdown']);
+  if (!occurrence) return input;
+  if (occurrence.value === '-' || occurrence.value.startsWith('@')) return input;
+  if (!shouldMoveContentToStdin(occurrence.value)) return input;
+
+  const args = [...input.args];
+  if (occurrence.inline) {
+    args[occurrence.index] = `${occurrence.flag}=-`;
+  } else {
+    args[occurrence.index + 1] = '-';
+  }
+  return { ...input, args, stdin: occurrence.value };
+}
+
+function getFlagOccurrence(args: string[], flags: string[]): FlagOccurrence | null {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    for (const flag of flags) {
+      if (arg === flag) {
+        const value = args[i + 1];
+        if (value === undefined) return null;
+        return { flag, index: i, value, inline: false };
+      }
+      if (arg.startsWith(`${flag}=`)) {
+        return { flag, index: i, value: arg.slice(flag.length + 1), inline: true };
+      }
+    }
+  }
+  return null;
+}
+
+function shouldMoveContentToStdin(value: string): boolean {
+  return value.length > 500 || value.includes('\n') || value.includes('\r');
 }
 
 interface RetryState {
