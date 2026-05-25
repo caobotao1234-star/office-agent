@@ -99,6 +99,7 @@ export interface Message {
   reasoningContent?: string | null;
   toolCalls?: Array<{
     id: string;
+    type?: 'function';
     function: {
       name: string;
       arguments: string;

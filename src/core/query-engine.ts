@@ -19,6 +19,8 @@ import type { OperationLedger, OperationStatus } from './operation-ledger.js';
 
 const DEFAULT_MAX_TOOL_ROUNDS = 30;
 const DEFAULT_MAX_REPEATED_TOOL_CALLS = 2;
+const DEFAULT_MAX_RESTORED_MESSAGES = 20;
+const MAX_RESTORED_SINGLE_TURN_MESSAGES = 60;
 
 export interface QueryEngineConfig {
   model: string;
@@ -70,10 +72,9 @@ export class QueryEngine {
     if (!lastId) return false;
     const msgs = this.sessionStore.load(lastId);
     if (msgs.length === 0) return false;
-    // Only keep last 20 messages to prevent context overflow
-    this.messages = msgs.length > 20 ? msgs.slice(-20) : msgs;
+    this.messages = trimRestoredMessages(msgs, DEFAULT_MAX_RESTORED_MESSAGES);
     this.sessionId = lastId;
-    return true;
+    return this.messages.length > 0;
   }
 
   /** 保存当前会话到磁盘 */
@@ -502,7 +503,7 @@ export class QueryEngine {
       content: msg.content,
       ...(msg.toolName && { name: msg.toolName }),
       ...(msg.toolCallId && { tool_call_id: msg.toolCallId }),
-      ...(msg.toolCalls && msg.toolCalls.length > 0 ? { tool_calls: msg.toolCalls } : {}),
+      ...(msg.toolCalls && msg.toolCalls.length > 0 ? { tool_calls: normalizeToolCalls(msg.toolCalls) } : {}),
       ...(msg.reasoningContent ? { reasoning_content: msg.reasoningContent } : {}),
     };
   }
@@ -510,6 +511,55 @@ export class QueryEngine {
   interrupt(): void { this.abortController?.abort(); }
   getMessages(): readonly Message[] { return this.messages; }
   getSessionId(): string { return this.sessionId; }
+}
+
+function trimRestoredMessages(messages: Message[], maxMessages: number): Message[] {
+  const lastUserIndex = findLastIndex(messages, (message) => message.role === 'user');
+  if (lastUserIndex >= 0) {
+    const latestTurn = sanitizeToolProtocol(messages.slice(lastUserIndex));
+    if (latestTurn.length <= MAX_RESTORED_SINGLE_TURN_MESSAGES) return latestTurn;
+  }
+
+  const tail = messages.slice(-maxMessages);
+  const firstUserIndex = tail.findIndex((message) => message.role === 'user');
+  if (firstUserIndex < 0) return [];
+  return sanitizeToolProtocol(tail.slice(firstUserIndex));
+}
+
+function sanitizeToolProtocol(messages: Message[]): Message[] {
+  const sanitized: Message[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i]!;
+    if (message.role === 'tool') continue;
+
+    if (message.role === 'assistant' && message.toolCalls?.length) {
+      const expectedIds = new Set(message.toolCalls.map((toolCall) => toolCall.id));
+      const group: Message[] = [{ ...message, toolCalls: normalizeToolCalls(message.toolCalls) }];
+      const seenIds = new Set<string>();
+      let j = i + 1;
+      while (j < messages.length && messages[j]!.role === 'tool') {
+        const toolMessage = messages[j]!;
+        if (toolMessage.toolCallId && expectedIds.has(toolMessage.toolCallId)) {
+          group.push(toolMessage);
+          seenIds.add(toolMessage.toolCallId);
+        }
+        j++;
+      }
+      if (seenIds.size === expectedIds.size) sanitized.push(...group);
+      i = j - 1;
+      continue;
+    }
+
+    sanitized.push(message);
+  }
+  return sanitized;
+}
+
+function normalizeToolCalls(toolCalls: LLMToolCall[]): LLMToolCall[] {
+  return toolCalls.map((toolCall) => ({
+    ...toolCall,
+    type: 'function',
+  }));
 }
 
 function summarizeToolResult(toolName: string, result: { success: boolean; error?: string }): string {

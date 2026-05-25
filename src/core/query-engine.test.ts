@@ -9,7 +9,8 @@ import { MemorySystem } from './memory-system.js';
 import { ToolRegistry } from './tool-system.js';
 import type { LLMClient } from './llm-client.js';
 import type { Tool } from './tool-system.js';
-import type { StreamEvent } from '../types/index.js';
+import { SessionStore } from './session-store.js';
+import type { Message, StreamEvent } from '../types/index.js';
 
 // ============================================================
 // Helpers
@@ -326,6 +327,63 @@ describe('QueryEngine', () => {
       role: 'tool',
       tool_call_id: 'tc-reason',
     });
+  });
+
+  it('restores session history from a valid user boundary and normalizes historical tool calls', async () => {
+    const sessionStore = new SessionStore(dir);
+    const channel = 'feishu-test-user';
+    const now = new Date();
+    const history: Message[] = [
+      { role: 'user', content: 'old turn', timestamp: now },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'old-call', function: { name: 'OldTool', arguments: '{}' } }], timestamp: now },
+      { role: 'tool', content: '{"ok":true}', toolCallId: 'old-call', toolName: 'OldTool', timestamp: now },
+      { role: 'assistant', content: 'old done', timestamp: now },
+      { role: 'user', content: 'latest turn', timestamp: now },
+    ];
+    for (let i = 0; i < 12; i++) {
+      history.push(
+        { role: 'assistant', content: '', toolCalls: [{ id: `call-${i}`, function: { name: 'WorkTool', arguments: '{}' } }], timestamp: now },
+        { role: 'tool', content: `{"index":${i}}`, toolCallId: `call-${i}`, toolName: 'WorkTool', timestamp: now },
+      );
+    }
+    history.push({ role: 'assistant', content: 'latest done', timestamp: now });
+    sessionStore.save('session-1', history, channel);
+
+    let sentMessages: unknown[] = [];
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools(msgs) {
+        sentMessages = msgs;
+        return { content: 'ok', toolCalls: null };
+      },
+    };
+
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: new ToolRegistry(),
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+      sessionStore,
+    });
+    engine.setSessionChannel(channel);
+
+    expect(engine.restoreLastSession()).toBe(true);
+    await collectEvents(engine.submitMessage('new message'));
+
+    const nonSystem = sentMessages.filter((msg) => (msg as { role?: string }).role !== 'system') as Array<{
+      role: string;
+      tool_calls?: Array<{ type?: string }>;
+    }>;
+    expect(nonSystem[0]?.role).toBe('user');
+    expect(nonSystem[0]).toMatchObject({ role: 'user', content: 'latest turn' });
+    expect(nonSystem.some((msg) => msg.role === 'tool')).toBe(true);
+    for (const msg of nonSystem) {
+      for (const toolCall of msg.tool_calls ?? []) {
+        expect(toolCall.type).toBe('function');
+      }
+    }
   });
 
   it('respects maxToolRounds to prevent infinite loops', async () => {

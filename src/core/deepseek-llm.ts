@@ -46,13 +46,13 @@ export function createDeepSeekLLM(options: DeepSeekLLMOptions): LLMClient {
   }): Record<string, unknown> {
     return {
       model,
-      messages: input.messages,
+      messages: normalizeOpenAICompatibleMessages(input.messages),
       tools: input.tools && input.tools.length > 0 ? input.tools : undefined,
       max_tokens: maxTokens,
       temperature,
       stream: input.stream,
       thinking: { type: thinking },
-      reasoning_effort: reasoningEffort,
+      ...(thinking === 'enabled' ? { reasoning_effort: reasoningEffort } : {}),
     };
   }
 
@@ -204,6 +204,7 @@ export function createDeepSeekLLM(options: DeepSeekLLMOptions): LLMClient {
       const msg = data.choices?.[0]?.message;
       const toolCalls: LLMToolCall[] | null = msg?.tool_calls?.map((tc) => ({
         id: tc.id,
+        type: 'function',
         function: {
           name: tc.function.name,
           arguments: tc.function.arguments,
@@ -218,4 +219,17 @@ export function createDeepSeekLLM(options: DeepSeekLLMOptions): LLMClient {
       };
     },
   };
+}
+
+function normalizeOpenAICompatibleMessages(messages: LLMMessage[]): LLMMessage[] {
+  return messages.map((message) => {
+    if (message.role !== 'assistant' || !message.tool_calls?.length) return message;
+    return {
+      ...message,
+      tool_calls: message.tool_calls.map((toolCall) => ({
+        ...toolCall,
+        type: 'function' as const,
+      })),
+    };
+  });
 }

@@ -48,6 +48,20 @@ describe('createDeepSeekLLM', () => {
     expect(body.reasoning_effort).toBe('high');
   });
 
+  it('omits reasoning_effort when thinking is disabled', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      choices: [{ message: { content: 'ok' } }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const llm = createDeepSeekLLM({ apiKey: 'sk-test', thinking: 'disabled' });
+    await llm.query('system', 'user', new AbortController().signal);
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    expect(body.thinking).toEqual({ type: 'disabled' });
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+
   it('streams final content and ignores reasoning content', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse([
       'data: {"choices":[{"delta":{"reasoning_content":"thinking"}}]}\n\n',
@@ -89,8 +103,35 @@ describe('createDeepSeekLLM', () => {
 
     expect(result.content).toBeNull();
     expect(result.reasoningContent).toBe('need a tool');
+    expect(result.toolCalls?.[0]?.type).toBe('function');
     expect(result.toolCalls?.[0]?.function.name).toBe('TaskManager');
     expect(result.toolCalls?.[0]?.function.arguments).toBe('{"action":"list"}');
+  });
+
+  it('normalizes historical assistant tool calls before sending requests', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      choices: [{ message: { content: 'ok' } }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const llm = createDeepSeekLLM({ apiKey: 'sk-test' });
+    await llm.queryWithTools!(
+      [
+        { role: 'user', content: 'do work' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{ id: 'call_1', function: { name: 'TaskManager', arguments: '{}' } }],
+        },
+        { role: 'tool', tool_call_id: 'call_1', name: 'TaskManager', content: '{"ok":true}' },
+        { role: 'user', content: 'continue' },
+      ],
+      [{ type: 'function', function: { name: 'TaskManager', description: 'tasks', parameters: {} } }],
+      new AbortController().signal,
+    );
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    expect(body.messages[1].tool_calls[0].type).toBe('function');
   });
 
   it('surfaces DeepSeek HTTP errors', async () => {
