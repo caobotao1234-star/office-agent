@@ -281,7 +281,7 @@ async function checkLarkCliAuth(
   try {
     const result = await runner(['auth', 'status'], { timeoutMs: 8_000, maxOutputBytes: 8_192 });
     const output = (result.stdout || result.stderr).trim();
-    if (result.exitCode === 0 && !result.timedOut && !result.aborted) {
+    if (result.exitCode === 0 && !result.timedOut && !result.aborted && isAuthStatusUsable(output)) {
       return { name: 'lark-cli auth', status: 'ok', detail: summarizeAuthStatus(output) };
     }
     return {
@@ -306,7 +306,7 @@ async function checkLarkCliProfilesAuth(runner: DoctorRunner, profiles: string[]
     try {
       const result = await runner(['--profile', profile, 'auth', 'status'], { timeoutMs: 8_000, maxOutputBytes: 8_192 });
       const output = (result.stdout || result.stderr).trim();
-      const ok = result.exitCode === 0 && !result.timedOut && !result.aborted;
+      const ok = result.exitCode === 0 && !result.timedOut && !result.aborted && isAuthStatusUsable(output);
       return { profile, ok, detail: summarizeAuthStatus(output) || `exitCode=${result.exitCode}` };
     } catch (err) {
       return { profile, ok: false, detail: err instanceof Error ? err.message : String(err) };
@@ -331,7 +331,7 @@ async function checkLarkCliProfilesAuth(runner: DoctorRunner, profiles: string[]
   };
 }
 
-function collectConfiguredCliProfiles(env: NodeJS.ProcessEnv, cwd: string): string[] {
+export function collectConfiguredCliProfiles(env: NodeJS.ProcessEnv, cwd: string): string[] {
   try {
     const config = loadFeishuMultiUserConfig(env, cwd);
     const profiles = new Set<string>();
@@ -371,6 +371,30 @@ function summarizeAuthStatus(output: string): string {
     ].join(', ');
   } catch {
     return output.length > 500 ? `${output.slice(0, 500)}...` : output;
+  }
+}
+
+function isAuthStatusUsable(output: string): boolean {
+  if (!output) return true;
+  try {
+    const parsed = JSON.parse(output) as {
+      tokenStatus?: string;
+      status?: string;
+      identities?: {
+        bot?: { status?: string; available?: boolean };
+        user?: { status?: string; available?: boolean; tokenStatus?: string };
+      };
+    };
+    const candidates = [
+      parsed.tokenStatus,
+      parsed.status,
+      parsed.identities?.user?.tokenStatus,
+      parsed.identities?.user?.status,
+    ].filter((value): value is string => !!value);
+    if (candidates.length === 0) return true;
+    return !candidates.some((value) => /needs_refresh|expired|invalid|disabled|unauthorized|not[_ -]?logged/i.test(value));
+  } catch {
+    return true;
   }
 }
 

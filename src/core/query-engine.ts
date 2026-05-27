@@ -16,6 +16,8 @@ import type { ToolRegistry } from './tool-system.js';
 
 import type { SessionStore } from './session-store.js';
 import type { OperationLedger, OperationStatus } from './operation-ledger.js';
+import type { OperationIdempotencyLedger } from '../services/operation-idempotency-ledger.js';
+import { inferWriteCommandKey } from '../services/operation-idempotency-ledger.js';
 
 const DEFAULT_MAX_TOOL_ROUNDS = 30;
 const DEFAULT_MAX_REPEATED_TOOL_CALLS = 2;
@@ -35,6 +37,7 @@ export interface QueryEngineConfig {
   getUserConfig?: () => UserConfig;
   getToolContext?: () => Partial<ToolContext>;
   operationLedger?: OperationLedger;
+  operationIdempotencyLedger?: OperationIdempotencyLedger;
 }
 
 export class QueryEngine {
@@ -67,7 +70,7 @@ export class QueryEngine {
   /** 从磁盘恢复上一次会话（支持按 channel 隔离） */
   restoreLastSession(channel?: string): boolean {
     if (!this.sessionStore) return false;
-    const ch = channel ?? this.sessionChannel;
+    const ch = this.getSessionStoreChannel(channel);
     const lastId = this.sessionStore.getLastSessionId(ch);
     if (!lastId) return false;
     const msgs = this.sessionStore.load(lastId);
@@ -80,7 +83,7 @@ export class QueryEngine {
   /** 保存当前会话到磁盘 */
   private saveSession(): void {
     if (this.sessionStore && this.messages.length > 0) {
-      this.sessionStore.save(this.sessionId, this.messages, this.sessionChannel);
+      this.sessionStore.save(this.sessionId, this.messages, this.getSessionStoreChannel());
     }
   }
 
@@ -317,6 +320,10 @@ export class QueryEngine {
           const repeatedCount = (repeatedToolCalls.get(signature) ?? 0) + 1;
           repeatedToolCalls.set(signature, repeatedCount);
 
+          const writeLedgerId = !prepared.parseError && repeatedCount <= this.maxRepeatedToolCalls
+            ? this.startWriteLedgerRecord(tc.function.name, parsedInput, turnId)
+            : undefined;
+
           const toolResult = prepared.parseError
             ? {
                 success: false,
@@ -340,6 +347,10 @@ export class QueryEngine {
                   userConfig: this.config.getUserConfig?.() ?? ({} as UserConfig),
                 },
               );
+
+          if (writeLedgerId) {
+            this.config.operationIdempotencyLedger?.finish(writeLedgerId, toolResult);
+          }
 
           if (repeatedCount > this.maxRepeatedToolCalls) {
             logger.warn('blocked repeated identical tool call', {
@@ -511,6 +522,37 @@ export class QueryEngine {
   interrupt(): void { this.abortController?.abort(); }
   getMessages(): readonly Message[] { return this.messages; }
   getSessionId(): string { return this.sessionId; }
+
+  private getSessionStoreChannel(channel?: string): string {
+    const base = channel ?? this.sessionChannel ?? 'default';
+    return `${base}__model_${safeSessionPart(this.config.model)}`;
+  }
+
+  private startWriteLedgerRecord(toolName: string, rawInput: unknown, turnId?: string): string | undefined {
+    const ledger = this.config.operationIdempotencyLedger;
+    if (!ledger) return undefined;
+
+    const tool = this.config.tools.get(toolName);
+    if (!tool || !tool.isEnabled()) return undefined;
+    const parsed = tool.inputSchema.safeParse(rawInput);
+    if (!parsed.success) return undefined;
+    if (tool.isReadOnly(parsed.data)) return undefined;
+
+    return ledger.start({
+      turnId,
+      toolName,
+      commandKey: inferWriteCommandKey(toolName, parsed.data),
+      input: parsed.data,
+    });
+  }
+}
+
+function safeSessionPart(value: string): string {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9_.-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80) || 'unknown';
 }
 
 function trimRestoredMessages(messages: Message[], maxMessages: number): Message[] {

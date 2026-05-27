@@ -90,4 +90,41 @@ describe('AgendaScheduler', () => {
     expect(store.list({ status: 'delivered' })).toHaveLength(1);
     scheduler.stop();
   });
+
+  it('keeps due agenda pending when all notification channels fail', async () => {
+    const failingNotification = new NotificationService();
+    failingNotification.addChannel(() => { throw new Error('send failed'); });
+    const scheduler = new AgendaScheduler(store, failingNotification, composer, 60_000);
+    const item = store.create({
+      type: 'reminder',
+      title: '失败后补发',
+      triggerAt: new Date(),
+    });
+    scheduler.start();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(store.get(item.id)?.status).toBe('pending');
+    scheduler.stop();
+  });
+
+  it('marks due agenda delivered when at least one channel succeeds', async () => {
+    const mixedNotification = new NotificationService();
+    const ok = vi.fn<(message: string) => void>();
+    mixedNotification.addChannel(() => { throw new Error('send failed'); });
+    mixedNotification.addChannel(ok as any);
+    const scheduler = new AgendaScheduler(store, mixedNotification, composer, 60_000);
+    const item = store.create({
+      type: 'reminder',
+      title: '部分成功',
+      triggerAt: new Date(),
+    });
+    scheduler.start();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(ok).toHaveBeenCalledWith('LLM 生成的提醒');
+    expect(store.get(item.id)?.status).toBe('delivered');
+    scheduler.stop();
+  });
 });

@@ -10,6 +10,7 @@
 | CLI 单次提问 | `oa ask "总结项目状态"` | CLI -> OfficeAgent -> QueryEngine | 失败时非零退出 | unit |
 | 飞书接入向导 | `oa setup feishu` | CLI -> lark-cli profile list -> 配置建议 | 读取 profile 失败时输出默认引导 | unit |
 | 飞书 quickstart | `oa setup feishu quickstart` | profile list + recipients + feishu-users.json -> 自动绑定 openId/profile | 信息不唯一时只输出候选项和推荐命令；不打印 appSecret | unit |
+| 快速验收 | `oa smoke` | doctor -> tool schema -> lark-cli docs/base dry-run | 默认不跑真实 LLM、不创建真实资源；失败时输出修复建议 | unit |
 | 本地 debug 面板 | `oa debug users` / `oa debug last --user app:openId` | CLI -> 本地数据目录/日志/OperationLedger | 不调用 LLM；配置错误时输出可排查信息且不显示 secret | unit |
 | 任务中断恢复 | `/resume` 或“继续刚才的任务” | OperationLedger -> 恢复提示 -> QueryEngine | 无可恢复任务时直接说明；恢复时避免重复已成功的非幂等写操作 | unit |
 | 飞书文本私聊/群聊 | “提醒我 10 分钟后开会” | Feishu WS -> per-user queue -> OfficeAgent -> AgendaTool | 前序任务未完成时排队提示 | unit + manual |
@@ -32,6 +33,8 @@
 | 用户级 CLI 授权 | “写到我的云文档” | ToolContext.larkCliProfile -> lark-cli --profile PROFILE | 无 profile 时快速失败，不落到其他用户授权 | unit |
 | 启动前强校验 | `npm run feishu` | feishu-users.json -> lark-cli profile list/auth status -> fail fast | 缺 profile、授权异常、appId 不匹配时拒绝启动；明文 secret 只 warn 且不打印 secret | unit |
 | 写操作稳定重试 | 任意飞书 CLI 写入 | LarkCliTool -> retry policy -> lark-cli | 只重试安全的瞬时网络失败；可能已发出请求的失败不盲目重试，避免重复写 | unit + replay |
+| Lark CLI recipe | 模型猜错 docs/base 参数 | LarkCliTool -> recipe + cached help | 返回正确参数形状和常见坑，下一轮可自动修正 | unit |
+| 写操作副作用账本 | 创建文档/Base/发送消息 | QueryEngine -> OperationIdempotencyLedger | 只审计不自动拦截，避免误杀合法重复写 | unit |
 | CLI profile 诊断 | `oa doctor` | profile auth status + docs search read probe | 探测失败时 warn 并给出权限/授权建议 | unit |
 | CLI 回放测试 | fake runner | LarkCliTool -> injected runner | 不依赖真实飞书，验证 help/dry-run、profile 注入和已知错误拦截 | unit + replay |
 
@@ -49,7 +52,7 @@
 
 | 能力 | 用户输入示例 | 期望链路 | 降级行为 | 覆盖 |
 | --- | --- | --- | --- | --- |
-| 一次性提醒 | “1 分钟后提醒我测试” | AgendaTool create -> AgendaScheduler -> ReminderComposer -> NotificationService | 无通知通道时不标记 delivered，通道恢复后补发 | unit |
+| 一次性提醒 | “1 分钟后提醒我测试” | AgendaTool create -> AgendaScheduler -> ReminderComposer -> NotificationService | 无通知通道或全部通道失败时不标记 delivered，通道恢复后补发 | unit |
 | 截止日期/承诺 | “周五前给客户方案” | AgendaTool commitment/deadline | 时间不明确时询问或不创建 | replay |
 | 周期任务 | “每周五生成周报” | CronTool -> CronScheduler -> OfficeAgent | cron 解析失败时工具报错 | unit |
 | 离开总结 | 用户离开后回来 | AwaySummaryEngine -> LLM summary | LLM 失败时静默跳过 | unit |
@@ -64,6 +67,7 @@
 | 图片输入 | 不支持 | 支持 | 不支持 |
 | 图片降级 | 提示并忽略图片 | 正常识别 | 提示并忽略图片 |
 | 内置联网搜索 | 支持 enable_search | 关闭 enable_search 避免 vision 冲突 | 不支持 |
+| 会话恢复隔离 | 按 channel + model 恢复 | 按 channel + model 恢复 | 按 channel + model 恢复 |
 
 运行时能力由 `LLMClient.capabilities` 声明，当前字段包括：
 
@@ -100,10 +104,17 @@ npm test -- src/services/feishu-startup-preflight.test.ts
 ```bash
 npm test -- src/tools/LarkCliTool/index.test.ts src/services/lark-cli-runner.test.ts
 npm test -- src/cli/commands/debug.test.ts src/tools/LarkCliTool/index.replay.test.ts
+npm test -- src/cli/commands/smoke.test.ts src/services/lark-cli-recipes.test.ts
 ```
 
 涉及中断恢复时额外检查：
 
 ```bash
-npm test -- src/core/operation-ledger.test.ts src/core/slash-command.test.ts
+npm test -- src/core/operation-ledger.test.ts src/services/operation-idempotency-ledger.test.ts src/core/slash-command.test.ts
+```
+
+涉及主动提醒时额外检查：
+
+```bash
+npm test -- src/services/notification-service.test.ts src/services/agenda-scheduler.test.ts
 ```

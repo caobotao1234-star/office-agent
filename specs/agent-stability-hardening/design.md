@@ -51,3 +51,57 @@
 - LarkCliTool replay 覆盖读重试、写低风险重试、不安全写不重试。
 - OperationLedger 覆盖 recoverable 选择和 resume prompt。
 - slash command 覆盖 `/resume` 映射和自然语言入口的最小行为。
+
+## 第二阶段：运行可靠性基线
+
+### `oa smoke`
+
+新增 CLI 命令 `oa smoke`，定位为“本地快速验收”：
+
+- 复用 `doctor` 的本地配置检查结果。
+- 对当前工具 schema 做 provider-compatible 检查，确保发给 OpenAI-compatible provider 的 schema 不含 `oneOf/const/default/{}` 等高风险结构。
+- 如果配置了飞书 CLI profile，抽样执行：
+  - `docs +create --api-version v2 --doc-format markdown --content - --as user --dry-run`
+  - `base +base-create --name "Office Agent Smoke" --as user --dry-run`
+- 默认不调用真实 LLM。需要真实模型连通性时用 `--real-llm` 或环境变量显式打开。
+
+### Replay Eval 扩展
+
+`src/evals/replay.ts` 增加近期真实失败的稳定用例：
+
+- 文档正文走 `--content -`/`stdin`，避免多行内容破坏工具 JSON。
+- Base 创建使用 `base +base-create --name`，后续表/记录使用 `--base-token` 和 `--json`。
+- 工具参数坏 JSON 时，harness 不把 malformed tool_call 原样回灌给模型。
+
+### Lark CLI Recipe
+
+新增轻量静态 recipe 服务，不替代官方 `--help`：
+
+- 针对 docs/base/calendar/im/tasks/wiki 等高频命令提供“正确参数形状”和“常见错误”。
+- `LarkCliTool` 在阻止未指导写操作、已知命令校验失败时附带 recipe，帮助模型下一轮修正。
+- `LarkCliKnowledgeBase` 继续缓存真实 `--help`，recipe 只做高频路径兜底。
+
+### 写操作副作用账本
+
+新增 `OperationIdempotencyLedger`：
+
+- QueryEngine 在执行非 read-only 工具前记录 `started`，执行后更新 `succeeded/failed`。
+- 记录输入签名、工具名、命令 key、输出摘要和错误摘要。
+- 第一阶段只做审计和恢复提示，不做自动去重拦截，避免误杀合法重复写。
+
+### Session/模型切换隔离
+
+QueryEngine 对 session channel 增加模型 namespace：
+
+- 保存和恢复时使用 `channel__model_<safeModel>`。
+- CLI/飞书同一个用户切换 provider/model 后会启动新历史，不直接恢复旧模型工具调用协议。
+- 手动历史文件仍保留，便于调试。
+
+### 主动提醒投递可靠性
+
+NotificationService 返回投递结果：
+
+- `attempted/succeeded/failed`。
+- 单个 channel 失败不影响其他 channel。
+
+AgendaScheduler 只有 `succeeded > 0` 才标记日程 delivered。无 channel 或全失败时保持 pending，下一次 tick 或 channel 恢复后继续补发。

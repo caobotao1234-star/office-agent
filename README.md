@@ -36,6 +36,9 @@ npm run lark -- --profile alice auth status
 # WSL 下如果 lark-cli 走代理报 EOF/502，可在 .env 追加：
 # LARK_CLI_NO_PROXY=1
 
+# 2e. 快速验收本地配置、工具 schema 和飞书 CLI dry-run
+npx tsx src/cli/index.ts smoke
+
 # 3. 启动
 npm start
 ```
@@ -80,6 +83,7 @@ npx tsx src/cli/index.ts tasks     # 查看任务列表
 npx tsx src/cli/index.ts config    # 查看配置
 npx tsx src/cli/index.ts usage     # 查看 token 用量
 npx tsx src/cli/index.ts doctor    # 自检本地配置、模型能力和飞书 CLI
+npx tsx src/cli/index.ts smoke     # 快速验收本地配置、工具 schema 和飞书 CLI dry-run
 npx tsx src/cli/index.ts setup feishu # 飞书接入向导
 npx tsx src/cli/index.ts debug users  # 本地排查用户隔离目录、日志和最近工具账本
 npx tsx src/cli/index.ts feishu    # 官方 lark-cli 桥接
@@ -127,6 +131,8 @@ npx tsx src/cli/index.ts feishu schema im.messages.create
 配置完成后进入 `oa chat`，直接用自然语言说“读取这个飞书文档”“把周报写入飞书文档”“查今天日程”等，Agent 会通过 `LarkCli` 工具执行。需要访问个人日历、私有文档、私聊、通讯录、任务、多维表格等个人可见资源时，优先使用 user 授权；机器人群发或机器人身份操作可用 bot 身份。
 
 当前 Agent 采用高信任模式：在本地飞书 CLI 已登录、开放平台应用已授权的范围内，Agent 不再为每个写操作单独询问权限。真实边界由飞书应用权限、应用可用范围、user/bot 身份、以及官方 CLI 当前登录态共同决定。`LarkCli` 仍会要求写操作先查看对应命令 `--help` 或完成 `--dry-run`，这是为了防止模型猜错参数，不是二次授权。
+
+Agent 内置了高频 `lark-cli` recipe：当模型猜错 `docs`/`base` 等常用命令参数，或写操作还没看 `--help`/`--dry-run` 时，工具结果会返回正确参数形状和常见坑，帮助下一轮自动修正。真实执行前仍以官方 CLI 的 `--help` 和 `--dry-run` 为准。
 
 飞书 bot 多用户模式下，Agent 会按消息发送者的 `open_id` 查找对应 `cliProfile`，然后自动执行 `lark-cli --profile <cliProfile> ...`。没有绑定 profile 的用户可以继续普通对话，但读写飞书内容时会收到“未配置 CLI profile / 权限不足”的明确错误，系统不会默认落到其他用户的 CLI 授权上。
 
@@ -180,7 +186,11 @@ Agent 内部也会把长/多行 `--content` 自动改成 `--content -` + stdin�
 
 `npm run feishu` 启动前会做强校验：读取 `feishu-users.json`、检查每个 `cliProfile` 是否存在、profile 是否属于对应 App ID、`auth status` 是否可用。检查失败会直接退出，避免 bot 在线但真正读写飞书时才失败。临时排障可以设置 `OFFICE_AGENT_FEISHU_PREFLIGHT_SKIP_AUTH=1` 跳过 auth 探测，但不建议长期使用。
 
+`oa smoke` 是更完整的快速验收：复用 `doctor`，额外检查工具 schema 是否兼容 DeepSeek/OpenAI-compatible function calling，并对已配置的 CLI profile 抽样跑 docs/base 的 `--dry-run`。默认不调用真实 LLM、不创建真实飞书资源；需要真实模型连通性时运行 `oa smoke --real-llm`。
+
 `LarkCli` 对瞬时网络错误有有限重试：读取、`--help`、`--dry-run` 会重试；真实写操作只在 DNS/连接拒绝这类请求未到达服务端的低风险错误上重试。像 EOF/timeout 这类可能已经产生副作用的写失败不会盲目重试，Agent 会提示先检查目标状态。
+
+所有非 read-only 工具调用会记录到 `write-ledger.json`：包含工具名、命令 key、输入签名、执行状态和资源引用摘要。它不会自动阻止合法重复写入，但能在 `/resume`、`oa debug` 和日志排查时判断上一轮是否已经尝试过写操作。
 
 本地排查可以直接用 `oa debug`，它只读取本机文件，不调用 LLM，也不会显示飞书 appSecret：
 
@@ -207,6 +217,8 @@ npx tsx src/cli/index.ts debug logs --tail 120
 ```
 
 Agent 会读取最近一次失败/部分完成/运行中的 `operation-ledger.json`，基于上一轮请求和工具结果继续，并避免重复已成功的非幂等写操作。
+
+会话历史按 channel + model 隔离。比如同一个飞书用户从 Qwen 切到 DeepSeek 后，不会把旧模型留下的工具调用历史直接恢复给新 provider，避免因历史协议不兼容导致 API 400。
 
 ## 对话中的斜杠命令
 
@@ -297,6 +309,8 @@ CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。�
 Agenda 不会每分钟调用 LLM。Agent 只在对话中认为有明确时间点/跟进点时调用 `AgendaTool` 建日程；后台调度器用最近到期 timer 和本地低频扫描检测，到点后才调用 Reminder Composer 生成提醒内容。
 
 一次性提醒时间由 `AgendaTool` 的 `triggerAt` 决定；周期任务由 `CronTool` 的 cron 表达式决定。
+
+提醒只有在至少一个通知通道成功推送后才会标记为 delivered。如果飞书发送失败、没有可用通道或本地终端通道断开，Agenda 会保持 pending，下一次 tick 或通道恢复后继续补发。
 
 ## 飞书机器人（WebSocket 长连接）
 
@@ -407,6 +421,8 @@ npm run lark -- --profile alice auth status
 
 9. `npm run feishu` 启动；启动前可运行 `npx tsx src/cli/index.ts doctor` 或全局安装后运行 `oa doctor` 检查配置。`oa doctor` 会抽样 profile 做一次飞书文档只读搜索探测；如只想检查本地配置，可临时设置 `OFFICE_AGENT_DOCTOR_SKIP_FEISHU_PROBES=1`。
 
+10. 完整快速验收可运行 `npx tsx src/cli/index.ts smoke`。它默认只做本地、schema 和飞书 CLI dry-run 检查，不创建真实资源。
+
 ### 功能特性
 
 - 群聊中 @机器人 触发对话
@@ -444,6 +460,7 @@ npm run lark -- --profile alice auth status
 │       ├── config.json
 │       ├── agenda.json
 │       ├── operation-ledger.json
+│       ├── write-ledger.json
 │       ├── office-context.json
 │       ├── feishu-sync-sources.json
 │       ├── cron-tasks.json
@@ -477,6 +494,7 @@ src/
 │       ├── config.ts           # 配置查看
 │       ├── usage.ts            # Token 用量
 │       ├── doctor.ts           # 本地环境与飞书 CLI 自检
+│       ├── smoke.ts            # 快速验收：doctor + schema + CLI dry-run
 │       ├── setup.ts            # 接入向导
 │       ├── debug.ts            # 本地状态/日志/账本排查
 │       └── feishu.ts           # 官方 lark-cli 透传
@@ -495,7 +513,7 @@ src/
 │   ├── schema-utils.ts         # Zod v4 → JSON Schema 转换
 │   ├── token-tracker.ts        # Token 用量统计（按模型/环节/天）
 │   ├── operation-ledger.ts     # 最近任务与工具调用账本
-│   ├── session-store.ts        # 会话持久化（支持多通道隔离）
+│   ├── session-store.ts        # 会话持久化（支持多通道和模型隔离）
 │   ├── security.ts             # AES-256-GCM 加密
 │   ├── user-config.ts          # 用户配置管理
 │   ├── slash-command.ts        # 斜杠命令解析（统一路由）
@@ -508,6 +526,8 @@ src/
 │   ├── reminder-composer.ts    # 到期提醒 LLM 文案生成
 │   ├── notification-service.ts # 统一通知通道（CLI/飞书注册回调）
 │   ├── lark-cli-runner.ts      # 官方 lark-cli 进程封装
+│   ├── lark-cli-recipes.ts     # 高频 lark-cli 命令指导
+│   ├── operation-idempotency-ledger.ts # 写操作副作用账本
 │   ├── office-context-store.ts # 办公上下文图谱持久化
 │   ├── feishu-sync-store.ts    # 飞书同步关注源状态
 │   ├── feishu-sync-scheduler.ts # 可选飞书后台同步调度
@@ -604,6 +624,7 @@ npm test          # 运行测试
 npm run typecheck # 类型检查
 npm run build     # 编译 TypeScript
 npm run eval:replay # 离线回放评测，不依赖真实 LLM/飞书
+npx tsx src/cli/index.ts smoke --skip-feishu # 本地快速验收
 ```
 
 ## 架构参考
@@ -620,7 +641,8 @@ npm run eval:replay # 离线回放评测，不依赖真实 LLM/飞书
 - SKILL.md 技能定义（inline/fork 两种执行模式）
 - 上下文自动压缩
 - 离线回放评测（ReplayEval，覆盖工具调用和失败回传）
-- 会话持久化（多通道隔离：CLI / 飞书各用户独立）
-- 统一通知架构（NotificationService + AgendaScheduler）
+- 会话持久化（多通道 + 模型隔离：CLI / 飞书各用户独立）
+- 统一通知架构（NotificationService + AgendaScheduler，投递成功才标记提醒已送达）
+- 写操作副作用账本（write-ledger，辅助恢复和排查重复写风险）
 - 统一命令路由（slash-command.ts，CLI/飞书/Web 行为一致）
 - 结构化日志 + 统一错误处理

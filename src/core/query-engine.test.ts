@@ -11,6 +11,7 @@ import type { LLMClient } from './llm-client.js';
 import type { Tool } from './tool-system.js';
 import { SessionStore } from './session-store.js';
 import type { Message, StreamEvent } from '../types/index.js';
+import { OperationIdempotencyLedger } from '../services/operation-idempotency-ledger.js';
 
 // ============================================================
 // Helpers
@@ -347,7 +348,7 @@ describe('QueryEngine', () => {
       );
     }
     history.push({ role: 'assistant', content: 'latest done', timestamp: now });
-    sessionStore.save('session-1', history, channel);
+    sessionStore.save('session-1', history, `${channel}__model_test`);
 
     let sentMessages: unknown[] = [];
     const llm: LLMClient = {
@@ -384,6 +385,46 @@ describe('QueryEngine', () => {
         expect(toolCall.type).toBe('function');
       }
     }
+  });
+
+  it('isolates restored sessions by model within the same channel', async () => {
+    const sessionStore = new SessionStore(dir);
+    const channel = 'feishu-test-user';
+    const now = new Date();
+    const history: Message[] = [
+      { role: 'user', content: 'old model message', timestamp: now },
+      { role: 'assistant', content: 'old model answer', timestamp: now },
+    ];
+
+    const oldEngine = new QueryEngine({
+      model: 'dashscope/qwen-plus',
+      systemPrompt: 'test',
+      tools: new ToolRegistry(),
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm: makeLLM(() => 'old saved'),
+      sessionStore,
+    });
+    oldEngine.setSessionChannel(channel);
+    await collectEvents(oldEngine.submitMessage('old model message'));
+
+    const newEngine = new QueryEngine({
+      model: 'deepseek/deepseek-v4-flash',
+      systemPrompt: 'test',
+      tools: new ToolRegistry(),
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm: makeLLM(() => 'new answer'),
+      sessionStore,
+    });
+    newEngine.setSessionChannel(channel);
+
+    expect(sessionStore.getLastSessionId(`${channel}__model_dashscope_qwen-plus`)).toBe(oldEngine.getSessionId());
+    expect(newEngine.restoreLastSession()).toBe(false);
+
+    sessionStore.save('manual-new-model-session', history, `${channel}__model_deepseek_deepseek-v4-flash`);
+    expect(newEngine.restoreLastSession()).toBe(true);
+    expect(newEngine.getMessages()[0]?.content).toBe('old model message');
   });
 
   it('respects maxToolRounds to prevent infinite loops', async () => {
@@ -623,6 +664,96 @@ describe('QueryEngine', () => {
       ],
     });
     expect(events.some((e) => e.type === 'tool_result' && e.result.success)).toBe(true);
+  });
+
+  it('records non-read-only tool calls in the write ledger', async () => {
+    let callCount = 0;
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools() {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: null,
+            toolCalls: [
+              {
+                id: 'tc-write',
+                function: {
+                  name: 'LarkCli',
+                  arguments: '{"args":["base","+base-create","--name","能力表","--as","user"]}',
+                },
+              },
+            ],
+          };
+        }
+        return { content: 'done', toolCalls: null };
+      },
+    };
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register({
+      name: 'LarkCli',
+      description: 'write tool',
+      inputSchema: z.object({ args: z.array(z.string()) }),
+      isEnabled: () => true,
+      isReadOnly: () => false,
+      checkPermissions: () => ({ allowed: true }),
+      call: async () => ({
+        success: true,
+        output: { data: { base: { base_token: 'base_1', url: 'https://example.feishu.cn/base/base_1' } } },
+      }),
+    });
+    const writeLedger = new OperationIdempotencyLedger(path.join(dir, 'write-ledger.json'));
+
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+      operationIdempotencyLedger: writeLedger,
+    });
+
+    await collectEvents(engine.submitMessage('create base'));
+
+    const entry = writeLedger.list()[0]!;
+    expect(entry.toolName).toBe('LarkCli');
+    expect(entry.commandKey).toBe('base +base-create');
+    expect(entry.status).toBe('succeeded');
+    expect(entry.resourceRefs.join('\n')).toContain('base_token=base_1');
+  });
+
+  it('does not record read-only tool calls in the write ledger', async () => {
+    let callCount = 0;
+    const llm: LLMClient = {
+      async query() { return ''; },
+      async queryWithTools() {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: null,
+            toolCalls: [{ id: 'tc-read', function: { name: 'ReadTool', arguments: '{}' } }],
+          };
+        }
+        return { content: 'done', toolCalls: null };
+      },
+    };
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(createDummyTool('ReadTool', 'ok'));
+    const writeLedger = new OperationIdempotencyLedger(path.join(dir, 'write-ledger.json'));
+    const engine = new QueryEngine({
+      model: 'test',
+      systemPrompt: 'test',
+      tools: toolRegistry,
+      memorySystem: new MemorySystem(dir),
+      contextManager: new ContextManager(),
+      llm,
+      operationIdempotencyLedger: writeLedger,
+    });
+
+    await collectEvents(engine.submitMessage('read'));
+
+    expect(writeLedger.list()).toEqual([]);
   });
 
   it('yields error event when LLM throws', async () => {

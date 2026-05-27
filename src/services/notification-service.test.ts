@@ -12,8 +12,9 @@ describe('NotificationService', () => {
     const cb = vi.fn();
     ns.addChannel(cb);
     expect(ns.hasChannels()).toBe(true);
-    await ns.notify('hello');
+    const result = await ns.notify('hello');
     expect(cb).toHaveBeenCalledWith('hello');
+    expect(result).toMatchObject({ attempted: 1, succeeded: 1, failed: 0 });
   });
 
   it('should notify multiple channels', async () => {
@@ -22,9 +23,10 @@ describe('NotificationService', () => {
     const cb2 = vi.fn();
     ns.addChannel(cb1);
     ns.addChannel(cb2);
-    await ns.notify('test');
+    const result = await ns.notify('test');
     expect(cb1).toHaveBeenCalledWith('test');
     expect(cb2).toHaveBeenCalledWith('test');
+    expect(result).toMatchObject({ attempted: 2, succeeded: 2, failed: 0 });
   });
 
   it('should remove channels', async () => {
@@ -33,8 +35,9 @@ describe('NotificationService', () => {
     ns.addChannel(cb);
     ns.removeChannel(cb);
     expect(ns.hasChannels()).toBe(false);
-    await ns.notify('ignored');
+    const result = await ns.notify('ignored');
     expect(cb).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ attempted: 0, succeeded: 0, failed: 0 });
   });
 
   it('should not throw if a channel callback fails', async () => {
@@ -42,8 +45,18 @@ describe('NotificationService', () => {
     ns.addChannel(() => { throw new Error('boom'); });
     const cb2 = vi.fn();
     ns.addChannel(cb2);
-    await ns.notify('test');
+    const result = await ns.notify('test');
     // Second channel still called despite first throwing
     expect(cb2).toHaveBeenCalledWith('test');
+    expect(result).toMatchObject({ attempted: 2, succeeded: 1, failed: 1 });
+    expect(result.errors).toContain('boom');
+  });
+
+  it('reports all-failed delivery without throwing', async () => {
+    const ns = new NotificationService();
+    ns.addChannel(() => { throw new Error('boom'); });
+    const result = await ns.notify('test');
+
+    expect(result).toMatchObject({ attempted: 1, succeeded: 0, failed: 1 });
   });
 });

@@ -19,6 +19,7 @@ import { UserConfigManager } from './core/user-config.js';
 import { SessionStore } from './core/session-store.js';
 import { isSlashCommand, parseSlashCommand, resolveCommand } from './core/slash-command.js';
 import { OperationLedger } from './core/operation-ledger.js';
+import { OperationIdempotencyLedger } from './services/operation-idempotency-ledger.js';
 
 import { TokenTracker } from './core/token-tracker.js';
 import { UsageStats } from './core/usage-stats.js';
@@ -232,6 +233,7 @@ export interface OfficeAgent {
   usageStats: UsageStats;
   configManager: UserConfigManager;
   operationLedger: OperationLedger;
+  operationIdempotencyLedger: OperationIdempotencyLedger;
   dataDir: string;
 
   handleMessage(input: string, images?: string[]): AsyncGenerator<StreamEvent>;
@@ -319,6 +321,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const notificationService = new NotificationService();
   const usageStats = new UsageStats(path.join(dataDir, 'usage-stats.json'));
   const operationLedger = new OperationLedger(path.join(dataDir, 'operation-ledger.json'));
+  const operationIdempotencyLedger = new OperationIdempotencyLedger(path.join(dataDir, 'write-ledger.json'));
   const feishuSyncKnowledgeCapture = new FeishuSyncKnowledgeCapture(officeContextStore);
   const feishuIngestTool = new FeishuIngestTool(
     feishuSyncStore,
@@ -381,13 +384,14 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     getToolContext: () => runtimeContext ?? {},
     maxToolRounds: getMaxToolRounds(),
     operationLedger,
+    operationIdempotencyLedger,
   });
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
     skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, contextWikiCompiler, agendaScheduler, cronScheduler,
     awaySummaryEngine, notificationService,
-    usageStats, configManager, operationLedger,
+    usageStats, configManager, operationLedger, operationIdempotencyLedger,
     dataDir,
     handleMessage: (input: string, images?: string[]) => handleMessage(agent, input, images),
     start: () => startAgent(agent),

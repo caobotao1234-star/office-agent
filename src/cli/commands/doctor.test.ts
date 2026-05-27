@@ -129,6 +129,47 @@ describe('doctor', () => {
     expect(report.checks.find((check) => check.name === '飞书 CLI 读权限探测')?.detail).toContain('bob');
   });
 
+  it('warns when lark-cli auth status reports a refresh-needed token', async () => {
+    const cwd = tmpDir();
+    fs.writeFileSync(path.join(cwd, 'feishu-users.json'), JSON.stringify({
+      apps: [
+        {
+          key: 'team',
+          appId: 'cli_team',
+          appSecret: 'secret',
+          users: [{ openId: 'ou_alice', cliProfile: 'alice' }],
+        },
+      ],
+    }), 'utf-8');
+    const runner: DoctorRunner = async (args) => {
+      if (args[0] === '--version') return result(args, 0, 'lark-cli version 1.0.0');
+      if (args.includes('auth')) {
+        return result(args, 0, JSON.stringify({
+          identity: 'user',
+          tokenStatus: 'needs_refresh',
+          userOpenId: 'ou_1234567890abcdef',
+        }));
+      }
+      return result(args, 0, '{"ok":true}');
+    };
+
+    const report = await runDoctorChecks({
+      cwd,
+      dataDir: path.join(cwd, 'data'),
+      logDir: path.join(cwd, 'logs'),
+      env: {
+        FEISHU_MULTI_USER_CONFIG: './feishu-users.json',
+        DASHSCOPE_API_KEY: 'sk-test',
+        OFFICE_AGENT_DOCTOR_SKIP_FEISHU_PROBES: '1',
+      },
+      runner,
+    });
+
+    const auth = report.checks.find((check) => check.name === 'lark-cli auth');
+    expect(auth?.status).toBe('warn');
+    expect(auth?.detail).toContain('needs_refresh');
+  });
+
   it('flags invalid provider configuration', async () => {
     const cwd = tmpDir();
     const report = await runDoctorChecks({

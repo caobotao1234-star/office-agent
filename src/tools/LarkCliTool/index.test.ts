@@ -60,6 +60,8 @@ describe('LarkCliTool', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('必须先查看');
     expect(JSON.stringify(result.output)).toContain('--help');
+    expect(JSON.stringify(result.output)).toContain('recipe');
+    expect(JSON.stringify(result.output)).toContain('--content -');
   });
 
   it('returns cached help when blocking unguided write commands', async () => {

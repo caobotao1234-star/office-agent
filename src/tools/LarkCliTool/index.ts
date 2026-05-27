@@ -7,6 +7,7 @@ import type { ToolContext, ToolResult } from '../../types/index.js';
 import type { LarkCliRunOptions, LarkCliRunResult } from '../../services/lark-cli-runner.js';
 import { runLarkCli } from '../../services/lark-cli-runner.js';
 import { LarkCliKnowledgeBase } from '../../services/lark-cli-knowledge-base.js';
+import { formatLarkCliRecipe } from '../../services/lark-cli-recipes.js';
 import { logger } from '../../core/logger.js';
 
 const log = logger.child('LarkCliTool');
@@ -128,11 +129,13 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
 
     if (knownValidationError) {
       log.warn('known command validation failed', { args: normalizedInput.args, error: knownValidationError });
+      const recipe = formatLarkCliRecipe(commandKey);
       return {
         success: false,
         output: {
           command: `lark-cli ${normalizedInput.args.join(' ')}`,
           helpHint: commandKey ? [...commandKey.split(' '), '--help'] : ['--help'],
+          ...(recipe ? { recipe } : {}),
         },
         error: knownValidationError,
       };
@@ -165,6 +168,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
     if (commandNeedsGuidance && commandKey && !this.verifiedWriteCommands.has(commandKey)) {
       log.warn('blocked write command without guidance', { args: normalizedInput.args, commandKey });
       const cachedHelp = this.knowledgeBase.summarize(commandKey);
+      const recipe = formatLarkCliRecipe(commandKey);
       return {
         success: false,
         output: {
@@ -172,6 +176,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
           requiresCliGuidance: true,
           helpHint: [...commandKey.split(' '), '--help'],
           dryRunHint: appendDryRun(normalizedInput.args),
+          ...(recipe ? { recipe } : {}),
           ...(cachedHelp ? { cachedHelp } : {}),
         },
         error: '执行写操作前必须先查看同一 lark-cli 命令的 --help，或成功运行一次同一命令的 --dry-run。不要猜参数。',
@@ -198,6 +203,7 @@ export class LarkCliTool implements Tool<LarkCliInput, unknown> {
       truncated: result.truncated,
       attempts: retry.attempts,
       retried: retry.retried,
+      ...(formatLarkCliRecipe(commandKey) ? { recipe: formatLarkCliRecipe(commandKey) } : {}),
       ...(retry.skippedReason ? { retrySkippedReason: retry.skippedReason } : {}),
     };
 

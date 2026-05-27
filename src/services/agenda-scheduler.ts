@@ -74,7 +74,14 @@ export class AgendaScheduler {
       log.info('due agenda found', { count: dueItems.length, now: now.toISOString() });
 
       for (const item of dueItems) {
-        await this.deliver(item, now);
+        try {
+          await this.deliver(item, now);
+        } catch (err) {
+          log.error('agenda delivery failed', {
+            id: item.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
     } finally {
       this.tickInFlight = false;
@@ -88,9 +95,18 @@ export class AgendaScheduler {
 
   private async deliver(item: AgendaItem, now: Date): Promise<void> {
     const message = await this.composer.compose(item, now);
-    await this.notificationService.notify(message);
+    const result = await this.notificationService.notify(message);
+    if (result.succeeded <= 0) {
+      log.warn('agenda delivery not acknowledged; keeping pending', {
+        id: item.id,
+        attempted: result.attempted,
+        failed: result.failed,
+      });
+      return;
+    }
     this.agendaStore.markDelivered(item.id, now);
-    log.info('agenda delivered', { id: item.id, type: item.type, priority: item.priority });
+    const overdueMs = Math.max(0, now.getTime() - item.triggerAt.getTime());
+    log.info('agenda delivered', { id: item.id, type: item.type, priority: item.priority, overdueMs });
   }
 
   private scheduleNextDueTick(): void {

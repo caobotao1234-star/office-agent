@@ -17,6 +17,7 @@ type ReplayStep =
       type: 'tool';
       name: string;
       arguments?: Record<string, unknown>;
+      rawArguments?: string;
     }
   | {
       type: 'final';
@@ -217,6 +218,127 @@ const REPLAY_CASES: ReplayCase[] = [
     expectToolNames: ['LarkCli', 'LarkCli', 'LarkCli', 'LarkCli'],
     expectFinalIncludes: '已创建多维表格',
   },
+  {
+    name: 'docs creation uses stdin for multiline content',
+    userMessage: '创建一份飞书文档，介绍你的能力，正文写详细一点',
+    steps: [
+      {
+        type: 'tool',
+        name: 'LarkCli',
+        arguments: {
+          args: [
+            'docs',
+            '+create',
+            '--api-version',
+            'v2',
+            '--doc-format',
+            'markdown',
+            '--content',
+            '-',
+            '--as',
+            'user',
+          ],
+          stdin: '<title>Office Agent 能力说明</title>\n# Office Agent\n\n- 任务\n- 文档\n- 日程',
+        },
+      },
+      {
+        type: 'final',
+        content: '已创建飞书文档并写入能力说明。',
+        expectLastToolResultIncludes: ['"success":true', 'docx_token'],
+      },
+    ],
+    tools: [
+      {
+        name: 'LarkCli',
+        result: { success: true, output: { stdout: '{"docx_token":"docx_token_1","url":"https://example.feishu.cn/docx/docx_token_1"}' } },
+      },
+    ],
+    expectToolNames: ['LarkCli'],
+    expectFinalIncludes: '已创建飞书文档',
+  },
+  {
+    name: 'base creation continues through table and record writes',
+    userMessage: '做个多维表格，把你的所有能力写进去',
+    steps: [
+      {
+        type: 'tool',
+        name: 'LarkCli',
+        arguments: {
+          args: ['base', '+base-create', '--name', 'Office Agent 能力表', '--as', 'user'],
+        },
+      },
+      {
+        type: 'tool',
+        name: 'LarkCli',
+        arguments: {
+          args: ['base', '+table-create', '--base-token', 'base_token_1', '--name', '能力清单', '--as', 'user'],
+        },
+      },
+      {
+        type: 'tool',
+        name: 'LarkCli',
+        arguments: {
+          args: [
+            'base',
+            '+record-batch-create',
+            '--base-token',
+            'base_token_1',
+            '--table-id',
+            'tbl_1',
+            '--json',
+            '{"fields":["能力","怎么用"],"rows":[["任务管理","直接说要记录的待办"],["飞书文档","让我创建、读取或更新文档"]]}',
+            '--as',
+            'user',
+          ],
+        },
+      },
+      {
+        type: 'final',
+        content: '已创建多维表格、能力清单表，并写入能力记录。',
+        expectLastToolResultIncludes: ['"success":true', 'created":2'],
+      },
+    ],
+    tools: [
+      {
+        name: 'LarkCli',
+        result: { success: true, output: { data: { base: { base_token: 'base_token_1' } } } },
+      },
+      {
+        name: 'LarkCli',
+        result: { success: true, output: { data: { table: { id: 'tbl_1' } } } },
+      },
+      {
+        name: 'LarkCli',
+        result: { success: true, output: { created: 2 } },
+      },
+    ],
+    expectToolNames: ['LarkCli', 'LarkCli', 'LarkCli'],
+    expectFinalIncludes: '已创建多维表格',
+  },
+  {
+    name: 'malformed docs arguments are repaired before tool execution',
+    userMessage: '创建飞书文档，里面有带引号的内容',
+    steps: [
+      {
+        type: 'tool',
+        name: 'LarkCli',
+        rawArguments: '{"args":["docs","+create","--api-version","v2","--doc-format","markdown","--content","<title>能力说明</title>\\n他说 "创建文档" 时要用 stdin","--as","user"]}',
+      },
+      {
+        type: 'final',
+        content: '已创建文档，含引号内容也正常写入。',
+        expectLastToolResultIncludes: ['"success":true'],
+      },
+    ],
+    tools: [
+      {
+        name: 'LarkCli',
+        result: { success: true, output: { stdout: '{"ok":true}' } },
+      },
+    ],
+    expectToolNames: ['LarkCli'],
+    expectFinalIncludes: '已创建文档',
+  },
 ];
 
 class ScriptedLLM implements LLMClient {
@@ -243,13 +365,13 @@ class ScriptedLLM implements LLMClient {
       return {
         content: null,
         toolCalls: [
-          {
-            id: `replay-tool-${this.cursor}`,
-            function: {
-              name: step.name,
-              arguments: JSON.stringify(step.arguments ?? {}),
-            },
-          },
+              {
+                id: `replay-tool-${this.cursor}`,
+                function: {
+                  name: step.name,
+                  arguments: step.rawArguments ?? JSON.stringify(step.arguments ?? {}),
+                },
+              },
         ],
       };
     }

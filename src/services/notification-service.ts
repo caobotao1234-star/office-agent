@@ -15,6 +15,13 @@ const log = logger.child('Notification');
 export type NotifyCallback = (message: string) => void | Promise<void>;
 export type ChannelChangeCallback = () => void;
 
+export interface NotificationResult {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  errors: string[];
+}
+
 export class NotificationService {
   private channels: NotifyCallback[] = [];
   private channelChangeCallbacks = new Set<ChannelChangeCallback>();
@@ -34,17 +41,28 @@ export class NotificationService {
   }
 
   /** Push a notification to all registered channels */
-  async notify(message: string): Promise<void> {
+  async notify(message: string): Promise<NotificationResult> {
     log.info('notify start', { channelCount: this.channels.length, messageLength: message.length });
+    const result: NotificationResult = {
+      attempted: this.channels.length,
+      succeeded: 0,
+      failed: 0,
+      errors: [],
+    };
     for (const ch of this.channels) {
       try {
         await ch(message);
+        result.succeeded++;
       } catch (err) {
-        log.error('channel failed', { error: err instanceof Error ? err.message : String(err) });
-        console.error('[Notification] 推送失败:', err instanceof Error ? err.message : err);
+        const error = err instanceof Error ? err.message : String(err);
+        result.failed++;
+        result.errors.push(error);
+        log.error('channel failed', { error });
+        console.error('[Notification] 推送失败:', error);
       }
     }
-    log.info('notify finish', { channelCount: this.channels.length });
+    log.info('notify finish', { channelCount: this.channels.length, succeeded: result.succeeded, failed: result.failed });
+    return result;
   }
 
   /** Check if any channels are registered */
