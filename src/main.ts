@@ -131,6 +131,8 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '- Use LarkCli for ALL Feishu/Lark work: messages, docs, sheets, base, calendar, tasks, wiki, contacts, meetings, and raw OpenAPI calls',
     '- Use FeishuIngestTool when you need to fetch, register, or sync Feishu docs, wiki nodes, chat messages, message search, calendar agenda, Base records, tasks, or contacts into the agent context.',
     '- If the user asks to keep a doc/group/base/project up to date, register it with FeishuIngestTool addSource, then use syncSource/syncAll when refreshing context.',
+    '- If the user asks to sync their private chat with someone, first use FeishuIngestTool contact_search or LarkCli contact search to identify the person open_id, then register FeishuIngestTool addSource with type chat_messages and userId. Do not ask the user to paste the chat.',
+    '- For group chat context, normal group messages should be passively synced through registered chat_messages sources; only answer in real time when explicitly invoked by the user.',
     '- The user has granted high-trust standing authorization for all operations available to the current Feishu credentials and OAuth scopes.',
     '- Do not ask for permission before executing Feishu side effects. Ask only when the target, content, or intent is ambiguous.',
     '- Use lark-cli schema or --help through LarkCli when you are unsure about parameters. Never guess flags',
@@ -243,6 +245,7 @@ export interface OfficeAgent {
   operationLedger: OperationLedger;
   operationIdempotencyLedger: OperationIdempotencyLedger;
   dataDir: string;
+  runtimeContext: Partial<ToolContext>;
 
   handleMessage(input: string, images?: string[]): AsyncGenerator<StreamEvent>;
   start(): Promise<void>;
@@ -410,6 +413,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     awaySummaryEngine, notificationService,
     usageStats, configManager, operationLedger, operationIdempotencyLedger,
     dataDir,
+    runtimeContext: runtimeContext ?? {},
     handleMessage: (input: string, images?: string[]) => handleMessage(agent, input, images),
     start: () => startAgent(agent),
     stop: () => stopAgent(agent),
@@ -601,7 +605,7 @@ async function* handleBuiltinCommand(
       const sub = args.trim();
       if (sub === 'tasks') {
         const result = await agent.toolRegistry.execute('TaskManager', { action: 'list' },
-          { abortSignal: new AbortController().signal, userConfig: agent.getConfig() });
+          { ...agent.runtimeContext, abortSignal: new AbortController().signal, userConfig: agent.getConfig() });
         const tasks = (result.output as any[]) ?? [];
         if (tasks.length === 0) {
           yield { type: 'text', content: '📋 数据库中无任务' };
@@ -648,7 +652,7 @@ async function* handleBuiltinCommand(
         sub === 'list'
           ? { action: 'listSources' }
           : { action: 'syncAll', includeDisabled: false, force: sub === 'force', limit: 20 },
-        { abortSignal: new AbortController().signal, userConfig: agent.getConfig() },
+        { ...agent.runtimeContext, abortSignal: new AbortController().signal, userConfig: agent.getConfig() },
       );
       if (!result.success) {
         yield { type: 'text', content: `❌ 同步失败: ${result.error}` };
@@ -689,7 +693,7 @@ async function* handleBuiltinCommand(
       const result = await agent.toolRegistry.execute(
         'WikiTool',
         rawInput,
-        { abortSignal: new AbortController().signal, userConfig: agent.getConfig() },
+        { ...agent.runtimeContext, abortSignal: new AbortController().signal, userConfig: agent.getConfig() },
       );
 
       if (!result.success) {

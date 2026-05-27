@@ -301,6 +301,26 @@ Agent 现在有一层本地办公上下文库，用来长期维护人、项目�
 
 默认不会后台轮询飞书。需要定时刷新时，在 `.env` 或 `~/.office-agent/config.json` 中设置 `FEISHU_SYNC_INTERVAL_MINUTES=15` 一类的大于 0 的分钟数；`FEISHU_SYNC_ON_START=true` 可在启动时先同步一次。
 
+### 聊天自动同步
+
+群聊和私聊是两种链路：
+
+- 群聊：把机器人拉进群。默认情况下，群里的普通消息只会把该群登记成当前归属用户的 `chat_messages` 同步源，不会每条都触发 LLM；只有 @ 机器人、`/` 命令或 `oa ...` 这类明确唤醒才会实时回复。
+- 私聊：机器人无法被拉进你和别人的一对一会话。你可以对 Agent 说“同步我和张三的私聊”，Agent 会先查联系人 open_id，然后登记 `chat_messages --user-id <open_id>` 同步源，后续由后台轮询拉取。
+
+可选环境变量：
+
+```bash
+FEISHU_GROUP_AUTO_SYNC=true
+FEISHU_GROUP_AGENT_TRIGGER_MODE=mention   # mention | all | never
+FEISHU_GROUP_AUTO_OWN_SINGLE_USER=true
+FEISHU_GROUP_SYNC_PAGE_SIZE=50
+FEISHU_SYNC_INTERVAL_MINUTES=15
+FEISHU_SYNC_ON_START=true
+```
+
+群聊归属记录在 `~/.office-agent/feishu-observed-chats.json`。多用户 app 中，如果无法判断某个群应该归属哪个已配置用户，Agent 只记录日志，不会擅自用某个用户的 CLI 授权读取群消息。
+
 ## 主动提醒系统
 
 Agent 会在后台自动检查并推送提醒，不需要用户主动询问：

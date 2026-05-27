@@ -10,7 +10,11 @@ import {
   type FeishuSyncSourceType,
   type FeishuSyncStore,
 } from '../../services/feishu-sync-store.js';
-import type { FeishuSyncAutoCapture, FeishuSyncCaptureResult } from '../../services/feishu-sync-knowledge-capture.js';
+import {
+  extractDurableSnippets,
+  type FeishuSyncAutoCapture,
+  type FeishuSyncCaptureResult,
+} from '../../services/feishu-sync-knowledge-capture.js';
 import type { OfficeContextSource, OfficeContextStore, OfficeContextType } from '../../services/office-context-store.js';
 
 export type FeishuIngestRunner = (args: string[], options?: LarkCliRunOptions) => Promise<LarkCliRunResult>;
@@ -381,12 +385,13 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
   }) {
     const officeSource = mapOfficeSource(input.source.type);
     const contextType = mapContextType(input.source.type);
+    const contentPreview = formatContextContent(input.source.type, input.content);
     const summary = [
       `飞书同步来源：${input.source.title}`,
       `类型：${input.source.type}`,
       `内容 hash：${input.contentHash}`,
       '',
-      truncate(input.content, 12_000),
+      contentPreview,
     ].join('\n');
 
     return this.officeContextStore.upsert({
@@ -419,6 +424,22 @@ export class FeishuIngestTool implements Tool<FeishuIngestToolInput, unknown> {
       lastSeenAt: input.source.lastSyncedAt ?? new Date(),
     });
   }
+}
+
+function formatContextContent(type: FeishuSyncSourceType, content: string): string {
+  if (type !== 'chat_messages' && type !== 'message_search') {
+    return truncate(content, 12_000);
+  }
+
+  const snippets = extractDurableSnippets(content, 12);
+  if (snippets.length === 0) {
+    return '本次聊天同步未识别到明确的决策、风险、负责人或截止时间；仅记录变更 hash，避免把闲聊写入长期上下文。';
+  }
+
+  return [
+    '聊天同步摘要（仅保留可复用信息）：',
+    ...snippets.map((snippet) => `- [${snippet.type}] ${snippet.summary}`),
+  ].join('\n');
 }
 
 function getMissingProfileError(

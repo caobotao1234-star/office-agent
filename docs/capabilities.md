@@ -14,6 +14,8 @@
 | 本地 debug 面板 | `oa debug users` / `oa debug last --user app:openId` | CLI -> 本地数据目录/日志/OperationLedger | 不调用 LLM；配置错误时输出可排查信息且不显示 secret | unit |
 | 任务中断恢复 | `/resume` 或“继续刚才的任务” | OperationLedger -> 恢复提示 -> QueryEngine | 无可恢复任务时直接说明；恢复时避免重复已成功的非幂等写操作 | unit |
 | 飞书文本私聊/群聊 | “提醒我 10 分钟后开会” | Feishu WS -> per-user queue -> OfficeAgent -> AgendaTool | 前序任务未完成时排队提示 | unit + manual |
+| 飞书群聊被动同步 | 群聊普通讨论 | Feishu WS -> observed chat owner -> FeishuSyncStore chat_messages；不进 LLM | 无法确定归属用户时只记日志；后台轮询关闭时仅登记来源 | unit |
+| 飞书 P2P 私聊同步 | “同步我和张三的私聊” | contact/search -> FeishuIngestTool chat_messages userId -> FeishuSyncScheduler | 找不到联系人或无 CLI profile 时明确失败 | unit |
 | 飞书富文本 | 富文本含文字和图片 | parser -> image download -> OfficeAgent(text, images) | 图片下载失败时继续处理文字或提示失败 | unit |
 | 飞书图片 | 只发送一张图 | parser -> image download -> vision model | 纯文本模型提示不支持图片并忽略图片 | unit + replay |
 | 飞书语音 | 发送语音消息 | Feishu resource -> DashScope STT -> OfficeAgent(text) | 无 DashScope key 或识别失败时直接提示 | manual |
@@ -30,6 +32,7 @@
 | 创建 Base | “做个多维表格” | LarkCli base +base-create -> table/field/record | `base +create`、`--title`、`--base` 等错误被拦截或修复 | unit + replay |
 | 日历/会议/任务/联系人 | “查今天日程” | LarkCli 对应 shortcut 或 raw API | 不猜 flags，先 help/schema | manual |
 | 飞书同步源 | “持续关注这个项目文档” | FeishuIngestTool addSource/syncAll | sync 失败记录 lastError | unit |
+| 群聊同步源自动登记 | 机器人被拉进项目群 | FeishuObservedChatStore -> per-user FeishuSyncStore | 多用户无法归属时不自动登记，避免串号 | unit |
 | 用户级 CLI 授权 | “写到我的云文档” | ToolContext.larkCliProfile -> lark-cli --profile PROFILE | 无 profile 时快速失败，不落到其他用户授权 | unit |
 | 启动前强校验 | `npm run feishu` | feishu-users.json -> lark-cli profile list/auth status -> fail fast | 缺 profile、授权异常、appId 不匹配时拒绝启动；明文 secret 只 warn 且不打印 secret | unit |
 | 写操作稳定重试 | 任意飞书 CLI 写入 | LarkCliTool -> retry policy -> lark-cli | 只重试安全的瞬时网络失败；可能已发出请求的失败不盲目重试，避免重复写 | unit + replay |

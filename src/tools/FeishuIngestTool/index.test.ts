@@ -83,6 +83,26 @@ describe('FeishuIngestTool', () => {
       hasChatted: false,
       rawArgs: [],
     })).toContain('--field-id');
+
+    expect(buildFeishuIngestArgs({
+      type: 'chat_messages',
+      title: '和张三的私聊',
+      userId: 'ou_zhangsan',
+      tags: [],
+      syncEnabled: true,
+      identity: 'user',
+      fieldIds: [],
+      pageAll: false,
+      hasChatted: false,
+      rawArgs: [],
+    })).toEqual([
+      'im', '+chat-messages-list',
+      '--user-id', 'ou_zhangsan',
+      '--page-size', '50',
+      '--sort', 'desc',
+      '--format', 'json',
+      '--as', 'user',
+    ]);
   });
 
   it('adds a source and syncs changed content into office context', async () => {
@@ -142,6 +162,32 @@ describe('FeishuIngestTool', () => {
     expect((first.output as any).changed).toBe(true);
     expect((second.output as any).changed).toBe(false);
     expect((second.output as any).contextRecord).toBeUndefined();
+  });
+
+  it('stores chat sync as durable summary instead of raw chatter', async () => {
+    const runner: FeishuIngestRunner = async (args) => createRunResult(args, [
+      '哈哈今天吃什么',
+      '决定采用 Apollo 方案，下周五前完成评审',
+      '闲聊内容不应该长期保存',
+    ].join('\n'));
+    const { tool, officeContextStore } = createTool(runner);
+    const added = await callTool(tool, {
+      action: 'addSource',
+      source: {
+        type: 'chat_messages',
+        title: 'Apollo 项目群',
+        chatId: 'oc_apollo',
+      },
+    });
+    const sourceId = (added.output as any).source.id as string;
+
+    const synced = await callTool(tool, { action: 'syncSource', id: sourceId });
+    expect(synced.success).toBe(true);
+    const context = officeContextStore.get(`feishu:${sourceId}`);
+    expect(context?.summary).toContain('聊天同步摘要');
+    expect(context?.summary).toContain('决定采用 Apollo 方案');
+    expect(context?.summary).not.toContain('今天吃什么');
+    expect(context?.summary).not.toContain('闲聊内容不应该长期保存');
   });
 
   it('runs auto capture only when synced content changes', async () => {

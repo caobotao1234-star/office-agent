@@ -9,6 +9,7 @@ const SenderSchema = z.object({
 const MessageSchema = z.object({
   message_id: z.string(),
   chat_id: z.string(),
+  chat_type: z.string().optional(),
   message_type: z.string(),
   content: z.string().optional().default(''),
 });
@@ -23,23 +24,28 @@ export type ParsedFeishuMessage =
       kind: 'text';
       messageId: string;
       chatId: string;
+      chatType?: string;
       senderId: string;
       text: string;
       cleanText: string;
+      hasMention: boolean;
     }
   | {
       kind: 'post';
       messageId: string;
       chatId: string;
+      chatType?: string;
       senderId: string;
       text: string;
       cleanText: string;
+      hasMention: boolean;
       imageKeys: string[];
     }
   | {
       kind: 'image';
       messageId: string;
       chatId: string;
+      chatType?: string;
       senderId: string;
       imageKey: string;
     }
@@ -47,6 +53,7 @@ export type ParsedFeishuMessage =
       kind: 'audio';
       messageId: string;
       chatId: string;
+      chatType?: string;
       senderId: string;
       fileKey: string;
     }
@@ -54,6 +61,7 @@ export type ParsedFeishuMessage =
       kind: 'unsupported';
       messageId: string;
       chatId: string;
+      chatType?: string;
       senderId: string;
       messageType: string;
     };
@@ -81,6 +89,7 @@ export function parseFeishuMessageEvent(data: unknown): FeishuMessageParseResult
   const base = {
     messageId: message.message_id,
     chatId: message.chat_id,
+    chatType: message.chat_type,
     senderId,
   };
 
@@ -89,16 +98,18 @@ export function parseFeishuMessageEvent(data: unknown): FeishuMessageParseResult
       const content = parseJsonObject(message.content);
       const text = typeof content.text === 'string' ? content.text : message.content;
       const cleanText = stripBotMention(text);
+      const hasMention = hasFeishuMention(text);
       if (!cleanText) return { success: false, reason: 'empty text message' };
-      return { success: true, message: { kind: 'text', ...base, text, cleanText } };
+      return { success: true, message: { kind: 'text', ...base, text, cleanText, hasMention } };
     }
     case 'post': {
       const content = parseJsonObject(message.content);
       const text = extractTextFromPost(content);
       const cleanText = stripBotMention(text);
+      const hasMention = hasPostMention(content) || hasFeishuMention(text);
       const imageKeys = extractImageKeysFromPost(content);
       if (!cleanText && imageKeys.length === 0) return { success: false, reason: 'empty post message' };
-      return { success: true, message: { kind: 'post', ...base, text, cleanText, imageKeys } };
+      return { success: true, message: { kind: 'post', ...base, text, cleanText, hasMention, imageKeys } };
     }
     case 'image': {
       const content = parseJsonObject(message.content);
@@ -119,6 +130,10 @@ export function parseFeishuMessageEvent(data: unknown): FeishuMessageParseResult
 
 export function stripBotMention(text: string): string {
   return text.replace(/@_user_\d+\s*/g, '').trim();
+}
+
+export function hasFeishuMention(text: string): boolean {
+  return /@_user_\d+/.test(text);
 }
 
 export function extractImageKeysFromPost(content: unknown): string[] {
@@ -160,6 +175,19 @@ export function extractTextFromPost(content: unknown): string {
   }
 
   return parts.join(' ').trim();
+}
+
+export function hasPostMention(content: unknown): boolean {
+  const root = content && typeof content === 'object' ? content as Record<string, unknown> : {};
+  const locales = selectPostLocale(root);
+  const paragraphs = Array.isArray(locales.content) ? locales.content : [];
+  for (const paragraph of paragraphs) {
+    if (!Array.isArray(paragraph)) continue;
+    for (const element of paragraph) {
+      if (isRecord(element) && element.tag === 'at') return true;
+    }
+  }
+  return false;
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {

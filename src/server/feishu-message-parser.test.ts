@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractImageKeysFromPost,
   extractTextFromPost,
+  hasPostMention,
   parseFeishuMessageEvent,
   stripBotMention,
 } from './feishu-message-parser.js';
@@ -13,6 +14,7 @@ describe('feishu-message-parser', () => {
       message: {
         message_id: 'om_1',
         chat_id: 'oc_1',
+        chat_type: 'group',
         message_type: 'text',
         content: JSON.stringify({ text: '@_user_123 帮我列任务' }),
       },
@@ -24,8 +26,10 @@ describe('feishu-message-parser', () => {
       kind: 'text',
       messageId: 'om_1',
       chatId: 'oc_1',
+      chatType: 'group',
       senderId: 'ou_1',
       cleanText: '帮我列任务',
+      hasMention: true,
     });
   });
 
@@ -49,12 +53,14 @@ describe('feishu-message-parser', () => {
 
     expect(extractTextFromPost(content)).toBe('项目更新 Apollo 进展 文档 (https://example.com) @张三');
     expect(extractImageKeysFromPost(content)).toEqual(['img_1', 'img_2']);
+    expect(hasPostMention(content)).toBe(true);
 
     const result = parseFeishuMessageEvent({
       sender: { sender_id: { open_id: 'ou_2' } },
       message: {
         message_id: 'om_2',
         chat_id: 'oc_2',
+        chat_type: 'group',
         message_type: 'post',
         content: JSON.stringify(content),
       },
@@ -65,6 +71,8 @@ describe('feishu-message-parser', () => {
     expect(result.message.kind).toBe('post');
     if (result.message.kind === 'post') {
       expect(result.message.cleanText).toContain('Apollo 进展');
+      expect(result.message.chatType).toBe('group');
+      expect(result.message.hasMention).toBe(true);
       expect(result.message.imageKeys).toEqual(['img_1', 'img_2']);
     }
   });

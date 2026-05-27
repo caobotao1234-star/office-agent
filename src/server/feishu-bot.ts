@@ -23,11 +23,19 @@ import { TokenTracker } from '../core/token-tracker.js';
 import { logger } from '../core/logger.js';
 import { transcribeAudio } from '../services/speech-to-text.js';
 import { FeishuRecipientStore } from '../services/feishu-recipient-store.js';
+import { FeishuObservedChatStore } from '../services/feishu-observed-chat-store.js';
 import { formatFeishuPreflightReport, runFeishuStartupPreflight } from '../services/feishu-startup-preflight.js';
 import type { NotifyCallback } from '../services/notification-service.js';
 import { SerialMessageQueue } from '../services/serial-message-queue.js';
 import { createConfiguredLLM, resolveLLMProvider } from '../core/llm-provider.js';
 import { parseFeishuMessageEvent } from './feishu-message-parser.js';
+import {
+  buildObservedGroupSyncSource,
+  loadFeishuChatAutoSyncConfig,
+  normalizeFeishuChatType,
+  shouldTriggerAgentForGroupMessage,
+  type FeishuChatAutoSyncConfig,
+} from '../services/feishu-chat-auto-sync.js';
 import {
   loadFeishuMultiUserConfig,
   resolveFeishuUser,
@@ -66,6 +74,7 @@ const userAgents = new Map<string, OfficeAgent>();
 const startedAgentChats = new Map<string, string>();
 const notificationCallbacks = new Map<string, NotifyCallback>();
 const userMessageQueues = new Map<string, SerialMessageQueue>();
+const passiveSyncStartedAgents = new Set<string>();
 
 function getOrCreateAgent(user: ResolvedFeishuUser): OfficeAgent {
   const existing = userAgents.get(user.userKey);
@@ -254,6 +263,8 @@ async function main() {
   }
 
   const recipientStore = new FeishuRecipientStore(path.join(DATA_DIR, 'feishu-recipients.json'));
+  const observedChatStore = new FeishuObservedChatStore(path.join(DATA_DIR, 'feishu-observed-chats.json'));
+  const chatAutoSyncConfig = loadFeishuChatAutoSyncConfig(process.env);
   const larkSdkLogger = createLarkSdkLogger();
 
   log.info('╔══════════════════════════════════════════╗');
@@ -266,10 +277,12 @@ async function main() {
     source: feishuConfig.source,
     configPath: feishuConfig.configPath,
     appCount: feishuConfig.apps.length,
+    groupAutoSyncEnabled: chatAutoSyncConfig.groupAutoSyncEnabled,
+    groupAgentTriggerMode: chatAutoSyncConfig.groupAgentTriggerMode,
   });
 
   for (const app of feishuConfig.apps) {
-    await startFeishuApp(app, recipientStore, larkSdkLogger);
+    await startFeishuApp(app, recipientStore, observedChatStore, chatAutoSyncConfig, larkSdkLogger);
   }
 
   log.info('✅ 飞书 WebSocket 长连接已启动，等待消息...', { appCount: feishuConfig.apps.length });
@@ -280,6 +293,8 @@ const activeWsClients: Lark.WSClient[] = [];
 async function startFeishuApp(
   app: FeishuAppConfig,
   recipientStore: FeishuRecipientStore,
+  observedChatStore: FeishuObservedChatStore,
+  chatAutoSyncConfig: FeishuChatAutoSyncConfig,
   larkSdkLogger: ReturnType<typeof createLarkSdkLogger>,
 ): Promise<void> {
   const baseConfig = { appId: app.appId, appSecret: app.appSecret };
@@ -348,6 +363,7 @@ async function startFeishuApp(
 
     if (!existingChatId) {
       agent.agendaScheduler.start();
+      passiveSyncStartedAgents.add(user.userKey);
       log.info('用户 Agent 已启动', {
         appKey: app.key,
         userKey: user.userKey,
@@ -364,6 +380,78 @@ async function startFeishuApp(
     }
 
     startedAgentChats.set(user.userKey, chatId);
+  }
+
+  function ensurePassiveSyncStarted(user: ResolvedFeishuUser): OfficeAgent {
+    const agent = getOrCreateAgent(user);
+    if (passiveSyncStartedAgents.has(user.userKey)) return agent;
+
+    agent.configManager.load();
+    agent.feishuSyncScheduler.start();
+    passiveSyncStartedAgents.add(user.userKey);
+    log.info('用户飞书被动同步已启动', {
+      appKey: app.key,
+      userKey: user.userKey,
+      syncEnabled: agent.feishuSyncScheduler.isEnabled(),
+    });
+    return agent;
+  }
+
+  function resolveGroupOwner(senderId: string, chatId: string): ResolvedFeishuUser | null {
+    const observed = observedChatStore.get(app.key, chatId);
+    if (observed) return resolveFeishuUser(app, observed.ownerOpenId);
+
+    const senderUser = resolveFeishuUser(app, senderId);
+    const senderBinding = app.users.find((item) => item.openId === senderId && item.enabled !== false);
+    if (senderUser.configured && (senderBinding || app.users.length === 0)) {
+      return senderUser;
+    }
+
+    if (chatAutoSyncConfig.groupAutoOwnSingleUser) {
+      const candidates = app.users.filter((item) => item.enabled !== false && (item.cliProfile || app.defaultCliProfile));
+      if (candidates.length === 1) {
+        return resolveFeishuUser(app, candidates[0]!.openId);
+      }
+    }
+
+    return null;
+  }
+
+  function ensureGroupChatSyncSource(
+    user: ResolvedFeishuUser,
+    chatId: string,
+    messageId: string,
+  ): void {
+    if (!chatAutoSyncConfig.groupAutoSyncEnabled) return;
+    if (!user.configured || !user.cliProfile) {
+      log.warn('跳过群聊自动同步：归属用户没有 cliProfile', {
+        appKey: app.key,
+        chatId,
+        userKey: user.userKey,
+      });
+      return;
+    }
+
+    const agent = ensurePassiveSyncStarted(user);
+    const sourceInput = buildObservedGroupSyncSource({
+      appKey: app.key,
+      chatId,
+      pageSize: chatAutoSyncConfig.groupSyncPageSize,
+    });
+    const source = sourceInput.id && agent.feishuSyncStore.get(sourceInput.id)
+      ? agent.feishuSyncStore.get(sourceInput.id)!
+      : agent.feishuSyncStore.upsert(sourceInput);
+
+    observedChatStore.upsert({
+      appKey: app.key,
+      chatId,
+      ownerOpenId: user.openId,
+      ownerUserKey: user.userKey,
+      ownerSafeUserKey: user.safeUserKey,
+      syncSourceId: source.id,
+      title: source.title,
+      lastMessageId: messageId,
+    });
   }
 
   async function bootstrapKnownRecipients(): Promise<void> {
@@ -461,15 +549,53 @@ async function startFeishuApp(
 
         const parsedMessage = parsed.message;
         const { messageId, chatId, senderId } = parsedMessage;
-        const user = resolveFeishuUser(app, senderId);
+        const chatType = normalizeFeishuChatType(parsedMessage.chatType);
+        let user = resolveFeishuUser(app, senderId);
 
         if (isDuplicate(`${app.key}:${messageId}`)) {
           log.debug('跳过重复消息', { appKey: app.key, messageId });
           return;
         }
 
+        if (chatType === 'group') {
+          const owner = resolveGroupOwner(senderId, chatId);
+          const cleanText = parsedMessage.kind === 'text' || parsedMessage.kind === 'post' ? parsedMessage.cleanText : '';
+          const hasMention = parsedMessage.kind === 'text' || parsedMessage.kind === 'post' ? parsedMessage.hasMention : false;
+          const shouldTrigger = shouldTriggerAgentForGroupMessage({
+            chatType: parsedMessage.chatType,
+            cleanText,
+            hasMention,
+          }, chatAutoSyncConfig);
+
+          if (owner) {
+            user = owner;
+            ensureGroupChatSyncSource(user, chatId, messageId);
+          }
+
+          if (!shouldTrigger) {
+            log.info('群聊消息已登记同步，跳过实时 Agent', {
+              appKey: app.key,
+              chatId,
+              ownerUserKey: owner?.userKey,
+              hasOwner: !!owner,
+            });
+            return;
+          }
+
+          if (!owner) {
+            log.warn('群聊消息已唤醒但没有归属用户', { appKey: app.key, chatId, senderId });
+            void sendTextMessage(larkClient, chatId, [
+              '这个群还没有绑定到已配置的 Office Agent 用户，暂时不能处理。',
+              '请让已配置过 cliProfile 的用户在本群 @ 我一次，或在 feishu-users.json 里只保留一个启用用户后重启。',
+            ].join('\n'));
+            return;
+          }
+        }
+
         if (parsedMessage.kind === 'unsupported') {
-          void sendTextMessage(larkClient, chatId, '目前支持文本、富文本、图片和语音消息，该类型暂不支持。');
+          if (chatType !== 'group') {
+            void sendTextMessage(larkClient, chatId, '目前支持文本、富文本、图片和语音消息，该类型暂不支持。');
+          }
           return;
         }
 
