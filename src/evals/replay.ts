@@ -339,6 +339,41 @@ const REPLAY_CASES: ReplayCase[] = [
     expectToolNames: ['LarkCli'],
     expectFinalIncludes: '已创建文档',
   },
+  {
+    name: 'project status uses project dashboard',
+    userMessage: 'Apollo 项目现在怎么样，有什么风险和下一步？',
+    steps: [
+      {
+        type: 'tool',
+        name: 'ProjectDashboardTool',
+        arguments: {
+          action: 'get',
+          project: 'Apollo',
+          limit: 10,
+        },
+      },
+      {
+        type: 'final',
+        content: 'Apollo 项目当前 active。主要风险是客户演示稿逾期；下一步应先处理演示稿并跟进客户方案承诺。',
+        expectLastToolResultIncludes: ['"success":true', '客户演示稿逾期', '客户方案承诺'],
+      },
+    ],
+    tools: [
+      {
+        name: 'ProjectDashboardTool',
+        result: {
+          success: true,
+          output: {
+            project: { title: 'Apollo', status: 'active' },
+            risks: ['任务逾期：客户演示稿逾期'],
+            nextActions: ['处理任务：客户演示稿逾期', '承诺：客户方案承诺'],
+          },
+        },
+      },
+    ],
+    expectToolNames: ['ProjectDashboardTool'],
+    expectFinalIncludes: '主要风险',
+  },
 ];
 
 class ScriptedLLM implements LLMClient {

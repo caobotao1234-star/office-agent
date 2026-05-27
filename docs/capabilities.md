@@ -44,6 +44,7 @@
 | --- | --- | --- | --- | --- |
 | 松散记忆 | “服务器密码在 1Password” | MemoryTool store/search | 工具失败时如实反馈 | unit |
 | 结构化上下文 | “张三负责 Apollo 前端” | OfficeContextTool upsert/search | 缺 title/summary 时工具拒绝 | unit |
+| 项目驾驶舱 | “Apollo 项目现在怎么样” | ProjectDashboardTool -> OfficeContext/tasks/agenda/sync sources | 找不到项目时返回候选，不编造状态 | unit + replay |
 | 批量知识捕获 | 长文本包含人、项目、承诺 | KnowledgeCaptureTool -> context/memory/agenda | 单项失败不影响其他项，输出计数 | unit + replay |
 | 本地 Wiki | “生成/查询知识库” | WikiTool -> ContextWikiCompiler | 缺页返回空结果 | unit |
 | 飞书主动同步 | 已登记文档变化 | FeishuSyncScheduler -> FeishuIngestTool -> OfficeContext | 变化抽取失败不影响同步记录 | unit |

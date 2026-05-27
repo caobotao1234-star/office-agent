@@ -35,6 +35,7 @@ import { FeishuSyncStore } from './services/feishu-sync-store.js';
 import { FeishuSyncScheduler, type FeishuSyncTickSummary } from './services/feishu-sync-scheduler.js';
 import { ContextWikiCompiler } from './services/context-wiki-compiler.js';
 import { FeishuSyncKnowledgeCapture } from './services/feishu-sync-knowledge-capture.js';
+import { ProjectDashboardService } from './services/project-dashboard-service.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -49,6 +50,7 @@ import { OfficeContextTool } from './tools/OfficeContextTool/index.js';
 import { KnowledgeCaptureTool } from './tools/KnowledgeCaptureTool/index.js';
 import { FeishuIngestTool } from './tools/FeishuIngestTool/index.js';
 import { WikiTool } from './tools/WikiTool/index.js';
+import { ProjectDashboardTool } from './tools/ProjectDashboardTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -103,6 +105,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '# Office Context System',
     '',
     '- Use OfficeContextTool as the structured office context graph for people, projects, documents, meetings, tasks, business processes, relationships, durable knowledge, and miscellaneous office context.',
+    '- Use ProjectDashboardTool before answering project status, project risk, project next-step, or "这个项目现在怎么样" questions. It aggregates tasks, agenda, context, and Feishu sync sources.',
     '- Search OfficeContextTool before answering questions about project status, stakeholders, responsibilities, documents, meetings, business processes, or prior office context.',
     '- Upsert OfficeContextTool records when you learn stable context from conversation, Feishu docs/messages/calendar/base, meetings, or tool results.',
     '- Use MemoryTool for loose facts, preferences, raw notes, and quick knowledge cards; use OfficeContextTool for durable structured entities and relationships.',
@@ -226,6 +229,7 @@ export interface OfficeAgent {
   feishuSyncStore: FeishuSyncStore;
   feishuSyncScheduler: FeishuSyncScheduler;
   contextWikiCompiler: ContextWikiCompiler;
+  projectDashboardService: ProjectDashboardService;
   agendaScheduler: AgendaScheduler;
   cronScheduler: CronScheduler;
   awaySummaryEngine: AwaySummaryEngine;
@@ -309,6 +313,12 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   const officeContextStore = new OfficeContextStore(path.join(dataDir, 'office-context.json'));
   const feishuSyncStore = new FeishuSyncStore(path.join(dataDir, 'feishu-sync-sources.json'));
   const contextWikiCompiler = new ContextWikiCompiler(officeContextStore, path.join(dataDir, 'wikidir'));
+  const projectDashboardService = new ProjectDashboardService(
+    officeContextStore,
+    agendaStore,
+    feishuSyncStore,
+    path.join(dataDir, 'tasks.json'),
+  );
   const reminderComposer = new ReminderComposer(llm);
   const cronScheduler = new CronScheduler(
     path.join(dataDir, 'cron-tasks.json'),
@@ -337,6 +347,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new LarkCliTool());
+  toolRegistry.register(new ProjectDashboardTool(projectDashboardService));
   toolRegistry.register(new OfficeContextTool(officeContextStore));
   toolRegistry.register(new KnowledgeCaptureTool(officeContextStore, memorySystem, agendaStore));
   toolRegistry.register(feishuIngestTool);
@@ -389,7 +400,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
-    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, contextWikiCompiler, agendaScheduler, cronScheduler,
+    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, contextWikiCompiler, projectDashboardService, agendaScheduler, cronScheduler,
     awaySummaryEngine, notificationService,
     usageStats, configManager, operationLedger, operationIdempotencyLedger,
     dataDir,

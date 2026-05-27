@@ -73,6 +73,7 @@ describe('createOfficeAgent', () => {
     expect(agent.notificationService).toBeDefined();
     expect(agent.configManager).toBeDefined();
     expect(agent.operationLedger).toBeDefined();
+    expect(agent.projectDashboardService).toBeDefined();
   });
 
   it('should register only active, non-stub tools', () => {
@@ -87,6 +88,7 @@ describe('createOfficeAgent', () => {
       'LarkCli',
       'MemoryTool',
       'OfficeContextTool',
+      'ProjectDashboardTool',
       'SkillCreator',
       'SubAgentTool',
       'TaskManager',

@@ -264,6 +264,7 @@ Agent 通过原生 Function Calling 调用这些工具：
 | SubAgentTool | 项目管理（创建/归档/委派） | ✅ 完整 |
 | MemoryTool | 长期记忆存储/搜索/删除 | ✅ 完整 |
 | OfficeContextTool | 办公上下文图谱：人、项目、文档、会议、流程、关系、知识 | ✅ 推荐 |
+| ProjectDashboardTool | 项目驾驶舱：聚合任务、Agenda、上下文和飞书同步源，回答项目状态/风险/下一步 | ✅ 推荐 |
 | KnowledgeCaptureTool | 从对话/文档/会议等来源批量提取上下文、记忆和提醒 | ✅ 推荐 |
 | FeishuIngestTool | 登记、读取、同步飞书文档/群聊/日历/Base/任务/通讯录到上下文库 | ✅ 推荐 |
 | WikiTool | 把办公上下文图谱编译成本地 Markdown Wiki，并支持列表、搜索、读取 | ✅ 推荐 |
@@ -281,6 +282,7 @@ Agent 通过原生 Function Calling 调用这些工具：
 Agent 现在有一层本地办公上下文库，用来长期维护人、项目、文档、会议、任务、业务流程、关系和知识：
 
 - `OfficeContextTool`：结构化保存和检索办公实体与关系，数据写入 `office-context.json`
+- `ProjectDashboardTool`：按项目聚合上下文、任务、Agenda 和飞书同步源，回答项目状态、风险和下一步
 - `KnowledgeCaptureTool`：当对话、文档、会议或群聊里出现多条稳定信息时，批量写入上下文、记忆和提醒
 - `FeishuIngestTool`：登记并同步飞书来源，例如云文档、知识库节点、群聊消息、日历、Base、任务和通讯录搜索
 - `WikiTool`：把上下文库编译成本地 Markdown Wiki，便于人工审阅、搜索和排查 Agent 到底记住了什么
@@ -292,6 +294,7 @@ Agent 现在有一层本地办公上下文库，用来长期维护人、项目�
 - “编译一下你的本地知识 Wiki”
 - “看看 Apollo 项目群和项目文档最近有什么变化”
 - “读取这个 Base，并把项目状态更新到你的上下文里”
+- “Apollo 项目现在怎么样，有什么风险，下一步做什么”
 
 同步源记录在 `feishu-sync-sources.json`。每次同步会计算内容 hash；内容没变化时不会重复更新上下文。同步工具只负责拉取和变更检测，深度提取由 Agent 视情况调用 `KnowledgeCaptureTool` 完成。
 
@@ -532,6 +535,7 @@ src/
 │   ├── feishu-sync-store.ts    # 飞书同步关注源状态
 │   ├── feishu-sync-scheduler.ts # 可选飞书后台同步调度
 │   ├── context-wiki-compiler.ts # 上下文图谱 → 本地 Markdown Wiki
+│   ├── project-dashboard-service.ts # 项目驾驶舱聚合服务
 │   ├── serial-message-queue.ts # 飞书用户消息串行队列
 │   ├── cron-scheduler.ts       # 定时调度器（cron 表达式 + 持久化）
 │   ├── away-summary-engine.ts  # 离开摘要
@@ -542,6 +546,7 @@ src/
 │   ├── SubAgentTool/           # 项目管理
 │   ├── MemoryTool/             # 记忆操作
 │   ├── OfficeContextTool/      # 办公上下文图谱
+│   ├── ProjectDashboardTool/   # 项目驾驶舱
 │   ├── KnowledgeCaptureTool/   # 批量知识提取
 │   ├── FeishuIngestTool/       # 飞书来源登记与同步
 │   ├── WikiTool/               # 本地知识 Wiki 编译/搜索/读取
