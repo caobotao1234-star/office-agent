@@ -74,6 +74,7 @@ describe('createOfficeAgent', () => {
     expect(agent.configManager).toBeDefined();
     expect(agent.operationLedger).toBeDefined();
     expect(agent.projectDashboardService).toBeDefined();
+    expect(agent.projectWeeklyReportService).toBeDefined();
     expect(agent.commitmentTrackerService).toBeDefined();
   });
 
@@ -91,6 +92,7 @@ describe('createOfficeAgent', () => {
       'MemoryTool',
       'OfficeContextTool',
       'ProjectDashboardTool',
+      'ProjectWeeklyReportTool',
       'SkillCreator',
       'SubAgentTool',
       'TaskManager',

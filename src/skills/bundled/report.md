@@ -2,7 +2,7 @@
 name: report
 description: 统一报告生成：日报、周报、月报、季度总结、半年总结、年度总结、项目报告，自动判断类型和时间范围
 when_to_use: 当用户提到日报、周报、月报、季度总结、半年总结、年度总结、项目报告、工作汇报、进展报告时
-allowed_tools: [TaskManager, MemoryTool, SubAgentTool, LarkCli]
+allowed_tools: [ProjectWeeklyReportTool, ProjectDashboardTool, TaskManager, MemoryTool, SubAgentTool, LarkCli, CronTool]
 execution_mode: inline
 ---
 
@@ -31,9 +31,11 @@ execution_mode: inline
 - 如果用户指定了项目，只汇总该项目的内容
 - 如果没指定项目，汇总所有项目和任务
 - 用 SubAgentTool 列出活跃项目，按项目分组汇总
+- 如果是项目周报，优先调用 ProjectWeeklyReportTool 生成带来源的 Markdown 周报，再基于结果回答或写入飞书文档
 
 ## 3. 收集信息
 
+- 项目周报：先用 ProjectWeeklyReportTool generate
 - 用 TaskManager 查询时间范围内的任务（已完成、进行中、新增、逾期）
 - 用 MemoryTool 搜索时间范围内的项目记忆（决策、里程碑、关键事件）
 - 如果用户提供了飞书文档链接，用 LarkCli 读取补充信息
@@ -68,6 +70,7 @@ execution_mode: inline
 
 - 将报告存入 MemoryTool（类型 project_context，标签含报告类型和日期）
 - 下次生成同类报告时可参考上期内容，保持连贯性
+- 如果用户要求“每周自动生成/推送”，用 CronTool 创建周期任务，任务 prompt 中明确项目名和“调用 ProjectWeeklyReportTool 生成周报”
 
 ## 注意事项
 

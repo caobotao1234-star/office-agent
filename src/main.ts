@@ -36,6 +36,7 @@ import { FeishuSyncScheduler, type FeishuSyncTickSummary } from './services/feis
 import { ContextWikiCompiler } from './services/context-wiki-compiler.js';
 import { FeishuSyncKnowledgeCapture } from './services/feishu-sync-knowledge-capture.js';
 import { ProjectDashboardService } from './services/project-dashboard-service.js';
+import { ProjectWeeklyReportService } from './services/project-weekly-report-service.js';
 import { CommitmentTrackerService } from './services/commitment-tracker-service.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
@@ -52,6 +53,7 @@ import { KnowledgeCaptureTool } from './tools/KnowledgeCaptureTool/index.js';
 import { FeishuIngestTool } from './tools/FeishuIngestTool/index.js';
 import { WikiTool } from './tools/WikiTool/index.js';
 import { ProjectDashboardTool } from './tools/ProjectDashboardTool/index.js';
+import { ProjectWeeklyReportTool } from './tools/ProjectWeeklyReportTool/index.js';
 import { CommitmentTrackerTool } from './tools/CommitmentTrackerTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
@@ -108,6 +110,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '',
     '- Use OfficeContextTool as the structured office context graph for people, projects, documents, meetings, tasks, business processes, relationships, durable knowledge, and miscellaneous office context.',
     '- Use ProjectDashboardTool before answering project status, project risk, project next-step, or "这个项目现在怎么样" questions. It aggregates tasks, agenda, context, and Feishu sync sources.',
+    '- Use ProjectWeeklyReportTool before generating project weekly reports, weekly project summaries, or scheduled project report content. It returns Markdown grounded in ProjectDashboard data.',
     '- Search OfficeContextTool before answering questions about project status, stakeholders, responsibilities, documents, meetings, business processes, or prior office context.',
     '- Upsert OfficeContextTool records when you learn stable context from conversation, Feishu docs/messages/calendar/base, meetings, or tool results.',
     '- Use MemoryTool for loose facts, preferences, raw notes, and quick knowledge cards; use OfficeContextTool for durable structured entities and relationships.',
@@ -206,8 +209,8 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '',
     '- When user mentions periodic reports (周报, 月报, 日报) or recurring events,',
     '  proactively create a CronTool recurring task to automate it.',
-    '  Example: user says "周报每周五下午5点" → create cron task with expression "0 17 * * 5"',
-    '  and prompt "生成本周项目周报并推送给用户".',
+    '  Example: user says "Apollo 周报每周五下午5点" → first call ProjectWeeklyReportTool for Apollo, then create cron task with expression "0 17 * * 5"',
+    '  and prompt "生成 Apollo 项目周报并推送给用户".',
     '- When user mentions one-time deadlines or reminders, create an AgendaTool item.',
     '- Be proactive: if user discusses a project milestone, suggest creating a reminder.',
     '- Make reminders feel natural and human — vary the wording, consider context.',
@@ -235,6 +238,7 @@ export interface OfficeAgent {
   feishuSyncScheduler: FeishuSyncScheduler;
   contextWikiCompiler: ContextWikiCompiler;
   projectDashboardService: ProjectDashboardService;
+  projectWeeklyReportService: ProjectWeeklyReportService;
   commitmentTrackerService: CommitmentTrackerService;
   agendaScheduler: AgendaScheduler;
   cronScheduler: CronScheduler;
@@ -326,6 +330,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     feishuSyncStore,
     path.join(dataDir, 'tasks.json'),
   );
+  const projectWeeklyReportService = new ProjectWeeklyReportService(projectDashboardService);
   const commitmentTrackerService = new CommitmentTrackerService(agendaStore, officeContextStore);
   const reminderComposer = new ReminderComposer(llm);
   const cronScheduler = new CronScheduler(
@@ -356,6 +361,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new LarkCliTool());
   toolRegistry.register(new ProjectDashboardTool(projectDashboardService));
+  toolRegistry.register(new ProjectWeeklyReportTool(projectWeeklyReportService));
   toolRegistry.register(new CommitmentTrackerTool(commitmentTrackerService));
   toolRegistry.register(new OfficeContextTool(officeContextStore));
   toolRegistry.register(new KnowledgeCaptureTool(officeContextStore, memorySystem, agendaStore));
@@ -409,7 +415,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
-    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, contextWikiCompiler, projectDashboardService, commitmentTrackerService, agendaScheduler, cronScheduler,
+    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, contextWikiCompiler, projectDashboardService, projectWeeklyReportService, commitmentTrackerService, agendaScheduler, cronScheduler,
     awaySummaryEngine, notificationService,
     usageStats, configManager, operationLedger, operationIdempotencyLedger,
     dataDir,

@@ -409,6 +409,43 @@ const REPLAY_CASES: ReplayCase[] = [
     expectToolNames: ['CommitmentTrackerTool'],
     expectFinalIncludes: '需要催办',
   },
+  {
+    name: 'project weekly report uses weekly report tool',
+    userMessage: '生成 Apollo 项目本周周报',
+    steps: [
+      {
+        type: 'tool',
+        name: 'ProjectWeeklyReportTool',
+        arguments: {
+          action: 'generate',
+          project: 'Apollo',
+          limit: 12,
+        },
+      },
+      {
+        type: 'final',
+        content: '已生成 Apollo 项目周报：本周完成演示路径确认，主要风险是演示稿逾期，下周优先处理演示稿并跟进客户方案。',
+        expectLastToolResultIncludes: ['"success":true', '# Apollo 项目周报', '演示稿逾期'],
+      },
+    ],
+    tools: [
+      {
+        name: 'ProjectWeeklyReportTool',
+        result: {
+          success: true,
+          output: {
+            markdown: '# Apollo 项目周报\n\n- 本周完成演示路径确认\n- 风险：演示稿逾期',
+            sections: {
+              risks: { items: ['任务逾期：演示稿逾期'] },
+              nextWeekPlan: { items: ['处理任务：演示稿'] },
+            },
+          },
+        },
+      },
+    ],
+    expectToolNames: ['ProjectWeeklyReportTool'],
+    expectFinalIncludes: '已生成 Apollo 项目周报',
+  },
 ];
 
 class ScriptedLLM implements LLMClient {
