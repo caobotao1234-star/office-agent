@@ -374,6 +374,41 @@ const REPLAY_CASES: ReplayCase[] = [
     expectToolNames: ['ProjectDashboardTool'],
     expectFinalIncludes: '主要风险',
   },
+  {
+    name: 'commitment question uses commitment tracker',
+    userMessage: '我最近答应了谁什么？有什么要催办的吗？',
+    steps: [
+      {
+        type: 'tool',
+        name: 'CommitmentTrackerTool',
+        arguments: {
+          action: 'summary',
+          status: 'pending',
+          windowDays: 7,
+          limit: 20,
+        },
+      },
+      {
+        type: 'final',
+        content: '你有 1 个自己要履约的承诺：给张三发方案；还有 1 个需要催办：李四给接口文档。',
+        expectLastToolResultIncludes: ['"owedByUser":1', '"owedToUser":1', '李四给接口文档'],
+      },
+    ],
+    tools: [
+      {
+        name: 'CommitmentTrackerTool',
+        result: {
+          success: true,
+          output: {
+            counts: { owedByUser: 1, owedToUser: 1 },
+            nextActions: ['我方需履约: 给张三发方案', '需要催办/跟进对方: 李四给接口文档'],
+          },
+        },
+      },
+    ],
+    expectToolNames: ['CommitmentTrackerTool'],
+    expectFinalIncludes: '需要催办',
+  },
 ];
 
 class ScriptedLLM implements LLMClient {

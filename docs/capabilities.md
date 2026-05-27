@@ -55,6 +55,7 @@
 | --- | --- | --- | --- | --- |
 | 一次性提醒 | “1 分钟后提醒我测试” | AgendaTool create -> AgendaScheduler -> ReminderComposer -> NotificationService | 无通知通道或全部通道失败时不标记 delivered，通道恢复后补发 | unit |
 | 截止日期/承诺 | “周五前给客户方案” | AgendaTool commitment/deadline | 时间不明确时询问或不创建 | replay |
+| 承诺追踪 | “我答应了谁什么 / 要催谁” | CommitmentTrackerTool -> Agenda commitment/deadline/follow_up | 方向不确定时标记 unknown，不编造责任方 | unit + replay |
 | 周期任务 | “每周五生成周报” | CronTool -> CronScheduler -> OfficeAgent | cron 解析失败时工具报错 | unit |
 | 离开总结 | 用户离开后回来 | AwaySummaryEngine -> LLM summary | LLM 失败时静默跳过 | unit |
 

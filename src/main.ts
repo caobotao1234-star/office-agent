@@ -36,6 +36,7 @@ import { FeishuSyncScheduler, type FeishuSyncTickSummary } from './services/feis
 import { ContextWikiCompiler } from './services/context-wiki-compiler.js';
 import { FeishuSyncKnowledgeCapture } from './services/feishu-sync-knowledge-capture.js';
 import { ProjectDashboardService } from './services/project-dashboard-service.js';
+import { CommitmentTrackerService } from './services/commitment-tracker-service.js';
 
 import { TaskManagerTool } from './tools/TaskManager/index.js';
 import { SubAgentTool } from './tools/SubAgentTool/index.js';
@@ -51,6 +52,7 @@ import { KnowledgeCaptureTool } from './tools/KnowledgeCaptureTool/index.js';
 import { FeishuIngestTool } from './tools/FeishuIngestTool/index.js';
 import { WikiTool } from './tools/WikiTool/index.js';
 import { ProjectDashboardTool } from './tools/ProjectDashboardTool/index.js';
+import { CommitmentTrackerTool } from './tools/CommitmentTrackerTool/index.js';
 
 const BASE_DIR = path.join(os.homedir(), '.office-agent');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -116,6 +118,7 @@ function buildSystemPrompt(toolDescriptions: string): string {
     '# Agenda & Proactive Reminders',
     '',
     '- Use AgendaTool when the user states a concrete reminder time, deadline, commitment, or follow-up point.',
+    '- Use CommitmentTrackerTool before answering questions about commitments, promises, follow-ups, who owes whom, what is overdue, or who needs nudging.',
     '- Do NOT run agenda extraction every turn. Call AgendaTool autonomously only when there is a clear useful trigger.',
     '- For explicit reminders, set triggerAt to the reminder time.',
     '- For deadlines, set deadlineAt to the actual due time and triggerAt to when the user should be reminded.',
@@ -230,6 +233,7 @@ export interface OfficeAgent {
   feishuSyncScheduler: FeishuSyncScheduler;
   contextWikiCompiler: ContextWikiCompiler;
   projectDashboardService: ProjectDashboardService;
+  commitmentTrackerService: CommitmentTrackerService;
   agendaScheduler: AgendaScheduler;
   cronScheduler: CronScheduler;
   awaySummaryEngine: AwaySummaryEngine;
@@ -319,6 +323,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
     feishuSyncStore,
     path.join(dataDir, 'tasks.json'),
   );
+  const commitmentTrackerService = new CommitmentTrackerService(agendaStore, officeContextStore);
   const reminderComposer = new ReminderComposer(llm);
   const cronScheduler = new CronScheduler(
     path.join(dataDir, 'cron-tasks.json'),
@@ -348,6 +353,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
   toolRegistry.register(new TaskManagerTool(dataDir));
   toolRegistry.register(new LarkCliTool());
   toolRegistry.register(new ProjectDashboardTool(projectDashboardService));
+  toolRegistry.register(new CommitmentTrackerTool(commitmentTrackerService));
   toolRegistry.register(new OfficeContextTool(officeContextStore));
   toolRegistry.register(new KnowledgeCaptureTool(officeContextStore, memorySystem, agendaStore));
   toolRegistry.register(feishuIngestTool);
@@ -400,7 +406,7 @@ export function createOfficeAgent(options: CreateOfficeAgentOptions): OfficeAgen
 
   const agent: OfficeAgent = {
     queryEngine, toolRegistry, memorySystem, contextManager,
-    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, contextWikiCompiler, projectDashboardService, agendaScheduler, cronScheduler,
+    skillSystem, subAgentManager, agendaStore, officeContextStore, feishuSyncStore, feishuSyncScheduler, contextWikiCompiler, projectDashboardService, commitmentTrackerService, agendaScheduler, cronScheduler,
     awaySummaryEngine, notificationService,
     usageStats, configManager, operationLedger, operationIdempotencyLedger,
     dataDir,

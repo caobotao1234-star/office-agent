@@ -74,6 +74,7 @@ describe('createOfficeAgent', () => {
     expect(agent.configManager).toBeDefined();
     expect(agent.operationLedger).toBeDefined();
     expect(agent.projectDashboardService).toBeDefined();
+    expect(agent.commitmentTrackerService).toBeDefined();
   });
 
   it('should register only active, non-stub tools', () => {
@@ -81,6 +82,7 @@ describe('createOfficeAgent', () => {
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       'AgendaTool',
+      'CommitmentTrackerTool',
       'ConfigTool',
       'CronTool',
       'FeishuIngestTool',

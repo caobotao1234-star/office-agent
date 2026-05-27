@@ -269,6 +269,7 @@ Agent 通过原生 Function Calling 调用这些工具：
 | FeishuIngestTool | 登记、读取、同步飞书文档/群聊/日历/Base/任务/通讯录到上下文库 | ✅ 推荐 |
 | WikiTool | 把办公上下文图谱编译成本地 Markdown Wiki，并支持列表、搜索、读取 | ✅ 推荐 |
 | AgendaTool | 主动提醒日程：提醒、截止日期、承诺、跟进事项 | ✅ 推荐 |
+| CommitmentTrackerTool | 承诺追踪：查看我方/对方承诺、截止日期、催办和跟进事项 | ✅ 推荐 |
 | CronTool | 定时任务（cron 表达式） | ✅ 完整 |
 | ConfigTool | 通过对话修改配置（提醒时间、工作时间等） | ✅ 完整 |
 | LarkCli | 官方飞书 CLI：消息、云文档、表格、多维表格、知识库、日历、任务、会议、通讯录、OpenAPI 等 | ✅ 推荐 |
@@ -305,6 +306,7 @@ Agent 现在有一层本地办公上下文库，用来长期维护人、项目�
 Agent 会在后台自动检查并推送提醒，不需要用户主动询问：
 
 - Agenda 智能日程：LLM 在对话中自主创建提醒、截止日期、承诺跟进，到点后再由 LLM 生成提醒文案
+- 承诺追踪：读取 Agenda 中的承诺、截止日期和跟进事项，按人/项目/逾期/临近到期整理“我欠别人”和“别人欠我”的事项
 - 周期自动化：用 `CronTool` 处理日报、周报等周期任务
 
 CLI 中提醒直接打印到终端，飞书中通过消息 API 主动推送。飞书主动推送需要用户先给机器人发过至少一条消息，Agent 会记录最近的 `chat_id` 并在重启后自动恢复推送通道。
@@ -536,6 +538,7 @@ src/
 │   ├── feishu-sync-scheduler.ts # 可选飞书后台同步调度
 │   ├── context-wiki-compiler.ts # 上下文图谱 → 本地 Markdown Wiki
 │   ├── project-dashboard-service.ts # 项目驾驶舱聚合服务
+│   ├── commitment-tracker-service.ts # 承诺追踪聚合服务
 │   ├── serial-message-queue.ts # 飞书用户消息串行队列
 │   ├── cron-scheduler.ts       # 定时调度器（cron 表达式 + 持久化）
 │   ├── away-summary-engine.ts  # 离开摘要
@@ -551,6 +554,7 @@ src/
 │   ├── FeishuIngestTool/       # 飞书来源登记与同步
 │   ├── WikiTool/               # 本地知识 Wiki 编译/搜索/读取
 │   ├── AgendaTool/             # 主动提醒日程
+│   ├── CommitmentTrackerTool/   # 承诺追踪
 │   ├── CronTool/               # 定时任务
 │   ├── ConfigTool/             # 配置修改（通过对话）
 │   ├── LarkCliTool/            # 官方 lark-cli Agent 工具（推荐）
